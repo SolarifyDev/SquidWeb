@@ -1,53 +1,80 @@
-@ -1,55 +0,0 @@
-# React TS Boilerplate
+![reactjs-vite-tailwindcss-boilerplate](https://user-images.githubusercontent.com/16243531/217138979-b854309c-4742-4275-a705-f9fec5158217.jpg)
 
-## Technology Stack
+# React Tailwindcss Boilerplate build with Vite
 
-- [Vite](https://vitejs.dev): Efficient build tool for modern browsers.
-- [React](https://reactjs.org): JavaScript library for building user interfaces.
-- [TypeScript](https://www.typescriptlang.org): Superset of JavaScript with static type-checking.
-- [Ramda](https://ramdajs.com/): Functional programming library for JavaScript.
-- [Zustand](https://zustand-demo.pmnd.rs/): Small, fast and scaleable bearbones state-management solution.
+This is a boilerplate build with Vite, React 18, TypeScript, Vitest, Testing Library, TailwindCSS 3, Eslint and Prettier.
 
-## Quick Start
+## What is inside?
 
-Install project dependencies
+This project uses many tools like:
 
+- [Vite](https://vitejs.dev)
+- [ReactJS](https://reactjs.org)
+- [TypeScript](https://www.typescriptlang.org)
+- [Vitest](https://vitest.dev)
+- [Testing Library](https://testing-library.com)
+- [Tailwindcss](https://tailwindcss.com)
+- [Eslint](https://eslint.org)
+- [Prettier](https://prettier.io)
+
+## Getting Started
+
+### Install
+
+Create the project.
+
+```bash
+pnpm dlx degit joaopaulomoraes/reactjs-vite-tailwindcss-boilerplate my-app
 ```
+
+Access the project directory.
+
+```bash
+cd my-app
+```
+
+Install dependencies.
+
+```bash
 pnpm install
 ```
 
-Launch the app, it will become available at [http://localhost:3000](http://localhost:3000/)
+Serve with hot reload at <http://localhost:5173>.
 
+```bash
+pnpm run dev
 ```
-pnpm dev
+
+### Lint
+
+```bash
+pnpm run lint
 ```
 
-## Project Standards
+### Typecheck
 
-- xxx
-- xxx
-- xxx
+```bash
+pnpm run typecheck
+```
 
-## Directory Structure
+### Build
 
-`├──`[`.vscode`](.vscode) — VSCode settings including code snippets, recommended extensions etc<br>
-`├──`[`public`](./public) — Static assets such as robots.txt, index.html etc<br>
-`├──`[`src/assets`](./src/assets) — Static assets<br>
-`├──`[`src/components`](./src/components) — React public components<br>
-`├──`[`src/hooks`](./src/hooks) — React public hooks<br>
-`├──`[`src/stores`](./src/stores) — Status Management<br>
-`├──`[`src/pages`](./src/pages) — Application and page (screen) components<br>
-`├──`[`src/routes`](./src/routes) — Application routes components<br>
-`├──`[`src/theme`](./src/services) — External connection service<br>
-`├──`[`src/utils`](./src/utils) — Utility functions<br>
+```bash
+pnpm run build
+```
 
-## Recommended VSCode Extensions
+### Test
 
-- [Tailwind CSS IntelliSense](https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss): IntelliSense for Tailwind CSS.
-- [Prettier - Code formatter](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode&ssr=false#overview): Code formatting tool.
-- [EditorConfig for VS Code](https://marketplace.visualstudio.com/items?itemName=EditorConfig.EditorConfig): Editor configuration consistency.
+```bash
+pnpm run test
+```
 
-## Coding Conventions
+View and interact with your tests via UI.
 
-- Check [here](https://github.com/sj-distributor/react-coding-conventions).
+```bash
+pnpm run test:ui
+```
+
+## License
+
+This project is licensed under the MIT License.
