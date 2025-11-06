@@ -12,7 +12,7 @@ function App() {
 
   return (
     <div className="page flex h-screen w-full flex-col" style={{ background: '#F5F6F8' }}>
-      <div className="page-top-bar flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200">
+      <div className="page-top-bar flex items-center justify-between px-6 py-3">
         <div className="left-box flex items-center gap-4">
           {/* Logo/Project Selector */}
           <Dropdown menu={{ items: projectMenuItems }} trigger={['click']}>
@@ -34,7 +34,7 @@ function App() {
               height: '36px',
               borderRadius: '6px',
               backgroundColor: '#F5F6F8',
-              border: '1px solid #E5E7EB'
+              border: '1px solid #ccc'
             }}
           />
         </div>
