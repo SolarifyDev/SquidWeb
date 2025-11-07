@@ -1,18 +1,59 @@
-import routes from 'routes'
+import routes from '../routes'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { Input, Badge, Dropdown, Menu } from 'antd'
+import { SearchOutlined, BellOutlined, QuestionCircleOutlined, DownOutlined } from '@ant-design/icons'
+import type { MenuProps } from 'antd'
 
 function App() {
   const location = useLocation();
 
+  // 项目切换菜单
+  const projectMenuItems: MenuProps['items'] = [];
+
   return (
     <div className="page flex h-screen w-full flex-col" style={{ background: '#F5F6F8' }}>
-      <div className="page-top-bar flex p-4">
-        <div className="left-box">
-          <div className="logo"></div>
-          <div className="search-box"></div>
+      <div className="page-top-bar flex items-center justify-between px-6 py-3">
+        <div className="left-box flex items-center gap-4">
+          {/* Logo/Project Selector */}
+          <Dropdown menu={{ items: projectMenuItems }} trigger={['click']}>
+            <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-3 py-2 rounded-md transition-colors">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded">
+                <span className="text-white text-sm font-bold">D</span>
+              </div>
+              <span className="font-medium text-gray-900">Default</span>
+              <DownOutlined className="text-gray-500 text-xs" />
+            </div>
+          </Dropdown>
+
+          {/* Search Box */}
+          <Input
+            placeholder="Type Ctrl+Space to search or switch projects..."
+            prefix={<SearchOutlined className="text-gray-400" />}
+            className="w-80"
+            style={{
+              height: '36px',
+              borderRadius: '6px',
+              backgroundColor: '#F5F6F8',
+              border: '1px solid #ccc'
+            }}
+          />
         </div>
-        <div className="right-box flex-1"></div>
+
+        <div className="right-box flex items-center gap-4">
+          {/* Notification Bell with Badge */}
+          <Badge count={1} size="small">
+            <BellOutlined 
+              className="text-gray-600 hover:text-gray-900 cursor-pointer text-xl transition-colors"
+            />
+          </Badge>
+
+          {/* Help Icon */}
+          <QuestionCircleOutlined 
+            className="text-gray-600 hover:text-gray-900 cursor-pointer text-xl transition-colors"
+          />
+        </div>
       </div>
+
       <div className="page-content flex flex-1">
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
