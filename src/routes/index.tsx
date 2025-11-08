@@ -1,6 +1,7 @@
 import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
+import VariableSets from 'pages/variablesets'
 
 const routes = [
   {
@@ -18,6 +19,15 @@ const routes = [
     name: 'Tasks',
     meta: {
       icon: '📝',
+      showInNav: true
+    }
+  },
+  {
+    path: '/variablesets',
+    component: VariableSets,
+    name: 'Variable Sets',
+    meta: {
+      icon: '⚙️',
       showInNav: true
     }
   },
