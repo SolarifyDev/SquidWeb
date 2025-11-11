@@ -15,10 +15,10 @@ const routes = [
   },
   {
     path: '/deploy/variable',
-    component: Project,
-    name: 'Variable',
+    component: VariableSets,
+    name: 'Variable Sets',
     meta: {
-      icon: '🏠',
+      icon: '⚙️',
       showInNav: true
     }
   },
@@ -73,15 +73,6 @@ const routes = [
     name: 'Tasks',
     meta: {
       icon: '📝',
-      showInNav: true
-    }
-  },
-  {
-    path: '/variablesets',
-    component: VariableSets,
-    name: 'Variable Sets',
-    meta: {
-      icon: '⚙️',
       showInNav: true
     }
   },
