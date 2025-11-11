@@ -13,6 +13,60 @@ const routes = [
     }
   },
   {
+    path: '/deploy/variable',
+    component: Project,
+    name: 'Variable',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/deployment/targets',
+    component: Project,
+    name: 'Deployment Targets',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/environments',
+    component: Project,
+    name: 'Environments',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/machine/policies',
+    component: Project,
+    name: 'Machine Policies',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/external/feeds',
+    component: Project,
+    name: 'External Feeds',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/lifecycles',
+    component: Project,
+    name: 'Lifecycles',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
     path: '/tasks',
     component: Tasks,
     name: 'Tasks',
