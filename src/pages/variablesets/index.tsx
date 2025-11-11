@@ -1,8 +1,19 @@
-import React, { useState, CSSProperties } from 'react';
-import { Button, Input, List, Typography, Space } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import React, { useState, useRef } from 'react';
+import { Button, Input, Modal, Typography, Tooltip } from 'antd';
+import { 
+  SearchOutlined,
+  BoldOutlined,
+  ItalicOutlined,
+  OrderedListOutlined,
+  UnorderedListOutlined,
+  PictureOutlined,
+  LinkOutlined,
+  CodeOutlined,
+  FontSizeOutlined
+} from '@ant-design/icons';
 
 const { Title, Text, Link } = Typography;
+const { TextArea } = Input;
 
 interface VariableSet {
   id: string;
@@ -10,47 +21,13 @@ interface VariableSet {
   description?: string;
 }
 
-// 样式对象
-const styles: { [key: string]: CSSProperties } = {
-  container: {
-    padding: '24px',
-    backgroundColor: '#fff',
-    minHeight: '100vh',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '24px',
-  },
-  searchSection: {
-    marginBottom: '16px',
-  },
-  listItem: {
-    padding: '16px 0',
-    borderBottom: '1px solid #f0f0f0',
-    cursor: 'pointer',
-    transition: 'background-color 0.3s',
-  },
-  itemContent: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  nameText: {
-    color: '#1890ff',
-    cursor: 'pointer',
-    fontWeight: 500,
-    fontSize: '14px',
-  },
-  descriptionText: {
-    fontSize: '12px',
-    color: '#8c8c8c',
-  },
-};
-
 const VariableSets: React.FC = () => {
   const [searchText, setSearchText] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newSetName, setNewSetName] = useState('');
+  const [newSetDescription, setNewSetDescription] = useState('');
+  const [showMarkdown, setShowMarkdown] = useState(false);
+  const textAreaRef = useRef<any>(null);
   
   const variableSets: VariableSet[] = [
     { id: '6', name: 'K8S Template Variable' },
@@ -64,64 +41,100 @@ const VariableSets: React.FC = () => {
   );
 
   const handleAddVariableSet = () => {
-    console.log('Add Variable Set clicked');
-    // 实现添加变量集的逻辑
+    setShowAddModal(true);
+  };
+
+  const handleSaveVariableSet = () => {
+    console.log('Saving:', { name: newSetName, description: newSetDescription });
+    // 实现保存逻辑
+    handleCancelModal();
+  };
+
+  const handleCancelModal = () => {
+    setShowAddModal(false);
+    setNewSetName('');
+    setNewSetDescription('');
+    setShowMarkdown(false);
   };
 
   const handleItemClick = (item: VariableSet) => {
     console.log('Clicked:', item.name);
-    // 实现点击项目的逻辑
   };
 
-  // 自定义hover样式
-  const hoverStyles = `
-    .variable-set-item:hover {
-      background-color: #fafafa;
-    }
-    .variable-set-item:last-child {
-      border-bottom: none;
-    }
-  `;
+  // Markdown formatting functions
+  const insertMarkdown = (before: string, after: string = '') => {
+    const textarea = textAreaRef.current?.resizableTextArea?.textArea;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = newSetDescription.substring(start, end);
+    const newText = 
+      newSetDescription.substring(0, start) +
+      before +
+      selectedText +
+      after +
+      newSetDescription.substring(end);
+    
+    setNewSetDescription(newText);
+    
+    // Set cursor position after insertion
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + before.length + selectedText.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  const handleBold = () => insertMarkdown('**', '**');
+  const handleItalic = () => insertMarkdown('*', '*');
+  const handleHeading = () => insertMarkdown('### ', '');
+  const handleOrderedList = () => insertMarkdown('1. ', '');
+  const handleUnorderedList = () => insertMarkdown('- ', '');
+  const handleLink = () => insertMarkdown('[', '](url)');
+  const handleImage = () => insertMarkdown('![alt text](', ')');
+  const handleCode = () => insertMarkdown('`', '`');
+  const handleCodeBlock = () => insertMarkdown('```\n', '\n```');
 
   return (
-    <div style={styles.container}>
-      <style>{hoverStyles}</style>
-      
-      <div style={styles.header}>
-        <Title level={3} style={{ margin: 0 }}>Variable Sets</Title>
+    <div className="p-6 bg-white min-h-screen">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <Title level={3} className="!mb-0">Variable Sets</Title>
         <Button 
           type="primary" 
           onClick={handleAddVariableSet}
-          style={{ backgroundColor: '#2e7d32', borderColor: '#2e7d32' }}
+          className="!bg-green-700 hover:!bg-green-800 !border-green-700"
         >
           Add Variable Set
         </Button>
       </div>
 
-      <div style={styles.searchSection}>
+      {/* Search */}
+      <div className="mb-4">
         <Input
           placeholder="Filter by name..."
-          prefix={<SearchOutlined style={{ color: '#999' }} />}
+          prefix={<SearchOutlined className="text-gray-400" />}
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          style={{ maxWidth: 300 }}
+          className="max-w-xs"
         />
       </div>
 
-      <div style={{ borderTop: '1px solid #f0f0f0' }}>
+      {/* List */}
+      <div className="border-t border-gray-200">
         {filteredSets.map((item) => (
           <div
             key={item.id}
-            className="variable-set-item"
-            style={styles.listItem}
+            className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
             onClick={() => handleItemClick(item)}
           >
-            <div style={styles.itemContent}>
-              <Link style={styles.nameText}>
+            <div className="flex flex-col gap-1">
+              <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
                 {item.name}
               </Link>
               {item.description && (
-                <Text style={styles.descriptionText}>
+                <Text className="text-xs text-gray-500">
                   {item.description}
                 </Text>
               )}
@@ -129,6 +142,159 @@ const VariableSets: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* Add Variable Set Modal */}
+      <Modal
+        title="Add New Variable Set"
+        open={showAddModal}
+        onCancel={handleCancelModal}
+        footer={[
+          <Button key="cancel" onClick={handleCancelModal}>
+            Cancel
+          </Button>,
+          <Button 
+            key="save" 
+            type="primary" 
+            onClick={handleSaveVariableSet}
+            disabled={!newSetName.trim()}
+            className="!bg-green-600 hover:!bg-green-700"
+          >
+            Save
+          </Button>,
+        ]}
+        width={500}
+        centered
+        maskStyle={{
+          backgroundColor: 'rgba(0, 0, 0, 0.45)',
+        }}
+      >
+        <div className="space-y-4">
+          {/* Variable Set Name */}
+          <div>
+            <Input
+              placeholder="New variable set name"
+              value={newSetName}
+              onChange={(e) => setNewSetName(e.target.value)}
+              className="text-sm"
+            />
+          </div>
+
+          {/* Markdown Toolbar - Show when markdown is enabled */}
+          {showMarkdown && (
+            <div className="flex items-center gap-1 p-2 bg-gray-50 border border-gray-200 rounded flex-wrap">
+              <Tooltip title="Bold">
+                <Button 
+                  size="small" 
+                  icon={<BoldOutlined />} 
+                  onClick={handleBold}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Italic">
+                <Button 
+                  size="small" 
+                  icon={<ItalicOutlined />} 
+                  onClick={handleItalic}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Heading">
+                <Button 
+                  size="small" 
+                  icon={<FontSizeOutlined />} 
+                  onClick={handleHeading}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <div className="w-px h-6 bg-gray-300 mx-1" />
+              <Tooltip title="Ordered List">
+                <Button 
+                  size="small" 
+                  icon={<OrderedListOutlined />} 
+                  onClick={handleOrderedList}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Unordered List">
+                <Button 
+                  size="small" 
+                  icon={<UnorderedListOutlined />} 
+                  onClick={handleUnorderedList}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <div className="w-px h-6 bg-gray-300 mx-1" />
+              <Tooltip title="Insert Image">
+                <Button 
+                  size="small" 
+                  icon={<PictureOutlined />} 
+                  onClick={handleImage}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Insert Link">
+                <Button 
+                  size="small" 
+                  icon={<LinkOutlined />} 
+                  onClick={handleLink}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Inline Code">
+                <Button 
+                  size="small" 
+                  icon={<CodeOutlined />} 
+                  onClick={handleCode}
+                  className="hover:bg-gray-200"
+                />
+              </Tooltip>
+              <Tooltip title="Code Block">
+                <Button 
+                  size="small" 
+                  onClick={handleCodeBlock}
+                  className="hover:bg-gray-200 text-xs px-2"
+                >
+                  {'</>'}
+                </Button>
+              </Tooltip>
+            </div>
+          )}
+
+          {/* Variable Set Description */}
+          <div>
+            <TextArea
+              ref={textAreaRef}
+              placeholder="Variable set description"
+              value={newSetDescription}
+              onChange={(e) => setNewSetDescription(e.target.value)}
+              rows={showMarkdown ? 6 : 3}
+              className="text-sm font-mono"
+            />
+          </div>
+
+          {/* Show/Hide Markdown Controls Link */}
+          <div className="flex items-center gap-3">
+            <Link 
+              onClick={() => setShowMarkdown(!showMarkdown)}
+              className="text-blue-500 hover:text-blue-600 text-sm"
+            >
+              {showMarkdown ? 'Hide' : 'Show'} markdown controls
+            </Link>
+            {showMarkdown && (
+              <>
+                <span className="text-gray-300">|</span>
+                <Link 
+                  href="https://www.markdownguide.org/basic-syntax/" 
+                  target="_blank"
+                  className="text-blue-500 hover:text-blue-600 text-sm"
+                >
+                  Markdown instructions ↗
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
