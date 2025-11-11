@@ -3,6 +3,7 @@ import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { Input, Badge, Dropdown, Menu } from 'antd'
 import { SearchOutlined, BellOutlined, QuestionCircleOutlined, DownOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
+import DeploySidebar from './DeploySidebar'
 
 function App() {
   const location = useLocation();
@@ -55,15 +56,19 @@ function App() {
       </div>
 
       <div className="page-content flex flex-1">
+        {/* 主导航栏 */}
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
             {routes
-              .filter((route) => route.meta?.showInNav)
+              .filter((route) =>
+                // 只显示主标题：Deploy（'/'）和 Tasks（'/tasks'）
+                route.path === '/' || route.path === '/tasks'
+              )
               .map((route) => {
                 const isActive =
                   route.path === '/'
-                    ? location.pathname === '/'
-                    : location.pathname.startsWith(route.path);
+                    ? (location.pathname === '/' || location.pathname.startsWith('/deploy'))
+                    : (location.pathname === route.path || location.pathname.startsWith(route.path + '/'));
 
                 return (
                   <Link
@@ -93,6 +98,12 @@ function App() {
               })}
           </nav>
         </div>
+        {/* DeploySidebar 只在点击 Deploy 时显示 */}
+        {location.pathname === '/' || location.pathname.startsWith('/deploy') ? (
+          <div className="page-content-deploy-sidebar">
+            <DeploySidebar />
+          </div>
+        ) : null}
         <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
           <Routes>
             {/* 使用路由配置动态生成 Route 组件 */}
