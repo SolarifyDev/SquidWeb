@@ -1,6 +1,7 @@
 import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
+import VariableSets from 'pages/variablesets'
 
 const routes = [
   {
@@ -14,10 +15,10 @@ const routes = [
   },
   {
     path: '/deploy/variable',
-    component: Project,
-    name: 'Variable',
+    component: VariableSets,
+    name: 'Variable Sets',
     meta: {
-      icon: '🏠',
+      icon: '⚙️',
       showInNav: true
     }
   },
