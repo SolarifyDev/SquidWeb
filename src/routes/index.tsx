@@ -4,6 +4,7 @@ import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
 import DeploymentTargets from 'pages/deploymentTargets'
 import Environments from 'pages/Environments/index'
+import MachinePolicies from 'pages/machinePolicies'
 
 const routes = [
   {
@@ -44,7 +45,7 @@ const routes = [
   },
   {
     path: '/deploy/machine/policies',
-    component: Project,
+    component: MachinePolicies,
     name: 'Machine Policies',
     meta: {
       icon: '🏠',

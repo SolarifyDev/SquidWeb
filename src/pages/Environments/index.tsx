@@ -1,264 +1,367 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Tag,
-  Button,
-  Space,
-  Input,
-  Checkbox,
-  Select,
-} from 'antd';
+import React, { useState } from 'react';
+import { Input, Checkbox, Button, Badge, Tag } from 'antd';
 import {
   SearchOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   FilterOutlined,
-  DatabaseOutlined,
+  MoreOutlined,
+  DownOutlined,
+  UpOutlined,
+  CheckCircleFilled,
+  CloseCircleOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 
-/** -------------------------------
- * 类型定义
- * ------------------------------*/
-interface Target {
-  name: string;
-  status: 'Healthy' | 'Disabled';
-}
-
-interface Environment {
-  id: number;
-  name: string;
-  targets: Target[];
-}
-
-/** -------------------------------
- * 模拟数据
- * ------------------------------*/
-const environmentsData: Environment[] = [
-  {
-    id: 1,
-    name: 'DEV',
-    targets: [
-      { name: 'API Gateway', status: 'Healthy' },
-      { name: 'Database', status: 'Disabled' },
-      { name: 'Cache', status: 'Healthy' },
-      { name: 'Auth Service', status: 'Healthy' },
-      { name: 'Logging', status: 'Disabled' },
-      { name: 'Monitoring', status: 'Healthy' },
-      { name: 'Scheduler', status: 'Healthy' },
-      { name: 'Message Queue', status: 'Healthy' },
-    ],
-  },
-  {
-    id: 2,
-    name: 'TEST',
-    targets: [
-      { name: 'Load Tester', status: 'Healthy' },
-      { name: 'Performance Monitor', status: 'Healthy' },
-      { name: 'Staging DB', status: 'Disabled' },
-    ],
-  },
-  {
-    id: 3,
-    name: 'PRD',
-    targets: [
-      { name: 'Main Servers', status: 'Healthy' },
-      { name: 'CDN', status: 'Disabled' },
-      { name: 'Monitoring', status: 'Healthy' },
-      { name: 'Backup', status: 'Disabled' },
-    ],
-  },
-];
-
-/** -------------------------------
- * 主组件
- * ------------------------------*/
-const EnvironmentsPage: React.FC = () => {
+const Environments = () => {
   const [searchText, setSearchText] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [disabledOnly, setDisabledOnly] = useState(false);
   const [hideEmpty, setHideEmpty] = useState(false);
-  const [expanded, setExpanded] = useState<{ [envId: number]: 'Healthy' | 'Disabled' | null }>({});
 
-  // 下拉选项模拟
-  const [environmentOptions, setEnvironmentOptions] = useState<{ label: string; value: string }[]>([]);
-  const [tagOptions, setTagOptions] = useState<{ label: string; value: string }[]>([]);
-  const [tenantOptions, setTenantOptions] = useState<{ label: string; value: string }[]>([]);
-  const [typeOptions, setTypeOptions] = useState<{ label: string; value: string }[]>([]);
-  const [healthOptions, setHealthOptions] = useState<{ label: string; value: string }[]>([]);
+  // 模拟环境数据
+  const environments = [
+    {
+      key: 'DEV',
+      name: 'DEV',
+      targets: 8,
+      healthy: 3,
+      disabled: 5,
+      deployments: [
+        {
+          name: 'AWS Cluster',
+          type: 'Kubernetes API',
+          url: 'https://0316B691AEF6C9B1BC53AEB77EDC061D4.yl4.ap-east-1.eks.amazonaws.com',
+          status: 'healthy',
+          environments: 3,
+          tags: ['aws-eks', 'Normal'],
+        },
+        {
+          name: 'AWS-EKS-US',
+          type: 'Kubernetes API',
+          url: 'https://D9773498E6AAB1BDB768CF862EF6B18B.gr7.us-west-1.eks.amazonaws.com',
+          status: 'healthy',
+          environments: 3,
+          tags: ['aws-eks-us'],
+        },
+        {
+          name: 'SJ-US-AKS',
+          type: 'Kubernetes API',
+          url: 'https://47.254.20.160:6443',
+          status: 'healthy',
+          environments: 6,
+          tags: ['SJUSAKS', 'vendor-queue-web'],
+        },
+      ],
+      disabledTargets: [
+        {
+          name: 'Aliyun-HK-AI-Cluster',
+          type: 'Kubernetes API',
+          url: 'https://172.20.41.126:6443',
+          status: 'disabled',
+          environments: 8,
+          tags: ['Aliyun-HK-AI'],
+        },
+        {
+          name: 'Cloud-Deployment-Target',
+          type: 'Polling Tentacle',
+          url: 'poll://j64fxsyfrk6j37d6q7wss/',
+          status: 'disabled',
+          environments: 6,
+          tags: ['DotnetCore'],
+        },
+      ],
+    },
+    {
+      key: 'TEST',
+      name: 'TEST',
+      targets: 12,
+      healthy: 3,
+      disabled: 9,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'UAT',
+      name: 'UAT',
+      targets: 8,
+      healthy: 1,
+      disabled: 7,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'PRD',
+      name: 'PRD',
+      targets: 14,
+      healthy: 3,
+      disabled: 11,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'PRD2',
+      name: 'PRD2',
+      targets: 4,
+      healthy: 1,
+      disabled: 3,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'TEST2',
+      name: 'TEST2',
+      targets: 2,
+      healthy: 1,
+      disabled: 1,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'PRE-PROD',
+      name: 'PRE-PROD',
+      targets: 2,
+      healthy: 0,
+      disabled: 2,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'Startup',
+      name: 'Startup',
+      targets: 1,
+      healthy: 0,
+      disabled: 1,
+      deployments: [],
+      disabledTargets: [],
+    },
+    {
+      key: 'Shutdown',
+      name: 'Shutdown',
+      targets: 1,
+      healthy: 0,
+      disabled: 1,
+      deployments: [],
+      disabledTargets: [],
+    },
+  ];
 
-  useEffect(() => {
-    setEnvironmentOptions([
-      { label: 'DEV', value: 'DEV' },
-      { label: 'TEST', value: 'TEST' },
-      { label: 'PRD', value: 'PRD' },
-    ]);
-    setTagOptions([
-      { label: 'aws-eks', value: 'aws-eks' },
-      { label: 'Aliyun-HK-AI', value: 'Aliyun-HK-AI' },
-    ]);
-    setTenantOptions([
-      { label: 'Tenant-A', value: 'Tenant-A' },
-      { label: 'Tenant-B', value: 'Tenant-B' },
-    ]);
-    setTypeOptions([
-      { label: 'Kubernetes API', value: 'Kubernetes API' },
-      { label: 'Polling Tentacle', value: 'Polling Tentacle' },
-    ]);
-    setHealthOptions([
-      { label: 'Healthy', value: 'Healthy' },
-      { label: 'Disabled', value: 'Disabled' },
-    ]);
-  }, []);
-
-  // 切换展开/收起
-  const toggleExpand = (envId: number, status: 'Healthy' | 'Disabled') => {
-    setExpanded(prev => ({
-      ...prev,
-      [envId]: prev[envId] === status ? null : status,
-    }));
-  };
-
-  // 一键展开所有
-  const expandAll = () => {
-    const newExpanded: { [envId: number]: 'Healthy' | 'Disabled' | null } = {};
-    environmentsData.forEach(env => {
-      newExpanded[env.id] = 'Healthy'; // 默认展开 Healthy
-    });
-    setExpanded(newExpanded);
-  };
-
-  // 一键折叠所有
-  const collapseAll = () => {
-    setExpanded({});
-  };
-
-  // 过滤环境
-  const filteredEnvs = environmentsData.filter(env => {
+  // 应用过滤逻辑
+  const filteredEnvironments = environments.filter((env) => {
+    if (hideEmpty && env.targets === 0) return false;
+    if (disabledOnly && env.disabled === 0) return false;
     if (searchText && !env.name.toLowerCase().includes(searchText.toLowerCase())) return false;
-    if (hideEmpty && env.targets.length === 0) return false;
     return true;
   });
 
-  return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
+  // 一键展开/折叠
+  const toggleExpandAll = () => {
+    const allKeys = filteredEnvironments.map((env) => env.key);
+    const isAllExpanded = allKeys.every((k) => expandedKeys.includes(k));
+    setExpandedKeys(isAllExpanded ? [] : allKeys);
+  };
 
-        {/* 搜索框 */}
-        <div className="flex items-center gap-3 mb-4">
+  return (
+    <div className="bg-gray-50 min-h-screen p-6">
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-semibold">Environments</h1>
+          <Button type="link" onClick={toggleExpandAll}>
+            {expandedKeys.length === filteredEnvironments.length ? 'COLLAPSE ALL' : 'EXPAND ALL'}
+          </Button>
+        </div>
+
+        {/* 搜索框 + 筛选按钮 */}
+        <div className="flex items-center gap-4 mb-6">
           <Input
             placeholder="Search environments..."
-            prefix={<SearchOutlined />}
+            prefix={<SearchOutlined className="text-gray-400" />}
             value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            className="max-w-md"
-            size="large"
+            onChange={(e) => setSearchText(e.target.value)}
+            className="max-w-xs"
           />
           <Button
             type="link"
             icon={<FilterOutlined />}
-            className="text-blue-500"
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            onClick={() => setShowFilters(!showFilters)}
           >
-            {showAdvancedFilters ? 'Hide filters' : 'Show filters'}
+            {showFilters ? 'Hide' : 'Show'} advanced filters
           </Button>
         </div>
 
-        {/* 高级过滤器 & List 布局 */}
-        <div className="flex gap-6">
-          {/* 高级过滤器 */}
-          {showAdvancedFilters && (
-            <div className="w-80 flex-shrink-0">
-              <Card className="shadow-sm border border-black">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="font-semibold text-gray-700">Advanced filter</span>
-                  <Button size="small" onClick={() => window.location.reload()}>Reset</Button>
-                </div>
-                <div className="space-y-4">
-                  <Checkbox checked={disabledOnly} onChange={e => setDisabledOnly(e.target.checked)}>Disabled only</Checkbox>
-                  <Checkbox checked={hideEmpty} onChange={e => setHideEmpty(e.target.checked)}>Hide empty environments</Checkbox>
-                  <Select mode="multiple" allowClear style={{ width: '100%' }} placeholder="By deployment target" options={environmentOptions} />
-                  <Select mode="multiple" allowClear style={{ width: '100%' }} placeholder="By environments" options={environmentOptions} />
-                  <Select mode="multiple" allowClear style={{ width: '100%' }} placeholder="By target tags" options={tagOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By health statuses" options={healthOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By deployment target types" options={typeOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By tenants" options={tenantOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By ForSmartAssistant tags" options={tagOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By Restore database tags" options={tagOptions} />
-                  <Select allowClear style={{ width: '100%' }} placeholder="By CLI/shell" options={tagOptions} />
-                </div>
-              </Card>
-            </div>
-          )}
-
-          {/* List */}
-          <div className="flex-1">
-            <Card className="shadow-sm rounded-lg">
-              {/* 一键展开/折叠按钮 */}
-              <div className="flex justify-end mb-2">
-                <Button size="small" onClick={() => {
-                  const allExpanded = filteredEnvs.every(env => expanded[env.id]);
-                  if (allExpanded) collapseAll();
-                  else expandAll();
-                }}>
-                  {filteredEnvs.every(env => expanded[env.id]) ? 'Collapse all' : 'Expand all'}
-                </Button>
+        {/* 筛选条件 */}
+        {showFilters && (
+          <div className="flex gap-8 mb-6 pb-6 border-b">
+            <div className="w-64">
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-medium">Advanced filter</span>
+                <Button size="small">Reset</Button>
               </div>
 
-              {filteredEnvs.map(env => {
-                const healthyTargets = env.targets.filter(t => t.status === 'Healthy');
-                const disabledTargets = env.targets.filter(t => t.status === 'Disabled');
-                const expandedStatus = expanded[env.id];
+              <div className="space-y-3 mb-4">
+                <Checkbox
+                  checked={disabledOnly}
+                  onChange={(e) => setDisabledOnly(e.target.checked)}
+                >
+                  Disabled only
+                </Checkbox>
+                <Checkbox
+                  checked={hideEmpty}
+                  onChange={(e) => setHideEmpty(e.target.checked)}
+                >
+                  Hide empty environments
+                </Checkbox>
+              </div>
 
-                return (
-                  <div key={env.id} className="flex flex-col border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-all duration-200 p-4">
-                    {/* 环境 header */}
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <DatabaseOutlined className="text-blue-400" />
-                        <span className="text-blue-400 font-semibold text-base">{env.name}</span>
-                        <span className="text-gray-500 text-sm">({env.targets.length} deployment targets)</span>
-                      </div>
+              {/* 分类 */}
+              <div className="space-y-2 text-sm text-gray-600">
+                {[
+                  'By deployment target',
+                  'By environments',
+                  'By target tags',
+                  'By health statuses',
+                  'By deployment target types',
+                  'By tenants',
+                  'By ForSmartAssistant tags',
+                  'By Restore database tags',
+                  'By CLI/shell',
+                ].map((label) => (
+                  <div key={label} className="cursor-pointer hover:text-gray-900">
+                    {label} ▼
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
-                      <Button
-                        type="default"
-                        size="small"
-                        icon={<CheckCircleOutlined className="text-green-500" />}
-                        onClick={() => toggleExpand(env.id, 'Healthy')}
-                      >
-                        Healthy ({healthyTargets.length})
-                      </Button>
+        {/* 环境列表 */}
+        <div className="space-y-2">
+          {filteredEnvironments.map((env) => (
+            <div key={env.key} className="border rounded hover:shadow-sm transition-shadow">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 bg-white">
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="flex items-center gap-2">
+                    <MenuOutlined />
+                    <span className="font-semibold text-blue-600 text-base">{env.name}</span>
+                    <span className="text-gray-500 text-sm">({env.targets} deployment targets)</span>
+                  </div>
 
-                      <Button
-                        type="default"
-                        size="small"
-                        icon={<CloseCircleOutlined className="text-gray-400" />}
-                        onClick={() => toggleExpand(env.id, 'Disabled')}
-                      >
-                        Disabled ({disabledTargets.length})
-                      </Button>
+                  {env.healthy > 0 && (
+                    <div className="flex items-center gap-1">
+                      <CheckCircleFilled className="text-green-500" />
+                      <span className="text-green-600 font-medium">{env.healthy} healthy</span>
+                    </div>
+                  )}
+
+                  {env.disabled > 0 && (
+                    <div className="flex items-center gap-1">
+                      <CloseCircleOutlined className="text-gray-400" />
+                      <span className="text-blue-600 font-medium">{env.disabled} disabled</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button type="text" icon={<MoreOutlined />} />
+                  <Button
+                    type="text"
+                    icon={expandedKeys.includes(env.key) ? <UpOutlined /> : <DownOutlined />}
+                    onClick={() => {
+                      setExpandedKeys((prev: string[]) =>
+                        prev.includes(env.key)
+                          ? prev.filter((k) => k !== env.key)
+                          : [...prev, env.key]
+                      );
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 展开内容 */}
+              {expandedKeys.includes(env.key) && env.key === 'DEV' && (
+                <div className="border-t bg-gray-50">
+                  <div className="p-4">
+                    {/* Healthy */}
+                    <div className="flex items-center gap-2 mb-4">
+                      <CheckCircleFilled className="text-green-500" />
+                      <span className="font-medium">
+                        HEALTHY ({env.healthy}/{env.targets})
+                      </span>
                     </div>
 
-                    {/* 展开 targets */}
-                    {expandedStatus && (
-                      <div className="flex flex-wrap gap-2 mt-2 ml-10">
-                        {env.targets
-                          .filter(t => t.status === expandedStatus)
-                          .map((t, idx) => (
-                            <Tag key={idx} color={t.status === 'Healthy' ? 'green' : 'red'}>
-                              {t.name}
-                            </Tag>
-                          ))}
-                      </div>
-                    )}
+                    <div className="space-y-4">
+                      {env.deployments.map((deployment, idx) => (
+                        <div key={idx} className="bg-white rounded border p-4 flex items-start gap-3">
+                          <div className="w-10 h-10 bg-green-100 rounded flex items-center justify-center flex-shrink-0">
+                            <span className="text-green-700">☸</span>
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-medium mb-1">{deployment.name}</div>
+                            <div className="text-sm text-gray-600 mb-1">{deployment.type}</div>
+                            <div className="text-xs text-gray-500 break-all">{deployment.url}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircleFilled className="text-green-500" />
+                            <Badge
+                              count={deployment.environments}
+                              style={{ backgroundColor: '#e5e7eb', color: '#111' }}
+                            />
+                            {deployment.tags.map((tag, i) => (
+                              <Tag key={i} color={tag === 'Normal' ? 'black' : 'default'}>
+                                {tag}
+                              </Tag>
+                            ))}
+                            <Button type="link" size="small">
+                              Show all
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Disabled */}
+                    <div className="flex items-center gap-2 mt-6 mb-4">
+                      <CloseCircleOutlined className="text-gray-400" />
+                      <span className="font-medium">DISABLED ({env.disabled})</span>
+                    </div>
+
+                    <div className="space-y-4">
+                      {env.disabledTargets.map((deployment, idx) => (
+                        <div key={idx} className="bg-white rounded border p-4 flex items-start gap-3">
+                          <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
+                            <span className="text-gray-500">☸</span>
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-medium mb-1">{deployment.name}</div>
+                            <div className="text-sm text-gray-600 mb-1">{deployment.type}</div>
+                            <div className="text-xs text-gray-500 break-all">{deployment.url}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CloseCircleOutlined className="text-gray-400" />
+                            <Badge
+                              count={deployment.environments}
+                              style={{ backgroundColor: '#e5e7eb', color: '#111' }}
+                            />
+                            {deployment.tags.map((tag, i) => (
+                              <Tag key={i}>{tag}</Tag>
+                            ))}
+                            <Button type="link" size="small">
+                              Show all
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                );
-              })}
-            </Card>
-          </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 };
 
-export default EnvironmentsPage;
+export default Environments;
