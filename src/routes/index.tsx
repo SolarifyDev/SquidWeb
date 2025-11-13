@@ -3,6 +3,7 @@ import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
 import DeploymentTargets from 'pages/deploymentTargets'
+import Environments from 'pages/Environments/index'
 
 const routes = [
   {
@@ -34,7 +35,7 @@ const routes = [
   },
   {
     path: '/deploy/environments',
-    component: Project,
+    component: Environments,
     name: 'Environments',
     meta: {
       icon: '🏠',
