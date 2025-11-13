@@ -2,6 +2,7 @@ import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
+import DeploymentTargets from 'pages/deploymentTargets'
 
 const routes = [
   {
@@ -24,7 +25,7 @@ const routes = [
   },
   {
     path: '/deploy/deployment/targets',
-    component: Project,
+    component: DeploymentTargets,
     name: 'Deployment Targets',
     meta: {
       icon: '🏠',
