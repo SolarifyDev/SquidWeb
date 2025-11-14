@@ -55,6 +55,8 @@ interface ProjectGroup {
   projects: ProjectData[];
 }
 
+import { useNavigate } from "react-router-dom";
+
 const Project: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -77,6 +79,8 @@ const Project: React.FC = () => {
   const [projectIcon, setProjectIcon] = useState<string | null>(null);
   
   const totalProjects = 399;
+
+  const navigate = useNavigate();
 
   // 模拟数据
   const projectGroupsData: ProjectGroup[] = [
@@ -480,6 +484,12 @@ const Project: React.FC = () => {
               dataSource={group.projects}
               pagination={false}
               className="project-table"
+              onRow={(record) => ({
+                onClick: () => {
+                  navigate(`/project/${encodeURIComponent(record.name)}/project-detail`);
+                },
+                style: { cursor: "pointer" }
+              })}
             />
           </div>
         ))}
