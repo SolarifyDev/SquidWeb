@@ -1,6 +1,6 @@
 // src/pages/deploymentTargets/index.tsx
 import React, { useState, useEffect } from 'react'
-import { Input, Button, Tag, Space, Card, Checkbox, Select } from 'antd'
+import { Input, Button, Tag, Space, Checkbox, Collapse } from 'antd'
 import {
   SearchOutlined,
   FilterOutlined,
@@ -8,8 +8,9 @@ import {
   CloseCircleOutlined,
   DatabaseOutlined,
   SettingOutlined,
-  DownOutlined,
 } from '@ant-design/icons'
+
+const { Panel } = Collapse
 
 /** -------------------------------
  * 类型定义
@@ -43,7 +44,7 @@ const deploymentData: DeploymentData = {
       url: 'https://916BB91AF6C5919BC53AEB97E0C061DA.yl4.ap-east-1.eks.amazonaws.com',
       environments: 3,
       environmentList: ['DEV', 'TEST', 'PRD'],
-      tags: ['aws-eks'],
+      tags: ['aws-eks', 'Normal'],
       status: 'Healthy',
     },
     {
@@ -87,6 +88,16 @@ const deploymentData: DeploymentData = {
       tags: ['PRD'],
       roles: 24,
     },
+    {
+      id: 6,
+      name: 'Cloud-.NET-P002',
+      type: 'Polling Tentacle',
+      url: 'poll://jne38ygehqfsdnxyuzp92/',
+      environments: 0,
+      environmentList: [],
+      tags: ['PRD'],
+      roles: 5,
+    },
   ],
 }
 
@@ -96,50 +107,59 @@ const deploymentData: DeploymentData = {
 const DeploymentTargets: React.FC = () => {
   // ---------------- 状态定义 ----------------
   const [searchText, setSearchText] = useState<string>('')
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false)
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(true)
   const [disabledOnly, setDisabledOnly] = useState<boolean>(false)
   const [expandedTargets, setExpandedTargets] = useState<Set<number>>(new Set())
   const [filterByStatus, setFilterByStatus] = useState<'all' | 'healthy' | 'disabled'>('all')
 
-  // Advanced filter 下拉选项
-  const [environmentOptions, setEnvironmentOptions] = useState<{ label: string; value: string }[]>([])
-  const [tagOptions, setTagOptions] = useState<{ label: string; value: string }[]>([])
-  const [tenantOptions, setTenantOptions] = useState<{ label: string; value: string }[]>([])
-  const [typeOptions, setTypeOptions] = useState<{ label: string; value: string }[]>([])
-  const [healthOptions, setHealthOptions] = useState<{ label: string; value: string }[]>([])
+  // 过滤器选项数据
+  const filterOptions = {
+    environments: ['DEV', 'TEST', 'UAT', 'PRD', 'STAGE', 'QA', 'DEMO', 'BETA'],
+    tags: ['aws-eks', 'Normal', 'aws-eks-us', 'SJUSAKS', 'vendor-queue-web', 'Aliyun-HK-AI', 'PRD'],
+    tenants: ['Tenant A', 'Tenant B', 'Tenant C'],
+    smartassistant: ['Tag 1', 'Tag 2', 'Tag 3'],
+    restore: ['Database 1', 'Database 2', 'Database 3'],
+    cli: ['Bash', 'PowerShell', 'Python', 'Node.js'],
+    types: ['Kubernetes API', 'Polling Tentacle', 'Listening Tentacle', 'SSH Connection'],
+    health: ['Healthy', 'Unhealthy', 'Unavailable', 'Disabled', 'Unknown'],
+  }
 
-  // ---------------- 异步获取下拉选项 ----------------
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      // 模拟接口延迟
-      await new Promise((resolve) => setTimeout(resolve, 300))
+  // 选中的过滤器
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({
+    environments: [],
+    tags: [],
+    tenants: [],
+    smartassistant: [],
+    restore: [],
+    cli: [],
+    types: [],
+    health: [],
+  })
 
-      setEnvironmentOptions([
-        { label: 'DEV', value: 'DEV' },
-        { label: 'TEST', value: 'TEST' },
-        { label: 'PRD', value: 'PRD' },
-      ])
-      setTagOptions([
-        { label: 'aws-eks', value: 'aws-eks' },
-        { label: 'Aliyun-HK-AI', value: 'Aliyun-HK-AI' },
-        { label: 'vendor-queue-web', value: 'vendor-queue-web' },
-      ])
-      setTenantOptions([
-        { label: 'Tenant-A', value: 'Tenant-A' },
-        { label: 'Tenant-B', value: 'Tenant-B' },
-      ])
-      setTypeOptions([
-        { label: 'Kubernetes API', value: 'Kubernetes API' },
-        { label: 'Polling Tentacle', value: 'Polling Tentacle' },
-      ])
-      setHealthOptions([
-        { label: 'Healthy', value: 'Healthy' },
-        { label: 'Disabled', value: 'Disabled' },
-      ])
-    }
+  // 处理过滤器选择
+  const handleFilterChange = (category: string, value: string, checked: boolean) => {
+    setSelectedFilters((prev) => ({
+      ...prev,
+      [category]: checked
+        ? [...prev[category], value]
+        : prev[category].filter((v) => v !== value),
+    }))
+  }
 
-    fetchFilterOptions()
-  }, [])
+  // 重置过滤器
+  const resetFilters = () => {
+    setDisabledOnly(false)
+    setSelectedFilters({
+      environments: [],
+      tags: [],
+      tenants: [],
+      smartassistant: [],
+      restore: [],
+      cli: [],
+      types: [],
+      health: [],
+    })
+  }
 
   // ---------------- 展开/收起 ----------------
   const toggleExpand = (id: number) => {
@@ -162,14 +182,12 @@ const DeploymentTargets: React.FC = () => {
     return (
       <div
         key={target.id}
-        className={`flex items-start gap-4 p-4 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-all duration-200 ${
-          isDisabled ? 'opacity-70' : ''
-        }`}
+        className="flex items-start gap-4 p-4 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-all duration-200"
       >
         {/* 图标 */}
         <div
-          className={`flex items-center justify-center w-12 h-12 rounded-xl text-2xl ${
-            isDisabled ? 'bg-gray-100' : 'bg-green-50 text-green-600'
+          className={`flex items-center justify-center w-12 h-12 rounded-lg text-2xl flex-shrink-0 ${
+            isDisabled ? 'bg-gray-100' : 'bg-green-50'
           }`}
         >
           {icon}
@@ -177,21 +195,18 @@ const DeploymentTargets: React.FC = () => {
 
         {/* 内容 */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-base">{target.name}</span>
-            {!isDisabled && <CheckCircleOutlined className="text-green-500" />}
-            {isDisabled && <CloseCircleOutlined className="text-gray-400" />}
-          </div>
-
+          <div className="font-semibold text-base mb-1">{target.name}</div>
           <div className="text-sm text-gray-600 mb-1">{target.type}</div>
-
-          <div className="text-xs text-gray-500 mb-3 font-mono break-all">{target.url}</div>
+          <div className="text-xs text-gray-500 mb-3 break-all">{target.url}</div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Space size={[0, 8]} wrap>
+            {!isDisabled && <CheckCircleOutlined className="text-green-500" />}
+            {isDisabled && <CloseCircleOutlined className="text-gray-400" />}
+
+            <Space size={[8, 8]} wrap>
               {/* 展开环境列表或显示总数 */}
-              {isExpanded ? (
-                target.environmentList?.map((env, idx) => (
+              {isExpanded && target.environmentList && target.environmentList.length > 0 ? (
+                target.environmentList.map((env, idx) => (
                   <Tag key={idx} icon={<DatabaseOutlined />} className="bg-gray-100 border-gray-300">
                     {env}
                   </Tag>
@@ -203,7 +218,7 @@ const DeploymentTargets: React.FC = () => {
               )}
 
               {target.tags.map((tag, idx) => (
-                <Tag key={idx} className="bg-gray-100 border-gray-300">
+                <Tag key={idx} className={tag === 'Normal' ? 'bg-gray-800 text-white border-gray-800' : 'bg-gray-100 border-gray-300'}>
                   {tag}
                 </Tag>
               ))}
@@ -213,17 +228,13 @@ const DeploymentTargets: React.FC = () => {
                   {target.roles} roles
                 </Tag>
               )}
-
-              {target.status && (
-                <Tag className="bg-gray-800 text-white border-gray-800">{target.status}</Tag>
-              )}
             </Space>
 
             {/* 展开/收起按钮 */}
             {target.environmentList && target.environmentList.length > 0 && (
               <button
                 onClick={() => toggleExpand(target.id)}
-                className="text-blue-500 text-sm ml-auto hover:underline cursor-pointer bg-transparent border-0"
+                className="text-blue-500 text-sm ml-2 hover:underline cursor-pointer bg-transparent border-0"
               >
                 {isExpanded ? 'Show summary' : 'Show all'}
               </button>
@@ -242,167 +253,218 @@ const DeploymentTargets: React.FC = () => {
     t.name.toLowerCase().includes(searchText.toLowerCase())
   )
 
-  const displayHealthy =
-    disabledOnly || filterByStatus === 'disabled' ? [] : filteredHealthy
-  const displayDisabled =
-    disabledOnly || filterByStatus === 'healthy' ? [] : filteredDisabled
+  const displayHealthy = disabledOnly || filterByStatus === 'disabled' ? [] : filteredHealthy
+  const displayDisabled = filterByStatus === 'healthy' ? [] : filteredDisabled
 
   // ---------------- 页面渲染 ----------------
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex gap-6">
-          {/* 高级过滤区 */}
-          {showAdvancedFilters && (
-            <div className="w-72 flex-shrink-0">
-              <Card className="shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="font-semibold text-gray-700">Advanced filter</span>
-                  <Button size="small" onClick={() => window.location.reload()}>
-                    Reset
-                  </Button>
-                </div>
-                <div className="space-y-4">
-                  <Checkbox
-                    checked={disabledOnly}
-                    onChange={(e) => setDisabledOnly(e.target.checked)}
-                  >
-                    Disabled only
-                  </Checkbox>
+    <div className="bg-gray-50 min-h-screen">
+      <div className="bg-white shadow-sm">
+        {/* Header */}
+        <div className="p-6 border-b">
+          <h1 className="text-2xl font-semibold mb-6">Deployment Targets</h1>
 
-                  {/* 每个下拉框 */}
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    style={{ width: '100%' }}
-                    placeholder="By environments"
-                    options={environmentOptions}
-                  />
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    style={{ width: '100%' }}
-                    placeholder="By target tags"
-                    options={tagOptions}
-                  />
-                  <Select
-                    allowClear
-                    style={{ width: '100%' }}
-                    placeholder="By tenants"
-                    options={tenantOptions}
-                  />
-                  <Select
-                    allowClear
-                    style={{ width: '100%' }}
-                    placeholder="By target type"
-                    options={typeOptions}
-                  />
-                  <Select
-                    allowClear
-                    style={{ width: '100%' }}
-                    placeholder="By health status"
-                    options={healthOptions}
-                  />
-                </div>
-              </Card>
+          {/* 搜索框 + 筛选按钮 */}
+          <div className="flex items-center gap-4">
+            <Input
+              placeholder="Search deployment targets..."
+              prefix={<SearchOutlined className="text-gray-400" />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="max-w-xs"
+              size="large"
+            />
+            <Button
+              type="link"
+              icon={<FilterOutlined />}
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className="text-blue-600"
+            >
+              {showAdvancedFilters ? 'Hide' : 'Show'} advanced filters
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex">
+          {/* 左侧筛选面板 */}
+          {showAdvancedFilters && (
+            <div className="w-80 border-r bg-gray-50 p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-semibold text-base">Advanced filter</span>
+                <Button size="small" className="text-gray-600" onClick={resetFilters}>
+                  Reset
+                </Button>
+              </div>
+
+              {/* Checkbox 选项 */}
+              <div className="space-y-3 mb-6 pb-6 border-b">
+                <Checkbox checked={disabledOnly} onChange={(e) => setDisabledOnly(e.target.checked)}>
+                  Disabled only
+                </Checkbox>
+              </div>
+
+              {/* 过滤分类 - 使用 Collapse */}
+              <Collapse ghost expandIconPosition="end" className="bg-transparent" style={{ border: 'none' }}>
+                <Panel header={<span className="text-sm text-gray-700">By environments</span>} key="environments" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.environments.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.environments.includes(option)}
+                        onChange={(e) => handleFilterChange('environments', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By target tags</span>} key="tags" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.tags.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.tags.includes(option)}
+                        onChange={(e) => handleFilterChange('tags', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By tenants</span>} key="tenants" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.tenants.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.tenants.includes(option)}
+                        onChange={(e) => handleFilterChange('tenants', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By ForSmartAssistant tags</span>} key="smartassistant" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.smartassistant.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.smartassistant.includes(option)}
+                        onChange={(e) => handleFilterChange('smartassistant', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By Restore database tags</span>} key="restore" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.restore.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.restore.includes(option)}
+                        onChange={(e) => handleFilterChange('restore', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By CLI/shell</span>} key="cli" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.cli.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.cli.includes(option)}
+                        onChange={(e) => handleFilterChange('cli', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By deployment target types</span>} key="types" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.types.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.types.includes(option)}
+                        onChange={(e) => handleFilterChange('types', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel header={<span className="text-sm text-gray-700">By health statuses</span>} key="health" className="border-b">
+                  <div className="space-y-2 pl-2">
+                    {filterOptions.health.map((option) => (
+                      <Checkbox
+                        key={option}
+                        checked={selectedFilters.health.includes(option)}
+                        onChange={(e) => handleFilterChange('health', option, e.target.checked)}
+                      >
+                        {option}
+                      </Checkbox>
+                    ))}
+                  </div>
+                </Panel>
+              </Collapse>
             </div>
           )}
 
-          {/* 主内容 */}
-          <div className="flex-1">
-            {/* 标题 & 搜索 */}
-            <h1 className="text-2xl font-semibold mb-6 text-gray-800">
-              Deployment Targets
-            </h1>
-
-            <div className="flex items-center gap-3 mb-6">
-              <Input
-                placeholder="Search deployment targets..."
-                prefix={<SearchOutlined className="text-gray-400" />}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="max-w-md"
-                size="large"
-              />
-              <Button
-                type="link"
-                icon={<FilterOutlined />}
-                className="text-blue-500"
-                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              >
-                {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
-              </Button>
-            </div>
-
+          {/* 右侧主内容 */}
+          <div className="flex-1 p-6">
             {/* 状态统计 */}
-            <div className="flex justify-between mb-6">
-              <div className="flex items-center gap-4">
-                <CheckCircleOutlined
-                  className={`cursor-pointer text-lg ${
-                    filterByStatus === 'healthy' ? 'text-green-600' : 'text-gray-400'
-                  }`}
-                  onClick={() =>
-                    setFilterByStatus(filterByStatus === 'healthy' ? 'all' : 'healthy')
-                  }
-                />
-                <span
-                  className="cursor-pointer"
-                  onClick={() =>
-                    setFilterByStatus(filterByStatus === 'healthy' ? 'all' : 'healthy')
-                  }
-                >
-                  Healthy ({displayHealthy.length})
-                </span>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Deployment targets</span>
+                <span className="text-gray-500">({filteredHealthy.length + filteredDisabled.length})</span>
+              </div>
 
-                <CloseCircleOutlined
-                  className={`cursor-pointer text-lg ${
-                    filterByStatus === 'disabled' ? 'text-gray-600' : 'text-gray-400'
-                  }`}
-                  onClick={() =>
-                    setFilterByStatus(filterByStatus === 'disabled' ? 'all' : 'disabled')
-                  }
-                />
-                <span
-                  className="cursor-pointer"
-                  onClick={() =>
-                    setFilterByStatus(filterByStatus === 'disabled' ? 'all' : 'disabled')
-                  }
-                >
-                  Disabled ({displayDisabled.length})
-                </span>
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <CheckCircleOutlined className="text-green-500" />
+                  <span className="text-green-600 font-medium">{displayHealthy.length} healthy</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CloseCircleOutlined className="text-gray-400" />
+                  <span className="text-blue-600 font-medium">{displayDisabled.length} disabled</span>
+                </div>
               </div>
             </div>
 
             {/* HEALTHY */}
-            {!disabledOnly && displayHealthy.length > 0 && (
-              <Card
-                title={
-                  <div className="flex items-center gap-2">
-                    <CheckCircleOutlined className="text-green-500" />
-                    <span className="font-semibold text-green-700">HEALTHY</span>
-                    <span className="text-gray-500">({displayHealthy.length})</span>
-                  </div>
-                }
-                className="mb-4 rounded-lg shadow-sm"
-              >
-                {displayHealthy.map((t) => renderTarget(t, false))}
-              </Card>
+            {displayHealthy.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <CheckCircleOutlined className="text-green-500" />
+                  <span className="font-semibold text-sm">HEALTHY ({displayHealthy.length})</span>
+                </div>
+                <div className="bg-white rounded-lg border">
+                  {displayHealthy.map((t) => renderTarget(t, false))}
+                </div>
+              </div>
             )}
 
             {/* DISABLED */}
             {displayDisabled.length > 0 && (
-              <Card
-                title={
-                  <div className="flex items-center gap-2">
-                    <CloseCircleOutlined className="text-gray-400" />
-                    <span className="font-semibold text-gray-600">DISABLED</span>
-                    <span className="text-gray-500">({displayDisabled.length})</span>
-                  </div>
-                }
-                className="rounded-lg shadow-sm"
-              >
-                {displayDisabled.map((t) => renderTarget(t, true))}
-              </Card>
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <CloseCircleOutlined className="text-gray-400" />
+                  <span className="font-semibold text-sm">DISABLED ({displayDisabled.length})</span>
+                </div>
+                <div className="bg-white rounded-lg border">
+                  {displayDisabled.map((t) => renderTarget(t, true))}
+                </div>
+              </div>
             )}
           </div>
         </div>
