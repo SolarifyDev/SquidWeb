@@ -9,14 +9,14 @@ function App() {
   const location = useLocation();
 
   // 项目切换菜单
-  const projectMenuItems: MenuProps['items'] = [];
+  const projectMenuItems: MenuProps["items"] = [];
 
   return (
     <div className="page flex h-screen w-full flex-col" style={{ background: '#F5F6F8' }}>
       <div className="page-top-bar flex items-center justify-between px-6 py-3">
         <div className="left-box flex items-center gap-4">
           {/* Logo/Project Selector */}
-          <Dropdown menu={{ items: projectMenuItems }} trigger={['click']}>
+          <Dropdown menu={{ items: projectMenuItems }} trigger={["click"]}>
             <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-3 py-2 rounded-md transition-colors">
               <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded">
                 <span className="text-white text-sm font-bold">D</span>
@@ -32,8 +32,8 @@ function App() {
             prefix={<SearchOutlined className="text-gray-400" />}
             className="w-80"
             style={{
-              height: '36px',
-              borderRadius: '6px',
+              height: '',
+              borderRadius: '',
               backgroundColor: '#F5F6F8',
               border: '1px solid #ccc'
             }}
@@ -55,7 +55,7 @@ function App() {
         </div>
       </div>
 
-      <div className="page-content flex flex-1">
+      <div className="page-content flex flex-1 min-h-0">
         {/* 主导航栏 */}
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
@@ -104,7 +104,7 @@ function App() {
             <DeploySidebar />
           </div>
         ) : null}
-        <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
+        <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] overflow-y-auto min-h-0">
           <Routes>
             {/* 使用路由配置动态生成 Route 组件 */}
             {routes.map((route) => (
