@@ -8,7 +8,7 @@ import { redirect } from "react-router-dom";
 
 const routes = [
   {
-    path: "project",
+    path: "/",
     name: "Deploy",
     meta: {
       icon: "🏠",

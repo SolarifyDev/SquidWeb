@@ -22,22 +22,19 @@ interface RouteConfig {
 }
 
 function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
-  return routesArr.map((route) => {
-    if (route.redirect) {
-      return (
-        <Route
-          key={route.path}
-          path={route.path}
-          element={<Navigate to={route.redirect} replace />}
-        />
-      );
-    }
+  const arr = routesArr.map((route) => {
     if (route.children && route.children.length > 0) {
       return (
         <Route
           key={route.path}
           path={route.path}
-          element={route.component ? <route.component /> : undefined}
+          element={
+            route.redirect ? (
+              <Navigate to={route.redirect} replace />
+            ) : route.component ? (
+              <route.component />
+            ) : undefined
+          }
         >
           {renderRoutes(route.children)}
         </Route>
@@ -51,6 +48,10 @@ function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
       />
     );
   });
+
+  console.log(arr);
+
+  return arr;
 }
 
 function App() {
@@ -58,6 +59,8 @@ function App() {
 
   // 项目切换菜单
   const projectMenuItems: MenuProps["items"] = [];
+
+  const isActive = false;
 
   return (
     <div
@@ -106,44 +109,48 @@ function App() {
         {/* 主导航栏 */}
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
-            {routes
-              .filter(
-                (route) =>
-                  // 只显示主标题：Deploy（'/'）和 Tasks（'/tasks'）
-                  route.path === "project" || route.path === "/tasks"
-              )
-              .map((route) => {
-                const isActive =
-                  route.path === "/"
-                    ? location.pathname === "/" ||
-                      location.pathname.startsWith("/deploy")
-                    : location.pathname === route.path ||
-                      location.pathname.startsWith(route.path + "/");
-
-                return (
-                  <Link
-                    key={route.path}
-                    to={route.path}
-                    className={[
-                      "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
-                      "text-gray-700 border border-transparent",
-                      "hover:bg-white hover:text-blue-600",
-                      isActive ? "bg-white text-blue-600" : "",
-                    ].join(" ")}
-                  >
-                    <span className="text-2xl">{route?.meta?.icon || ""}</span>
-                    <span className="truncate mt-1">{route.name}</span>
-                    <span
-                      className={[
-                        "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                        isActive
-                          ? "bg-blue-500 opacity-100"
-                          : "bg-transparent opacity-0",
-                      ].join(" ")}
-                    />
-                  </Link>
-                );
-              })}
+            <Link
+              key="/project"
+              to="/project"
+              className={[
+                "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
+                "text-gray-700 border border-transparent",
+                "hover:bg-white hover:text-blue-600",
+                isActive ? "bg-white text-blue-600" : "",
+              ].join(" ")}
+            >
+              <span className="text-2xl">🏠</span>
+              <span className="truncate mt-1">Deploy</span>
+              <span
+                className={[
+                  "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
+                  isActive
+                    ? "bg-blue-500 opacity-100"
+                    : "bg-transparent opacity-0",
+                ].join(" ")}
+              />
+            </Link>
+            <Link
+              key="/tasks"
+              to="/tasks"
+              className={[
+                "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
+                "text-gray-700 border border-transparent",
+                "hover:bg-white hover:text-blue-600",
+                isActive ? "bg-white text-blue-600" : "",
+              ].join(" ")}
+            >
+              <span className="text-2xl">📝</span>
+              <span className="truncate mt-1">Tasks</span>
+              <span
+                className={[
+                  "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
+                  isActive
+                    ? "bg-blue-500 opacity-100"
+                    : "bg-transparent opacity-0",
+                ].join(" ")}
+              />
+            </Link>
           </nav>
         </div>
         {/* DeploySidebar 只在点击 Deploy 时显示 */}
