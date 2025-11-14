@@ -179,6 +179,46 @@ const Project: React.FC = () => {
             status: 'success'
           },
           prd: null
+        },
+        {
+          key: '7',
+          name: 'JustIM_DotnetCore',
+          dev: null,
+          test: {
+            version: '5.6.1',
+            timestamp: 'Jan 22, 2025 6:38 PM',
+            status: 'success'
+          },
+          uat: {
+            version: '5.6.2',
+            timestamp: 'Jan 21, 2025 3:26 PM',
+            status: 'success'
+          },
+          prd: {
+            version: '5.6.2',
+            timestamp: 'Jan 21, 2025 5:38 PM',
+            status: 'success'
+          }
+        },
+        {
+          key: '8',
+          name: 'JustIM_SugarChat',
+          dev: null,
+          test: {
+            version: '2023.4.2',
+            timestamp: 'Sep 4, 2023 2:33 PM',
+            status: 'success'
+          },
+          uat: {
+            version: '2023.4.2',
+            timestamp: 'Sep 4, 2023 2:34 PM',
+            status: 'success'
+          },
+          prd: {
+            version: '2023.4.2',
+            timestamp: 'Sep 13, 2023 3:14 PM',
+            status: 'success'
+          }
         }
       ]
     }
@@ -307,8 +347,8 @@ const Project: React.FC = () => {
     if (!deployment) {
       return (
         <div className="flex items-center text-gray-400">
-          <MinusCircleOutlined className="text-gray-300 mr-2" />
-          <Text type="secondary">No Data</Text>
+          <MinusCircleOutlined className="text-gray-300 mr-2 text-base" />
+          <Text type="secondary" className="text-xs">No Data</Text>
         </div>
       );
     }
@@ -322,10 +362,10 @@ const Project: React.FC = () => {
     return (
       <div className="flex items-center">
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 text-lg">{icon}</span>
+          <span className="mt-0.5 text-base">{icon}</span>
           <div className="flex flex-col gap-0.5">
             <Tooltip title={deployment.version}>
-              <Text strong className="text-sm text-gray-900 block overflow-hidden text-ellipsis whitespace-nowrap max-w-[150px]">
+              <Text strong className="text-xs text-gray-900 block overflow-hidden text-ellipsis whitespace-nowrap max-w-[120px]">
                 {deployment.version}
               </Text>
             </Tooltip>
@@ -343,11 +383,12 @@ const Project: React.FC = () => {
       title: '',
       dataIndex: 'name',
       key: 'name',
-      width: 250,
+      width: '20%',
+      ellipsis: true,
       render: (name: string) => (
         <Space>
-          <ProjectOutlined className="text-gray-300 text-xl" />
-          <Text type="secondary">{name}</Text>
+          <ProjectOutlined className="text-gray-400 text-base" />
+          <Text type="secondary" className="text-xs">{name}</Text>
         </Space>
       ),
     },
@@ -355,28 +396,28 @@ const Project: React.FC = () => {
       title: 'DEV',
       dataIndex: 'dev',
       key: 'dev',
-      width: 200,
+      width: '20%',
       render: renderDeploymentCell,
     },
     {
       title: 'TEST',
       dataIndex: 'test',
       key: 'test',
-      width: 200,
+      width: '20%',
       render: renderDeploymentCell,
     },
     {
       title: 'UAT',
       dataIndex: 'uat',
       key: 'uat',
-      width: 200,
+      width: '20%',
       render: renderDeploymentCell,
     },
     {
       title: 'PRD',
       dataIndex: 'prd',
       key: 'prd',
-      width: 200,
+      width: '20%',
       render: renderDeploymentCell,
     },
   ];
@@ -390,99 +431,109 @@ const Project: React.FC = () => {
       background-color: #fafafa;
       color: #666;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 11px;
       text-transform: uppercase;
       border-bottom: 1px solid #f0f0f0;
-      padding: 12px 6px;
+      padding: 10px 12px;
     }
     .project-table .ant-table-tbody > tr > td {
       border-bottom: 1px solid #f0f0f0;
-      padding: 16px 6px;
+      padding: 12px;
     }
     .project-table .ant-table-tbody > tr:hover > td {
       background-color: #fafafa;
     }
+    .project-table .ant-table-container {
+      overflow-x: auto;
+    }
   `;
 
   return (
-    <div className="p-6 bg-white min-h-screen">
+    <div className="h-screen flex flex-col bg-white overflow-hidden">
       <style>{tableStyles}</style>
       
-      {/* Header */}
-      <div className="flex justify-between items-center mb-4">
-        <Title level={3} className="!m-0">Projects</Title>
-        <Space>
-          <Dropdown menu={{ items: importExportItems }} placement="bottomRight">
-            <Button>
-              Import/Export <DownOutlined />
+      {/* Fixed Header - 不滚动 */}
+      <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-200 bg-white">
+        {/* Title and Actions */}
+        <div className="flex justify-between items-center mb-4">
+          <Title level={3} className="!m-0 !text-xl">Projects</Title>
+          <Space>
+            <Dropdown menu={{ items: importExportItems }} placement="bottomRight">
+              <Button className="text-sm">
+                Import/Export <DownOutlined />
+              </Button>
+            </Dropdown>
+            <Button 
+              type="primary" 
+              className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm"
+              onClick={() => setShowAddProjectModal(true)}
+            >
+              Add Project
             </Button>
-          </Dropdown>
-          <Button 
-            type="primary" 
-            className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-            onClick={() => setShowAddProjectModal(true)}
-          >
-            Add Project
-          </Button>
-        </Space>
-      </div>
+          </Space>
+        </div>
 
-      {/* Filters */}
-      <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-        <Space size={16}>
-          <Input
-            placeholder="Find projects or project groups"
-            prefix={<SearchOutlined className="text-gray-400" />}
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            className="w-80"
-          />
-          <Link onClick={() => setShowFiltersModal(true)}>
-            <FilterOutlined /> Advanced filters
-          </Link>
-        </Space>
-        <Space size={8}>
-          <Dropdown overlay={pageSizeMenu} trigger={['click']}>
-            <Text className="cursor-pointer select-none">
-              {startIndex} - {endIndex} of {totalProjects} Projects
-            </Text>
-          </Dropdown>
-          <Button 
-            icon={<LeftOutlined />} 
-            size="small"
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage(currentPage - 1)}
-          />
-          <Button 
-            icon={<RightOutlined />} 
-            size="small"
-            disabled={endIndex >= totalProjects}
-            onClick={() => setCurrentPage(currentPage + 1)}
-          />
-        </Space>
-      </div>
-
-      {/* Project Groups */}
-      <div className="mt-6">
-        {projectGroupsData.map((group) => (
-          <div key={group.name} className="mb-8">
-            <div className="py-3 border-b-2 border-gray-200 mb-0">
-              <Space>
-                <Text strong className="text-base">{group.name}</Text>
-                <Badge 
-                  count={group.count} 
-                  className="[&_.ant-badge-count]:bg-gray-300 [&_.ant-badge-count]:text-gray-600"
-                />
-              </Space>
-            </div>
-            <Table
-              columns={columns}
-              dataSource={group.projects}
-              pagination={false}
-              className="project-table"
+        {/* Filters */}
+        <div className="flex justify-between items-center">
+          <Space size={16}>
+            <Input
+              placeholder="Find projects or project groups"
+              prefix={<SearchOutlined className="text-gray-400" />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="w-80"
+              size="middle"
             />
-          </div>
-        ))}
+            <Link onClick={() => setShowFiltersModal(true)} className="text-sm">
+              <FilterOutlined /> Advanced filters
+            </Link>
+          </Space>
+          <Space size={8}>
+            <Dropdown overlay={pageSizeMenu} trigger={['click']}>
+              <Text className="cursor-pointer select-none text-sm text-blue-600">
+                {startIndex} - {endIndex} of {totalProjects} Projects
+              </Text>
+            </Dropdown>
+            <Button 
+              icon={<LeftOutlined />} 
+              size="small"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(currentPage - 1)}
+            />
+            <Button 
+              icon={<RightOutlined />} 
+              size="small"
+              disabled={endIndex >= totalProjects}
+              onClick={() => setCurrentPage(currentPage + 1)}
+            />
+          </Space>
+        </div>
+      </div>
+
+      {/* Scrollable Content Area - 只有这部分滚动 */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 py-4">
+          {projectGroupsData.map((group) => (
+            <div key={group.name} className="mb-6">
+              <div className="py-2 border-b-2 border-gray-200 mb-0">
+                <Space>
+                  <Text strong className="text-sm">{group.name}</Text>
+                  <Badge 
+                    count={group.count} 
+                    className="[&_.ant-badge-count]:bg-gray-300 [&_.ant-badge-count]:text-gray-600 [&_.ant-badge-count]:text-xs"
+                  />
+                </Space>
+              </div>
+              <Table
+                columns={columns}
+                dataSource={group.projects}
+                pagination={false}
+                className="project-table"
+                scroll={{ x: 'max-content' }}
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Advanced Filters Modal */}

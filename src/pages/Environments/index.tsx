@@ -14,7 +14,7 @@ import {
 const { Panel } = Collapse;
 
 const Environments = () => {
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState<string>('');
   const [showFilters, setShowFilters] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [disabledOnly, setDisabledOnly] = useState(false);

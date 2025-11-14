@@ -3,7 +3,7 @@ import { Input, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 
 const MachinePolicies = () => {
-  const [searchValue, setSearchValue] = useState('');
+  const [searchValue, setSearchValue] = useState<string>('');
 
   const policyDetails = [
     { label: 'Health check interval', value: 'Automatically performs health checks every 1 hour' },
