@@ -10,8 +10,6 @@ import {
 import type { MenuProps } from "antd";
 import DeploySidebar from "./DeploySidebar";
 
-import type { RouteObject } from "react-router-dom";
-
 interface RouteConfig {
   path: string;
   component?: React.ComponentType<any>;
@@ -23,18 +21,21 @@ interface RouteConfig {
 
 function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
   const arr = routesArr.map((route) => {
+    if (route.redirect) {
+      return (
+        <Route
+          key={route.path}
+          path={route.path}
+          element={<Navigate to={route.redirect} replace />}
+        />
+      );
+    }
     if (route.children && route.children.length > 0) {
       return (
         <Route
           key={route.path}
           path={route.path}
-          element={
-            route.redirect ? (
-              <Navigate to={route.redirect} replace />
-            ) : route.component ? (
-              <route.component />
-            ) : undefined
-          }
+          element={route.component ? <route.component /> : undefined}
         >
           {renderRoutes(route.children)}
         </Route>
@@ -57,10 +58,10 @@ function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
 function App() {
   const location = useLocation();
 
+  console.log(location);
+
   // 项目切换菜单
   const projectMenuItems: MenuProps["items"] = [];
-
-  const isActive = false;
 
   return (
     <div
@@ -116,7 +117,10 @@ function App() {
                 "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
                 "text-gray-700 border border-transparent",
                 "hover:bg-white hover:text-blue-600",
-                isActive ? "bg-white text-blue-600" : "",
+                location.pathname === "/" ||
+                !location.pathname.startsWith("/tasks")
+                  ? "bg-white text-blue-600"
+                  : "",
               ].join(" ")}
             >
               <span className="text-2xl">🏠</span>
@@ -124,7 +128,8 @@ function App() {
               <span
                 className={[
                   "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                  isActive
+                  location.pathname === "/" ||
+                  !location.pathname.startsWith("/tasks")
                     ? "bg-blue-500 opacity-100"
                     : "bg-transparent opacity-0",
                 ].join(" ")}
@@ -137,7 +142,7 @@ function App() {
                 "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
                 "text-gray-700 border border-transparent",
                 "hover:bg-white hover:text-blue-600",
-                isActive ? "bg-white text-blue-600" : "",
+                location.pathname === "/tasks" ? "bg-white text-blue-600" : "",
               ].join(" ")}
             >
               <span className="text-2xl">📝</span>
@@ -145,7 +150,7 @@ function App() {
               <span
                 className={[
                   "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                  isActive
+                  location.pathname === "/tasks"
                     ? "bg-blue-500 opacity-100"
                     : "bg-transparent opacity-0",
                 ].join(" ")}
@@ -155,8 +160,8 @@ function App() {
         </div>
         {/* DeploySidebar 只在点击 Deploy 时显示 */}
         {location.pathname === "/" ||
-        location.pathname.startsWith("/deploy") ? (
-          <div className="page-content-deploy-sidebar">
+        !location.pathname.startsWith("/tasks") ? (
+          <div className="page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
             <DeploySidebar />
           </div>
         ) : null}
