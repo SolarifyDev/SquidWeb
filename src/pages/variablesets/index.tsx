@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button, Input, Modal, Typography, Tooltip } from 'antd';
 import { 
   SearchOutlined,
@@ -11,12 +11,13 @@ import {
   CodeOutlined,
   FontSizeOutlined
 } from '@ant-design/icons';
+import { GetVariableSets } from 'pages/apis/variableSet';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
 
-interface VariableSet {
-  id: string;
+interface VariableSetItem {
+  id: number;
   name: string;
   description?: string;
 }
@@ -28,15 +29,28 @@ const VariableSets: React.FC = () => {
   const [newSetDescription, setNewSetDescription] = useState('');
   const [showMarkdown, setShowMarkdown] = useState(false);
   const textAreaRef = useRef<any>(null);
-  
-  const variableSets: VariableSet[] = [
-    { id: '6', name: 'K8S Template Variable' },
-    { id: '8', name: 'PHP Team', description: 'PHP Team' },
-    { id: '9', name: 'PickGoGo' },
-    { id: '10', name: 'PocketStore' },
-  ];
+  const [variableSets, setVariableSets] = useState<VariableSetItem[]>([]);
 
-  const filteredSets = variableSets.filter(set =>
+  useEffect(() => {
+    async function loadVariableSets() {
+      try {
+        const res = await GetVariableSets({ pageIndex: 1, pageSize: 50 });
+        const items: VariableSetItem[] = res.variableSets.map((item) => ({
+          id: item.id,
+          // TODO: 等后端 VariableSetDto 补充 Name/Description 字段后，改成真正的名称
+          name: String(item.id),
+          description: undefined,
+        }));
+        setVariableSets(items);
+      } catch (error) {
+        console.error('加载变量集失败', error);
+      }
+    }
+
+    loadVariableSets();
+  }, []);
+
+  const filteredSets = variableSets.filter((set) =>
     set.name.toLowerCase().includes(searchText.toLowerCase())
   );
 
@@ -57,7 +71,7 @@ const VariableSets: React.FC = () => {
     setShowMarkdown(false);
   };
 
-  const handleItemClick = (item: VariableSet) => {
+  const handleItemClick = (item: VariableSetItem) => {
     console.log('Clicked:', item.name);
   };
 
