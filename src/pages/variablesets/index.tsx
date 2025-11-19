@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button, Input, Modal, Typography, Tooltip } from 'antd';
-import { 
+import { Button, Input, Modal, Typography, Tooltip, Spin } from 'antd';
+import {
   SearchOutlined,
   BoldOutlined,
   ItalicOutlined,
@@ -30,10 +30,12 @@ const VariableSets: React.FC = () => {
   const [showMarkdown, setShowMarkdown] = useState(false);
   const textAreaRef = useRef<any>(null);
   const [variableSets, setVariableSets] = useState<VariableSetItem[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function loadVariableSets() {
       try {
+        setLoading(true);
         const res = await GetVariableSets({ pageIndex: 1, pageSize: 50 });
         const items: VariableSetItem[] = res.variableSets.map((item) => ({
           id: item.id,
@@ -44,6 +46,8 @@ const VariableSets: React.FC = () => {
         setVariableSets(items);
       } catch (error) {
         console.error('加载变量集失败', error);
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -136,25 +140,35 @@ const VariableSets: React.FC = () => {
       </div>
 
       {/* List */}
-      <div className="border-t border-gray-200">
-        {filteredSets.map((item) => (
-          <div
-            key={item.id}
-            className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-            onClick={() => handleItemClick(item)}
-          >
-            <div className="flex flex-col gap-1">
-              <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
-                {item.name}
-              </Link>
-              {item.description && (
-                <Text className="text-xs text-gray-500">
-                  {item.description}
-                </Text>
-              )}
-            </div>
+      <div className="border-t border-gray-200 min-h-[120px]">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <Spin tip="Loading variable sets..." />
           </div>
-        ))}
+        ) : filteredSets.length === 0 ? (
+          <div className="py-6 text-center text-gray-400 text-sm">
+            No variable sets found
+          </div>
+        ) : (
+          filteredSets.map((item) => (
+            <div
+              key={item.id}
+              className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => handleItemClick(item)}
+            >
+              <div className="flex flex-col gap-1">
+                <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
+                  {item.name}
+                </Link>
+                {item.description && (
+                  <Text className="text-xs text-gray-500">
+                    {item.description}
+                  </Text>
+                )}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Add Variable Set Modal */}
