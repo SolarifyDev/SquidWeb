@@ -11,16 +11,11 @@ import {
   CodeOutlined,
   FontSizeOutlined
 } from '@ant-design/icons';
-import { GetVariableSets } from 'pages/apis/variableSet';
+import { loadVariableSets, VariableSetItem } from 'pages/apis/variableSet';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
 
-interface VariableSetItem {
-  id: number;
-  name: string;
-  description?: string;
-}
 
 const VariableSets: React.FC = () => {
   const [searchText, setSearchText] = useState('');
@@ -33,25 +28,12 @@ const VariableSets: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    async function loadVariableSets() {
-      try {
-        setLoading(true);
-        const res = await GetVariableSets({ pageIndex: 1, pageSize: 50 });
-        const items: VariableSetItem[] = res.variableSets.map((item) => ({
-          id: item.id,
-          // TODO: 等后端 VariableSetDto 补充 Name/Description 字段后，改成真正的名称
-          name: String(item.id),
-          description: undefined,
-        }));
-        setVariableSets(items);
-      } catch (error) {
-        console.error('加载变量集失败', error);
-      } finally {
-        setLoading(false);
-      }
-    }
+    const fetchVariableSets = async () => {
+      var items = await loadVariableSets(setLoading);
+      setVariableSets(items);
+    };
 
-    loadVariableSets();
+    fetchVariableSets();
   }, []);
 
   const filteredSets = variableSets.filter((set) =>

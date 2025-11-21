@@ -70,6 +70,8 @@ export interface VariableDto {
 // 对应 VariableSetDto
 export interface VariableSetDto {
   id: number
+  name: string
+  description: string
   ownerType: VariableSetOwnerType
   ownerId: number
   version: number
@@ -95,6 +97,31 @@ export interface GetVariableSetsResponseData {
   variableSets: VariableSetDto[]
 }
 
+export interface VariableSetItem {
+  id: number;
+  name: string;
+  description?: string;
+}
+
 export function GetVariableSets(params?: GetVariableSetsRequest) {
   return get<GetVariableSetsResponseData>('/variableSet', { params })
+}
+
+export async function loadVariableSets(setLoading: React.Dispatch<React.SetStateAction<boolean>>) {
+  try {
+    setLoading(true);
+    const res = await GetVariableSets({ pageIndex: 1, pageSize: 50 });
+    const items: VariableSetItem[] = res.variableSets.map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+    }));
+
+    return items;
+  } catch (error) {
+    console.error('加载变量集失败', error);
+  } finally {
+    setLoading(false);
+  }
+  return [];
 }
