@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Input, Button, Dropdown, Radio, Checkbox, Alert } from 'antd';
 import {
   SearchOutlined,
@@ -102,11 +102,14 @@ const Lifecycles: React.FC = () => {
   ];
 
   // 过滤数据
-  const filteredData = lifecyclesData.filter(
-    (item) =>
-      item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchText.toLowerCase())
-  );
+  const filteredData = useMemo(() => {
+    return lifecyclesData.filter(
+      (item) =>
+        item.name.toLowerCase().includes(searchText.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchText.toLowerCase())
+    );
+  }, [searchText, lifecyclesData]);
+
 
   // 渲染阶段标签（带连接线）
   const renderPhaseWithLine = (phase: Phase, index: number, totalPhases: number) => {
@@ -137,9 +140,8 @@ const Lifecycles: React.FC = () => {
 
         {/* 右侧文字 */}
         <div
-          className={`ml-3 leading-5 ${
-            phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'
-          }`}
+          className={`ml-3 leading-5 ${phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'
+            }`}
         >
           {phase.name}
         </div>
@@ -258,21 +260,19 @@ const Lifecycles: React.FC = () => {
         <div className="border-b border-gray-200 mb-6">
           <div className="flex gap-8">
             <div
-              className={`pb-3 cursor-pointer ${
-                activeTab === 'details'
+              className={`pb-3 cursor-pointer ${activeTab === 'details'
                   ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
                   : 'text-gray-500 hover:text-gray-700'
-              }`}
+                }`}
               onClick={() => setActiveTab('details')}
             >
               Details
             </div>
             <div
-              className={`pb-3 cursor-pointer ${
-                activeTab === 'usage'
+              className={`pb-3 cursor-pointer ${activeTab === 'usage'
                   ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
                   : 'text-gray-500 hover:text-gray-700'
-              }`}
+                }`}
               onClick={() => setActiveTab('usage')}
             >
               Usage
@@ -310,156 +310,156 @@ const Lifecycles: React.FC = () => {
               </div>
 
               {/* Description */}
-<div className="border-b border-gray-200">
-  <div
-    className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
-    onClick={() => toggleSection('description')}
-  >
-    <div className="font-semibold text-gray-700 w-48">Description</div>
-    <div className="flex-1 text-gray-600">
-      {expandedSections.description
-        ? 'Enter a description for your lifecycle.'
-        : selectedLifecycle.description}
-    </div>
-    {expandedSections.description ? (
-      <UpOutlined className="text-blue-600 text-xs mt-1" />
-    ) : (
-      <DownOutlined className="text-blue-600 text-xs mt-1" />
-    )}
-  </div>
+              <div className="border-b border-gray-200">
+                <div
+                  className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
+                  onClick={() => toggleSection('description')}
+                >
+                  <div className="font-semibold text-gray-700 w-48">Description</div>
+                  <div className="flex-1 text-gray-600">
+                    {expandedSections.description
+                      ? 'Enter a description for your lifecycle.'
+                      : selectedLifecycle.description}
+                  </div>
+                  {expandedSections.description ? (
+                    <UpOutlined className="text-blue-600 text-xs mt-1" />
+                  ) : (
+                    <DownOutlined className="text-blue-600 text-xs mt-1" />
+                  )}
+                </div>
 
-  {expandedSections.description && (
-    <div className="px-4 pb-4 bg-white">
-      {/* 右侧整体往右移，与标题右侧内容对齐 */}
-      <div className="ml-48 pl-8">
-        {/* Markdown Editor Toolbar */}
-        <div className="flex gap-2 mb-2 border border-gray-300 border-b-0 rounded-t">
-          <Button
-            size="small"
-            icon={<BoldOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<ItalicOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<UnorderedListOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<OrderedListOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<PictureOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<LinkOutlined />}
-            type="text"
-            className="h-8"
-          />
-          <Button
-            size="small"
-            icon={<CodeOutlined />}
-            type="text"
-            className="h-8"
-          />
-        </div>
+                {expandedSections.description && (
+                  <div className="px-4 pb-4 bg-white">
+                    {/* 右侧整体往右移，与标题右侧内容对齐 */}
+                    <div className="ml-48 pl-8">
+                      {/* Markdown Editor Toolbar */}
+                      <div className="flex gap-2 mb-2 border border-gray-300 border-b-0 rounded-t">
+                        <Button
+                          size="small"
+                          icon={<BoldOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<ItalicOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<UnorderedListOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<OrderedListOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<PictureOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<LinkOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                        <Button
+                          size="small"
+                          icon={<CodeOutlined />}
+                          type="text"
+                          className="h-8"
+                        />
+                      </div>
 
-        {/* 文本框边框和上面的 toolbar 拼成一块 */}
-        <Input.TextArea
-          placeholder="Lifecycle description"
-          rows={4}
-          defaultValue="Lifecycle description"
-          className="mb-2 rounded-t-none border-t-0"
-        />
+                      {/* 文本框边框和上面的 toolbar 拼成一块 */}
+                      <Input.TextArea
+                        placeholder="Lifecycle description"
+                        rows={4}
+                        defaultValue="Lifecycle description"
+                        className="mb-2 rounded-t-none border-t-0"
+                      />
 
-        <div className="flex gap-4 text-sm">
-          <span className="text-blue-600 cursor-pointer hover:underline">
-            Hide markdown controls
-          </span>
-          <span className="text-blue-600 cursor-pointer hover:underline">
-            Markdown instructions
-          </span>
-        </div>
-      </div>
-    </div>
-  )}
-</div>
+                      <div className="flex gap-4 text-sm">
+                        <span className="text-blue-600 cursor-pointer hover:underline">
+                          Hide markdown controls
+                        </span>
+                        <span className="text-blue-600 cursor-pointer hover:underline">
+                          Markdown instructions
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
 
               {/* Retention Policy */}
-<div className="border-b border-gray-200">
-  <div
-    className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
-    onClick={() => toggleSection('retentionPolicy')}
-  >
-    <div className="font-semibold text-gray-700 w-48">Retention Policy</div>
-    <div className="flex-1 text-gray-600">
-      {expandedSections.retentionPolicy
-        ? 'Change the retention policy.'
-        : selectedLifecycle.retentionPolicy}
-    </div>
-    {expandedSections.retentionPolicy ? (
-      <UpOutlined className="text-blue-600 text-xs mt-1" />
-    ) : (
-      <DownOutlined className="text-blue-600 text-xs mt-1" />
-    )}
-  </div>
+              <div className="border-b border-gray-200">
+                <div
+                  className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
+                  onClick={() => toggleSection('retentionPolicy')}
+                >
+                  <div className="font-semibold text-gray-700 w-48">Retention Policy</div>
+                  <div className="flex-1 text-gray-600">
+                    {expandedSections.retentionPolicy
+                      ? 'Change the retention policy.'
+                      : selectedLifecycle.retentionPolicy}
+                  </div>
+                  {expandedSections.retentionPolicy ? (
+                    <UpOutlined className="text-blue-600 text-xs mt-1" />
+                  ) : (
+                    <DownOutlined className="text-blue-600 text-xs mt-1" />
+                  )}
+                </div>
 
-  {expandedSections.retentionPolicy && (
-    <div className="px-4 pb-4 bg-white">
-      {/* 同样右移，与上面右侧对齐 */}
-      <div className="ml-48 pl-8 text-sm text-gray-700 space-y-6">
-        <div>
-          <div className="mb-2">How long should we keep releases?</div>
-          <Radio.Group
-            defaultValue="keepAllReleases"
-            className="flex flex-col space-y-1"
-          >
-            <Radio value="keepAllReleases">Keep all (default)</Radio>
-            <Radio value="keepLimitedReleases">Keep a limited number</Radio>
-          </Radio.Group>
-        </div>
+                {expandedSections.retentionPolicy && (
+                  <div className="px-4 pb-4 bg-white">
+                    {/* 同样右移，与上面右侧对齐 */}
+                    <div className="ml-48 pl-8 text-sm text-gray-700 space-y-6">
+                      <div>
+                        <div className="mb-2">How long should we keep releases?</div>
+                        <Radio.Group
+                          defaultValue="keepAllReleases"
+                          className="flex flex-col space-y-1"
+                        >
+                          <Radio value="keepAllReleases">Keep all (default)</Radio>
+                          <Radio value="keepLimitedReleases">Keep a limited number</Radio>
+                        </Radio.Group>
+                      </div>
 
-        <div>
-          <div className="mb-2">
-            How long should we keep extracted packages and files on disk on
-            Tentacles?
-          </div>
-          <Radio.Group
-            defaultValue="keepAllFiles"
-            className="flex flex-col space-y-1"
-          >
-            <Radio value="keepAllFiles">Keep all (default)</Radio>
-            <Radio value="keepLimitedFiles">Keep a limited number</Radio>
-          </Radio.Group>
-        </div>
+                      <div>
+                        <div className="mb-2">
+                          How long should we keep extracted packages and files on disk on
+                          Tentacles?
+                        </div>
+                        <Radio.Group
+                          defaultValue="keepAllFiles"
+                          className="flex flex-col space-y-1"
+                        >
+                          <Radio value="keepAllFiles">Keep all (default)</Radio>
+                          <Radio value="keepLimitedFiles">Keep a limited number</Radio>
+                        </Radio.Group>
+                      </div>
 
-        <div className="text-xs text-gray-500 leading-relaxed">
-          Retention policies dictate how long releases and deployments are kept
-          for. For more information please see{' '}
-          <span className="text-blue-600 cursor-pointer hover:underline">
-            retention policies
-          </span>{' '}
-          documentation.
-        </div>
-      </div>
-    </div>
-  )}
-</div>
+                      <div className="text-xs text-gray-500 leading-relaxed">
+                        Retention policies dictate how long releases and deployments are kept
+                        for. For more information please see{' '}
+                        <span className="text-blue-600 cursor-pointer hover:underline">
+                          retention policies
+                        </span>{' '}
+                        documentation.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Phases */}
               <div className="border-b border-gray-200 py-4 px-4">
