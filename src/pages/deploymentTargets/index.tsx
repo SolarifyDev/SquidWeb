@@ -1,6 +1,6 @@
 // src/pages/deploymentTargets/index.tsx
-import React, { useState, useEffect } from 'react'
-import { Input, Button, Tag, Space, Checkbox, Collapse } from 'antd'
+import React, { useState } from 'react'
+import { Input, Button, Tag, Space, Checkbox, Collapse, Modal, Tabs } from 'antd'
 import {
   SearchOutlined,
   FilterOutlined,
@@ -8,6 +8,7 @@ import {
   CloseCircleOutlined,
   DatabaseOutlined,
   SettingOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 
 const { Panel } = Collapse
@@ -111,6 +112,11 @@ const DeploymentTargets: React.FC = () => {
   const [disabledOnly, setDisabledOnly] = useState<boolean>(false)
   const [expandedTargets, setExpandedTargets] = useState<Set<number>>(new Set())
   const [filterByStatus, setFilterByStatus] = useState<'all' | 'healthy' | 'disabled'>('all')
+  
+  // 新增：Add Deployment Target Modal 状态
+  const [showAddDeploymentTarget, setShowAddDeploymentTarget] = useState(false)
+  const [selectedDeploymentType, setSelectedDeploymentType] = useState('Kubernetes')
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null)
 
   // 过滤器选项数据
   const filterOptions = {
@@ -136,6 +142,18 @@ const DeploymentTargets: React.FC = () => {
     health: [],
   })
 
+  // Deployment Target 类型选项
+  const deploymentTypes = [
+    { key: 'Kubernetes', label: 'Kubernetes' },
+    { key: 'Linux', label: 'Linux' },
+    { key: 'Windows', label: 'Windows' },
+    { key: 'Mac', label: 'Mac' },
+    { key: 'Azure', label: 'Azure' },
+    { key: 'Aws', label: 'Aws' },
+    { key: 'Cloud Region', label: 'Cloud Region' },
+    { key: 'Offline Package Drop', label: 'Offline Package Drop' },
+  ]
+
   // 处理过滤器选择
   const handleFilterChange = (category: string, value: string, checked: boolean) => {
     setSelectedFilters((prev) => ({
@@ -159,6 +177,12 @@ const DeploymentTargets: React.FC = () => {
       types: [],
       health: [],
     })
+  }
+
+  // 处理保存部署目标
+  const handleSaveDeploymentTarget = () => {
+    console.log('Deployment Type:', selectedDeploymentType)
+    setShowAddDeploymentTarget(false)
   }
 
   // ---------------- 展开/收起 ----------------
@@ -262,7 +286,19 @@ const DeploymentTargets: React.FC = () => {
       <div className="bg-white shadow-sm">
         {/* Header */}
         <div className="p-6 border-b">
-          <h1 className="text-2xl font-semibold mb-6">Deployment Targets</h1>
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-semibold">Deployment Targets</h1>
+            
+            {/* Add Deployment Target 按钮 */}
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setShowAddDeploymentTarget(true)}
+              className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-medium"
+            >
+              Add Deployment Target
+            </Button>
+          </div>
 
           {/* 搜索框 + 筛选按钮 */}
           <div className="flex items-center gap-4">
@@ -469,6 +505,153 @@ const DeploymentTargets: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Add Deployment Target Modal - 添加部署目标弹窗 */}
+      <Modal
+        title={
+          <div>
+            <div className="text-blue-600 text-sm mb-1">Deployment Targets</div>
+            <div className="text-xl font-bold">Add Deployment Target</div>
+          </div>
+        }
+        open={showAddDeploymentTarget}
+        onCancel={() => setShowAddDeploymentTarget(false)}
+        width={1000}
+        footer={null}
+        bodyStyle={{ padding: '24px' }}
+      >
+        <div className="mb-6">
+          <p className="text-gray-700 mb-1">
+            What type of <span className="font-semibold">Deployment Target</span> do you want to set up? Learn more about{' '}
+            <a href="#" className="text-blue-600 hover:underline">
+              Deployment Targets ↗
+            </a>
+          </p>
+        </div>
+
+        {/* Tabs for deployment types */}
+        <Tabs
+          defaultActiveKey="Kubernetes"
+          activeKey={selectedDeploymentType}
+          onChange={setSelectedDeploymentType}
+          items={deploymentTypes.map((type) => ({
+            key: type.key,
+            label: type.label,
+          }))}
+          className="mb-6"
+        />
+
+        {/* Kubernetes content */}
+        {selectedDeploymentType === 'Kubernetes' && (
+          <div>
+            <div className="mb-4">
+              <p className="text-gray-700 mb-2">
+                Let's connect to a <span className="font-semibold">Kubernetes</span> cluster.
+              </p>
+              <p className="text-sm text-gray-600">
+                Learn more about connecting to{' '}
+                <a href="#" className="text-blue-600 hover:underline">
+                  Kubernetes clusters ↗
+                </a>
+              </p>
+            </div>
+
+            {/* Two options cards - 带悬停效果的卡片，更透明的遮罩层 */}
+            <div className="grid grid-cols-2 gap-6">
+              {/* Kubernetes Agent */}
+              <div
+                className="relative border-2 rounded-lg p-6 transition-all duration-300 cursor-pointer overflow-hidden"
+                style={{ 
+                  borderColor: hoveredCard === 'agent' ? '#16a34a' : '#e5e7eb',
+                  boxShadow: hoveredCard === 'agent' ? '0 4px 12px rgba(22, 163, 74, 0.15)' : 'none'
+                }}
+                onMouseEnter={() => setHoveredCard('agent')}
+                onMouseLeave={() => setHoveredCard(null)}
+              >
+                {/* 原始内容 */}
+                <div className="flex justify-center mb-4">
+                  <div className="w-20 h-20 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 text-4xl">☸</span>
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold text-center mb-2">Kubernetes Agent</h3>
+                <p className="text-sm text-gray-600 text-center mb-4">
+                  Install an agent to execute deployments on your cluster. No extra workers needed.
+                </p>
+                <div className="flex justify-center">
+                  <Tag color="green" className="text-xs">Recommended</Tag>
+                </div>
+
+                {/* 悬停时显示的半透明遮罩层和 Add 按钮 */}
+                {hoveredCard === 'agent' && (
+                  <div 
+                  className="absolute inset-0 rounded-lg flex items-center justify-center transition-all duration-300"
+                  style={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    backdropFilter: 'blur(1px)'
+                  }}
+                  >
+                    <Button
+                      type="default"
+                      size="middle"
+                      className="!bg-gray-200 hover:!bg-gray-300 !border-gray-300 !text-gray-800 font-medium px-6 py-3 h-auto shadow-md rounded-md"
+                      style={{
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Kubernetes API */}
+              <div
+                className="relative border-2 rounded-lg p-6 transition-all duration-300 cursor-pointer overflow-hidden"
+                style={{ 
+                  borderColor: hoveredCard === 'api' ? '#16a34a' : '#e5e7eb',
+                  boxShadow: hoveredCard === 'api' ? '0 4px 12px rgba(22, 163, 74, 0.15)' : 'none'
+                }}
+                onMouseEnter={() => setHoveredCard('api')}
+                onMouseLeave={() => setHoveredCard(null)}
+              >
+                {/* 原始内容 */}
+                <div className="flex justify-center mb-4">
+                  <div className="w-20 h-20 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 text-4xl">☸</span>
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold text-center mb-2">Kubernetes API</h3>
+                <p className="text-sm text-gray-600 text-center mb-4">
+                  Connect to your cluster via API and execute deployment tasks on workers.
+                </p>
+
+                {/* 悬停时显示的半透明遮罩层和 Add 按钮 */}
+                {hoveredCard === 'api' && (
+                  <div 
+                  className="absolute inset-0 rounded-lg flex items-center justify-center transition-all duration-300"
+                  style={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    backdropFilter: 'blur(1px)'
+                  }}
+                  >
+                    <Button
+                      type="default"
+                      size="middle"
+                      className="!bg-gray-200 hover:!bg-gray-300 !border-gray-300 !text-gray-800 font-medium px-6 py-3 h-auto shadow-md rounded-md"
+                      style={{
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
