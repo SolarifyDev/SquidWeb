@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Input, Checkbox, Button, Badge, Tag, Collapse } from 'antd';
+import { Input, Checkbox, Button, Badge, Tag, Collapse, Modal, Tabs } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
@@ -9,6 +9,7 @@ import {
   CheckCircleFilled,
   CloseCircleOutlined,
   MenuOutlined,
+  EllipsisOutlined,
 } from '@ant-design/icons';
 
 const { Panel } = Collapse;
@@ -19,6 +20,12 @@ const Environments = () => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [disabledOnly, setDisabledOnly] = useState(false);
   const [hideEmpty, setHideEmpty] = useState(false);
+  
+  // 新增弹窗状态
+  const [showAddEnvironment, setShowAddEnvironment] = useState(false);
+  const [showAddDeploymentTarget, setShowAddDeploymentTarget] = useState(false);
+  const [environmentName, setEnvironmentName] = useState('');
+  const [selectedDeploymentType, setSelectedDeploymentType] = useState('Kubernetes');
 
   // 过滤器选项数据
   const filterOptions = {
@@ -221,12 +228,61 @@ const Environments = () => {
     setExpandedKeys(isAllExpanded ? [] : allKeys);
   };
 
+  // 处理保存环境
+  const handleSaveEnvironment = () => {
+    console.log('Environment Name:', environmentName);
+    setShowAddEnvironment(false);
+    setEnvironmentName('');
+  };
+
+  // 处理保存部署目标
+  const handleSaveDeploymentTarget = () => {
+    console.log('Deployment Type:', selectedDeploymentType);
+    setShowAddDeploymentTarget(false);
+  };
+
+  // Deployment Target 类型选项
+  const deploymentTypes = [
+    { key: 'Kubernetes', label: 'Kubernetes' },
+    { key: 'Linux', label: 'Linux' },
+    { key: 'Windows', label: 'Windows' },
+    { key: 'Mac', label: 'Mac' },
+    { key: 'Azure', label: 'Azure' },
+    { key: 'Aws', label: 'Aws' },
+    { key: 'Cloud Region', label: 'Cloud Region' },
+    { key: 'Offline Package Drop', label: 'Offline Package Drop' },
+  ];
+
   return (
     <div className="bg-gray-50 min-h-screen p-6">
       <div className="bg-white rounded-lg shadow-sm">
         {/* Header */}
         <div className="p-6 border-b">
-          <h1 className="text-2xl font-semibold mb-6">Environments</h1>
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-semibold">Environments</h1>
+            
+            {/* 右侧按钮组 */}
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => setShowAddDeploymentTarget(true)}
+                className="border-blue-600 text-blue-600 hover:bg-blue-50 font-medium"
+              >
+                Add Deployment Target
+              </Button>
+              <Button
+                type="primary"
+                onClick={() => setShowAddEnvironment(true)}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-medium"
+              >
+                Add Environment
+              </Button>
+              <Button
+                type="text"
+                icon={<EllipsisOutlined />}
+                className="text-gray-600"
+              />
+            </div>
+          </div>
 
           {/* 搜索框 + 筛选按钮 */}
           <div className="flex items-center gap-4">
@@ -451,8 +507,8 @@ const Environments = () => {
           {/* 右侧环境列表 */}
           <div className="flex-1 p-6">
             <div className="flex justify-end mb-4">
-              <Button type="link" onClick={toggleExpandAll} className="text-gray-600">
-                {expandedKeys.length === filteredEnvironments.length ? 'COLLAPSE ALL' : 'EXPAND ALL'}
+              <Button type="link" onClick={toggleExpandAll} className="text-gray-600 uppercase text-xs font-semibold">
+                {expandedKeys.length === filteredEnvironments.length ? 'Collapse All' : 'Expand All'}
               </Button>
             </div>
 
@@ -507,8 +563,8 @@ const Environments = () => {
                         {/* Healthy */}
                         <div className="flex items-center gap-2 mb-4">
                           <CheckCircleFilled className="text-green-500" />
-                          <span className="font-medium text-sm">
-                            HEALTHY ({env.healthy}/{env.targets})
+                          <span className="font-medium text-sm uppercase">
+                            Healthy ({env.healthy}/{env.targets})
                           </span>
                         </div>
 
@@ -545,7 +601,7 @@ const Environments = () => {
                         {/* Disabled */}
                         <div className="flex items-center gap-2 mt-6 mb-4">
                           <CloseCircleOutlined className="text-gray-400" />
-                          <span className="font-medium text-sm">DISABLED ({env.disabled})</span>
+                          <span className="font-medium text-sm uppercase">Disabled ({env.disabled})</span>
                         </div>
 
                         <div className="space-y-3">
@@ -584,6 +640,134 @@ const Environments = () => {
           </div>
         </div>
       </div>
+
+      {/* Add Environment Modal - 添加环境弹窗 */}
+      <Modal
+        title={<span className="text-xl font-bold">Add Environment</span>}
+        open={showAddEnvironment}
+        onCancel={() => setShowAddEnvironment(false)}
+        width={600}
+        footer={[
+          <Button 
+            key="cancel" 
+            onClick={() => setShowAddEnvironment(false)}
+            className="border-blue-600 text-blue-600 hover:bg-blue-50"
+          >
+            Cancel
+          </Button>,
+          <Button 
+            key="save" 
+            type="primary"
+            onClick={handleSaveEnvironment}
+            className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
+          >
+            Save
+          </Button>
+        ]}
+      >
+        <div className="py-4">
+          <Input
+            placeholder="New environment name"
+            value={environmentName}
+            onChange={(e) => setEnvironmentName(e.target.value)}
+            size="large"
+            className="mb-4"
+          />
+          <div className="text-sm text-gray-600">
+            Examples include:{' '}
+            <a href="#" className="text-blue-600 hover:underline">Development</a>
+            {', '}
+            <a href="#" className="text-blue-600 hover:underline">Test</a>
+            {' and '}
+            <a href="#" className="text-blue-600 hover:underline">Production</a>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Deployment Target Modal - 添加部署目标弹窗 */}
+      <Modal
+        title={
+          <div>
+            <div className="text-blue-600 text-sm mb-1">Deployment Targets</div>
+            <div className="text-xl font-bold">Add Deployment Target</div>
+          </div>
+        }
+        open={showAddDeploymentTarget}
+        onCancel={() => setShowAddDeploymentTarget(false)}
+        width={1000}
+        footer={null}
+        bodyStyle={{ padding: '24px' }}
+      >
+        <div className="mb-6">
+          <p className="text-gray-700 mb-1">
+            What type of <span className="font-semibold">Deployment Target</span> do you want to set up? Learn more about{' '}
+            <a href="#" className="text-blue-600 hover:underline">
+              Deployment Targets ↗
+            </a>
+          </p>
+        </div>
+
+        {/* Tabs for deployment types */}
+        <Tabs
+          defaultActiveKey="Kubernetes"
+          activeKey={selectedDeploymentType}
+          onChange={setSelectedDeploymentType}
+          items={deploymentTypes.map((type) => ({
+            key: type.key,
+            label: type.label,
+          }))}
+          className="mb-6"
+        />
+
+        {/* Kubernetes content */}
+        {selectedDeploymentType === 'Kubernetes' && (
+          <div>
+            <div className="mb-4">
+              <p className="text-gray-700 mb-2">
+                Let's connect to a <span className="font-semibold">Kubernetes</span> cluster.
+              </p>
+              <p className="text-sm text-gray-600">
+                Learn more about connecting to{' '}
+                <a href="#" className="text-blue-600 hover:underline">
+                  Kubernetes clusters ↗
+                </a>
+              </p>
+            </div>
+
+            {/* Two options cards */}
+            <div className="grid grid-cols-2 gap-6">
+              {/* Kubernetes Agent */}
+              <div className="border rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer">
+                <div className="flex justify-center mb-4">
+                  <div className="w-20 h-20 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 text-4xl">☸</span>
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold text-center mb-2">Kubernetes Agent</h3>
+                <p className="text-sm text-gray-600 text-center mb-4">
+                  Install an agent to execute deployments on your cluster. No extra workers needed.
+                </p>
+                <div className="flex justify-center">
+                  <Tag color="green" className="text-xs">Recommended</Tag>
+                </div>
+              </div>
+
+              {/* Kubernetes API */}
+              <div className="border rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer">
+                <div className="flex justify-center mb-4">
+                  <div className="w-20 h-20 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 text-4xl">☸</span>
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold text-center mb-2">Kubernetes API</h3>
+                <p className="text-sm text-gray-600 text-center mb-4">
+                  Connect to your cluster via API and execute deployment tasks on workers.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
