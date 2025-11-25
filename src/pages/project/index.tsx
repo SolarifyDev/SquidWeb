@@ -14,12 +14,13 @@ import {
   Select,
   Steps,
   Upload,
-  message
+  message,
+  List
 } from 'antd';
 import type { UploadProps, MenuProps, TableColumnsType } from 'antd';
-import { 
-  SearchOutlined, 
-  FilterOutlined, 
+import {
+  SearchOutlined,
+  FilterOutlined,
   DownOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
@@ -28,7 +29,14 @@ import {
   RightOutlined,
   ProjectOutlined,
   ReloadOutlined,
-  ArrowLeftOutlined
+  ArrowLeftOutlined,
+  BoldOutlined,
+  ItalicOutlined,
+  UnorderedListOutlined,
+  OrderedListOutlined,
+  PictureOutlined,
+  LinkOutlined,
+  CodeOutlined
 } from '@ant-design/icons';
 
 const { Title, Text, Link } = Typography;
@@ -60,12 +68,17 @@ const Project: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [showFiltersModal, setShowFiltersModal] = useState(false);
+  const [showAddProjectGroup, setShowAddProjectGroup] = useState(false);
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [projectGroups, setProjectGroups] = useState('all');
   const [projects, setProjects] = useState('all');
   const [environments, setEnvironments] = useState('all');
   const [tenants, setTenants] = useState('all');
   
+  // Add Project Group states
+  const [projectGroupName, setProjectGroupName] = useState('');
+  const [projectGroupDesc, setProjectGroupDesc] = useState('');
+  const [showMarkdownControls, setShowMarkdownControls] = useState(true);
   // Add Project form states
   const [projectName, setProjectName] = useState('');
   const [storageLocation, setStorageLocation] = useState('octopus');
@@ -276,6 +289,18 @@ const Project: React.FC = () => {
     />
   );
 
+  const MarkdownToolbar = () => (
+    <div className="flex gap-1 p-2 border-b border-gray-200 bg-gray-50">
+      <button className="p-1 hover:bg-gray-200 rounded"><BoldOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><ItalicOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><UnorderedListOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><OrderedListOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><PictureOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><LinkOutlined style={{ fontSize: 16 }} /></button>
+      <button className="p-1 hover:bg-gray-200 rounded"><CodeOutlined style={{ fontSize: 16 }} /></button>
+    </div>
+  );
+
   const startIndex = (currentPage - 1) * pageSize + 1;
   const endIndex = Math.min(currentPage * pageSize, totalProjects);
 
@@ -286,6 +311,15 @@ const Project: React.FC = () => {
 
   const handleCancelFilters = () => {
     setShowFiltersModal(false);
+  };
+
+  const handleSaveProjectGroup = () => {
+    console.log('Project Group Name:', projectGroupName);
+    console.log('Project Group Description:', projectGroupDesc);
+    // 这里添加保存逻辑
+    setShowAddProjectGroup(false);
+    setProjectGroupName('');
+    setProjectGroupDesc('');
   };
 
   const handleCreateProject = () => {
@@ -488,6 +522,12 @@ const Project: React.FC = () => {
               </Button>
             </Dropdown>
             <Button 
+              onClick={() => setShowAddProjectGroup(true)}
+              className="px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50 font-medium"
+            >
+              Add Project Group
+            </Button>
+            <Button 
               type="primary" 
               className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
               onClick={() => setShowAddProjectModal(true)}
@@ -640,6 +680,76 @@ const Project: React.FC = () => {
         </div>
       </Modal>
 
+      {/* Add Project Group Modal - 添加项目组弹窗 */}
+      <Modal
+        title={<span className="text-xl font-bold">Add New Project Group</span>}
+        open={showAddProjectGroup}
+        onCancel={() => setShowAddProjectGroup(false)}
+        width={600}
+        footer={[
+          <Button 
+            key="cancel" 
+            onClick={() => setShowAddProjectGroup(false)}
+            className="border-blue-600 text-blue-600 hover:bg-blue-50"
+          >
+            Cancel
+          </Button>,
+          <Button 
+            key="save" 
+            type="primary"
+            onClick={handleSaveProjectGroup}
+            className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
+          >
+            Save
+          </Button>
+        ]}
+        className="add-project-group-modal"
+      >
+        {/* 项目组名称输入框 */}
+        <div className="mb-4">
+          <Input
+            placeholder="New project group name"
+            value={projectGroupName}
+            onChange={(e) => setProjectGroupName(e.target.value)}
+            size="large"
+            className="text-base"
+          />
+        </div>
+        {/* 项目组描述输入区域 - 带Markdown工具栏 */}
+        <div className="mb-4">
+          <div className="border border-gray-300 rounded">
+            {showMarkdownControls && <MarkdownToolbar />}
+            <TextArea
+              placeholder="Project group description"
+              value={projectGroupDesc}
+              onChange={(e) => setProjectGroupDesc(e.target.value)}
+              rows={6}
+              bordered={false}
+              className="resize-none"
+              style={{ padding: '12px' }}
+            />
+          </div>
+        </div>
+        {/* Markdown控制链接 */}
+        <div className="flex gap-4 text-sm">
+          <button 
+            onClick={() => setShowMarkdownControls(!showMarkdownControls)}
+            className="text-blue-600 hover:underline"
+          >
+            {showMarkdownControls ? 'Hide' : 'Show'} markdown controls
+          </button>
+          <a 
+            href="#" 
+            className="text-blue-600 hover:underline flex items-center gap-1"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Markdown instructions
+            <span className="text-xs">↗</span>
+          </a>
+        </div>
+      </Modal>
+      
       {/* Add New Project Modal */}
       <Modal
         title={
