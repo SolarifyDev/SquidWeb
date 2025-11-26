@@ -13,6 +13,8 @@ import {
   PictureOutlined,
   LinkOutlined,
   CodeOutlined,
+  PlusOutlined,
+  ArrowLeftOutlined
 } from '@ant-design/icons';
 
 interface Phase {
@@ -661,51 +663,264 @@ const Lifecycles: React.FC = () => {
     );
   }
 
-  // 默认显示列表页
-  return (
-    <div className="p-6 bg-white min-h-screen">
-      <h1 className="text-2xl font-semibold mb-6">Lifecycles</h1>
-
-      {/* 搜索框 */}
-      <div className="mb-6">
-        <Input
-          placeholder="Filter by name or phase name..."
-          suffix={<SearchOutlined className="text-gray-400" />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          className="max-w-md"
-          allowClear
-        />
-      </div>
-
-      {/* 生命周期列表 */}
-      <div className="space-y-4">
-        {filteredData.map((lifecycle) => (
-          <div
-            key={lifecycle.id}
-            className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => handleLifecycleClick(lifecycle)}
-          >
-            <h3 className="text-blue-600 text-lg font-medium mb-2 hover:text-blue-800">
-              {lifecycle.name}
-            </h3>
-
-            {lifecycle.description && (
-              <p className="text-gray-600 text-sm mb-3">{lifecycle.description}</p>
-            )}
-
-            {lifecycle.phases.length > 0 && (
-              <div className="mt-3">
-                {lifecycle.phases.map((phase, index) =>
-                  renderPhaseWithLine(phase, index, lifecycle.phases.length)
+  if (showCreatePage) {
+    return (
+      <div className="min-h-screen bg-white">
+        {/* 顶部导航栏 */}
+        <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
+          <div className="px-6 py-4">
+            {/* 返回链接 */}
+            <button
+              onClick={() => {
+                setShowCreatePage(false);
+                resetCreateForm();
+              }}
+              className="text-blue-600 hover:text-blue-800 flex items-center gap-2 mb-4 bg-transparent border-0 cursor-pointer"
+            >
+              <ArrowLeftOutlined />
+              <span>Lifecycles</span>
+            </button>
+            {/* 标题和保存按钮 */}
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold">Create Lifecycle</h1>
+              <Button onClick={handleSaveNewLifecycle} className="border-gray-300 text-gray-700 hover:bg-gray-50">
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+        {/* 表单内容区域 */}
+        <div className="max-w-5xl mx-auto px-6 py-6">
+          {/* Details Tab */}
+          <div className="border-b border-blue-600 mb-6">
+            <div className="text-blue-600 font-medium pb-3 inline-block border-b-2 border-blue-600">
+              Details
+            </div>
+          </div>
+          {/* COLLAPSE ALL 按钮 */}
+          <div className="flex justify-end mb-4">
+            <span className="text-gray-600 text-xs uppercase cursor-pointer hover:underline font-semibold">
+              COLLAPSE ALL
+            </span>
+          </div>
+          <div className="space-y-0">
+            {/* Name Section */}
+            <div className="border-b border-gray-200">
+              <div
+                className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
+                onClick={() => toggleCreateSection('name' as any)}
+              >
+                <div className="font-semibold text-gray-700 w-48">Name</div>
+                <div className="flex-1 text-gray-600">Enter a name for your lifecycle.</div>
+                <UpOutlined className="text-blue-600 text-xs mt-1" />
+              </div>
+              <div className="px-4 pb-6 bg-white">
+                <div className="ml-48 pl-8">
+                  <Input
+                    placeholder="Lifecycle name"
+                    value={newLifecycleName}
+                    onChange={(e) => setNewLifecycleName(e.target.value)}
+                    size="large"
+                    className="mb-2"
+                  />
+                </div>
+              </div>
+            </div>
+            {/* Description Section */}
+            <div className="border-b border-gray-200">
+              <div
+                className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
+                onClick={() => toggleCreateSection('description')}
+              >
+                <div className="font-semibold text-gray-700 w-48">Description</div>
+                <div className="flex-1 text-gray-600">Enter a description for your lifecycle.</div>
+                {createExpandedSections.description ? (
+                  <UpOutlined className="text-blue-600 text-xs mt-1" />
+                ) : (
+                  <DownOutlined className="text-blue-600 text-xs mt-1" />
                 )}
               </div>
-            )}
+              {createExpandedSections.description && (
+                <div className="px-4 pb-6 bg-white">
+                  <div className="ml-48 pl-8">
+                    {/* Markdown Editor Toolbar */}
+                    {showMarkdownControls && (
+                      <div className="flex gap-2 mb-0 border border-gray-300 border-b-0 rounded-t p-1 bg-gray-50">
+                        <Button size="small" icon={<BoldOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<ItalicOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<UnorderedListOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<OrderedListOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<PictureOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<LinkOutlined />} type="text" className="h-8" />
+                        <Button size="small" icon={<CodeOutlined />} type="text" className="h-8" />
+                        <Button size="small" type="text" className="h-8">
+                          <span className="text-base">"</span>
+                        </Button>
+                      </div>
+                    )}
+                    <Input.TextArea
+                      placeholder="Lifecycle description"
+                      rows={4}
+                      value={newLifecycleDescription}
+                      onChange={(e) => setNewLifecycleDescription(e.target.value)}
+                      className={showMarkdownControls ? 'rounded-t-none border-t-0' : ''}
+                    />
+                    <div className="flex gap-4 text-sm mt-2">
+                      <span
+                        className="text-blue-600 cursor-pointer hover:underline"
+                        onClick={() => setShowMarkdownControls(!showMarkdownControls)}
+                      >
+                        {showMarkdownControls ? 'Hide' : 'Show'} markdown controls
+                      </span>
+                      <a href="#" className="text-blue-600 hover:underline flex items-center gap-1">
+                        Markdown instructions
+                        <span className="text-xs">↗</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Retention Policy Section */}
+            <div className="border-b border-gray-200">
+              <div
+                className="py-4 flex items-start justify-between hover:bg-gray-50 cursor-pointer px-4"
+                onClick={() => toggleCreateSection('retentionPolicy')}
+              >
+                <div className="font-semibold text-gray-700 w-48">Retention Policy</div>
+                <div className="flex-1 text-gray-600">Change the retention policy.</div>
+                {createExpandedSections.retentionPolicy ? (
+                  <UpOutlined className="text-blue-600 text-xs mt-1" />
+                ) : (
+                  <DownOutlined className="text-blue-600 text-xs mt-1" />
+                )}
+              </div>
+              {createExpandedSections.retentionPolicy && (
+                <div className="px-4 pb-6 bg-white">
+                  <div className="ml-48 pl-8 text-sm text-gray-700 space-y-6">
+                    <div>
+                      <div className="mb-3 font-medium">How long should we keep releases?</div>
+                      <Radio.Group
+                        value={releaseRetention}
+                        onChange={(e) => setReleaseRetention(e.target.value)}
+                        className="flex flex-col space-y-2"
+                      >
+                        <Radio value="keepAll">Keep all (default)</Radio>
+                        <Radio value="keepLimited">Keep a limited number</Radio>
+                      </Radio.Group>
+                    </div>
+                    <div>
+                      <div className="mb-3 font-medium">
+                        How long should we keep extracted packages and files on disk on Tentacles?
+                      </div>
+                      <Radio.Group
+                        value={fileRetention}
+                        onChange={(e) => setFileRetention(e.target.value)}
+                        className="flex flex-col space-y-2"
+                      >
+                        <Radio value="keepAll">Keep all (default)</Radio>
+                        <Radio value="keepLimited">Keep a limited number</Radio>
+                      </Radio.Group>
+                    </div>
+                    <div className="text-xs text-gray-500 leading-relaxed">
+                      Retention policies dictate how long releases and deployments are kept for. For more
+                      information please see{' '}
+                      <a href="#" className="text-blue-600 hover:underline">
+                        retention policies ↗
+                      </a>{' '}
+                      documentation.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Phases Section */}
+            <div className="border-b border-gray-200 py-4 px-4">
+              <div className="font-semibold text-gray-700 mb-2">Phases</div>
+              <div className="text-gray-600 mb-4 text-sm">
+                This lifecycle will use the default conventions. They allow deployment to any environment, so long
+                as environments are deployed in the order that they are defined on the{' '}
+                <a href="#" className="text-blue-600 hover:underline">
+                  environments
+                </a>{' '}
+                page. Use the <span className="italic">Add phase</span> button to explicitly define your own phases
+                or to restrict the lifecycle to specific environments.
+              </div>
+              <Button type="primary" ghost icon={<PlusOutlined />}>
+                Add Phase
+              </Button>
+            </div>
           </div>
-        ))}
+          {/* Lifecycle Preview */}
+          <div className="mt-6">
+            <div className="bg-gray-50 py-3 px-4 font-semibold text-gray-700 border border-gray-200 border-b-0">
+              Lifecycle Preview
+            </div>
+            <div className="bg-white p-6 border border-gray-200">
+              <div className="text-gray-600">Uses default conventions</div>
+            </div>
+          </div>
+        </div>
       </div>
+    );
+  }
+
+  // 在默认显示列表页的 return 部分，修改标题区域
+  return (
+  <div className="p-6 bg-white min-h-screen">
+    {/* 标题和按钮 */}
+    <div className="flex items-center justify-between mb-6">
+      <h1 className="text-2xl font-semibold">Lifecycles</h1>
+      <Button
+        type="primary"
+        onClick={() => setShowCreatePage(true)}
+        className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-medium"
+      >
+        Add Lifecycle
+      </Button>
     </div>
-  );
+
+    {/* 搜索框 */}
+    <div className="mb-6">
+      <Input
+        placeholder="Filter by name or phase name..."
+        suffix={<SearchOutlined className="text-gray-400" />}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        className="max-w-md"
+        allowClear
+      />
+    </div>
+
+    {/* 生命周期列表 */}
+    <div className="space-y-4">
+      {filteredData.map((lifecycle) => (
+        <div
+          key={lifecycle.id}
+          className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+          onClick={() => handleLifecycleClick(lifecycle)}
+        >
+          <h3 className="text-blue-600 text-lg font-medium mb-2 hover:text-blue-800">
+            {lifecycle.name}
+          </h3>
+
+          {lifecycle.description && (
+            <p className="text-gray-600 text-sm mb-3">{lifecycle.description}</p>
+          )}
+
+          {lifecycle.phases.length > 0 && (
+            <div className="mt-3">
+              {lifecycle.phases.map((phase, index) =>
+                renderPhaseWithLine(phase, index, lifecycle.phases.length)
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 };
 
 export default Lifecycles;
