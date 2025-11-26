@@ -35,6 +35,20 @@ const Lifecycles: React.FC = () => {
   const [selectedLifecycle, setSelectedLifecycle] = useState<Lifecycle | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'usage'>('details');
 
+  // 在组件开头添加新的状态
+  const [showCreatePage, setShowCreatePage] = useState(false);
+  // 创建页面的表单状态
+  const [newLifecycleName, setNewLifecycleName] = useState('');
+  const [newLifecycleDescription, setNewLifecycleDescription] = useState('');
+  const [showMarkdownControls, setShowMarkdownControls] = useState(true);
+  const [releaseRetention, setReleaseRetention] = useState('keepAll');
+  const [fileRetention, setFileRetention] = useState('keepAll');
+  // 创建页面的折叠状态
+  const [createExpandedSections, setCreateExpandedSections] = useState({
+  description: true,
+  retentionPolicy: true,
+  });
+
   // 折叠状态管理
   const [expandedSections, setExpandedSections] = useState<{
     name: boolean;
@@ -162,6 +176,30 @@ const Lifecycles: React.FC = () => {
     });
   };
 
+  const handleSaveNewLifecycle = () => {
+    console.log('Save new lifecycle:', {
+      name: newLifecycleName,
+      description: newLifecycleDescription,
+      releaseRetention,
+      fileRetention,
+    });
+    // 这里添加保存逻辑
+    setShowCreatePage(false);
+    resetCreateForm();
+  };
+
+  const resetCreateForm = () => {
+    setNewLifecycleName('');
+    setNewLifecycleDescription('');
+    setReleaseRetention('keepAll');
+    setFileRetention('keepAll');
+    setShowMarkdownControls(true);
+    setCreateExpandedSections({
+      description: true,
+      retentionPolicy: true,
+    });
+  };
+
   // 返回列表
   const handleBackToList = () => {
     setSelectedLifecycle(null);
@@ -195,6 +233,13 @@ const Lifecycles: React.FC = () => {
   // 切换单个section的展开状态
   const toggleSection = (section: 'name' | 'description' | 'retentionPolicy') => {
     setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const toggleCreateSection = (section: 'description' | 'retentionPolicy') => {
+    setCreateExpandedSections((prev) => ({
       ...prev,
       [section]: !prev[section],
     }));
