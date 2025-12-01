@@ -39,25 +39,17 @@ const menu = (projectName?: string) => [
       : "/project-detail/channels",
   },
   {
-    key: "releases",
+    key: "variable",
     icon: <DeploymentUnitOutlined />,
-    label: "Releases",
+    label: "Variable",
     path: projectName
-      ? `/project/${projectName}/project-detail/releases`
+      ? `/project/${projectName}/project-detail/variable`
       : "/project-detail/releases",
-  },
-  {
-    key: "triggers",
-    icon: <ThunderboltOutlined />,
-    label: "Triggers",
-    path: projectName
-      ? `/project/${projectName}/project-detail/triggers`
-      : "/project-detail/triggers",
   },
   {
     key: "settings",
     icon: <SettingOutlined />,
-    label: "Settings",
+    label: "Project Settings",
     path: projectName
       ? `/project/${projectName}/project-detail/settings`
       : "/project-detail/settings",

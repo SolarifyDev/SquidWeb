@@ -1,231 +1,114 @@
-// Mock 数据结构
-const channels = [
+// Mock 数据结构 - 模拟 Deployments 页面数据
+export interface DeploymentItem {
+  key: string;
+  version: string;
+  status: "Success" | "Running" | "Failed" | "Pending";
+  time: string;
+  operator: string;
+}
+
+export interface ChannelData {
+  key: string;
+  name: string;
+  environments: {
+    [envKey: string]: DeploymentItem[];
+  };
+  // 每个环境当前部署的版本
+  currentDeployed: {
+    [envKey: string]: string;
+  };
+}
+
+// 模拟数据
+const channels: ChannelData[] = [
   {
-    key: "stable",
-    name: "Stable",
+    key: "default",
+    name: "Default",
+    currentDeployed: {
+      test: "6.0.5-mixture-v6.1-3733",
+      prd: "6.0.4",
+    },
     environments: {
-      staging: [
+      test: [
         {
-          key: "s1",
-          version: "1.0.3",
-          status: "Running",
-          time: "2025-11-11 14:30",
-          operator: "Bob",
+          key: "t1",
+          version: "6.0.5-mixture-v6.1-3733",
+          status: "Pending",
+          time: "Dec 1, 2025 4:44 PM",
+          operator: "Henry",
         },
         {
-          key: "s2",
-          version: "1.0.2",
+          key: "t2",
+          version: "6.0.5-mixture-v6.1-3732",
+          status: "Pending",
+          time: "Dec 1, 2025 4:00 PM",
+          operator: "Ivy",
+        },
+        {
+          key: "t3",
+          version: "6.0.5-mixture-v6.1-3723",
           status: "Success",
-          time: "2025-11-10 18:00",
-          operator: "Alice",
+          time: "Dec 2025 8:41 PM",
+          operator: "Jack",
         },
         {
-          key: "s3",
-          version: "1.0.1",
-          status: "Failed",
-          time: "2025-11-09 17:00",
-          operator: "David",
-        },
-        {
-          key: "s4",
-          version: "1.0.0",
+          key: "t4",
+          version: "6.0.4",
           status: "Success",
-          time: "2025-11-08 15:00",
-          operator: "Eve",
+          time: "Nov 27, 2025 4:18 PM",
+          operator: "Kate",
         },
       ],
-      production: [
+      prd: [
         {
           key: "p1",
-          version: "1.0.2",
+          version: "6.0.4",
           status: "Success",
-          time: "2025-11-11 15:00",
-          operator: "Alice",
+          time: "Nov 27, 2025 4:18 PM",
+          operator: "Paul",
         },
+      ],
+      uat: [
         {
-          key: "p2",
-          version: "1.0.1",
-          status: "Failed",
-          time: "2025-11-10 18:30",
-          operator: "Charlie",
-        },
-        {
-          key: "p3",
-          version: "1.0.0",
+          key: "u1",
+          version: "6.0.4",
           status: "Success",
-          time: "2025-11-09 09:20",
-          operator: "Bob",
-        },
-        {
-          key: "p4",
-          version: "0.9.9",
-          status: "Success",
-          time: "2025-11-08 08:00",
-          operator: "Frank",
+          time: "Nov 27, 2025 4:18 PM",
+          operator: "Paul",
         },
       ],
     },
   },
   {
     key: "hotfix",
-    name: "Hot Fix",
+    name: "Hotfix",
+    currentDeployed: {
+      prd: "6.0.4-hot-fix-restaurant-field-length.1-21",
+    },
     environments: {
-      production: [
+      prd: [
         {
           key: "h1",
-          version: "1.0.5",
+          version: "6.0.4-hot-fix-restaurant-field-length.1-21",
           status: "Success",
-          time: "2025-11-12 09:00",
+          time: "Nov 22, 2025 5:00 PM",
           operator: "Grace",
         },
         {
           key: "h2",
-          version: "1.0.4",
+          version: "6.0.3-hot-fix-ome-project-listid.1-1",
           status: "Success",
-          time: "2025-11-11 20:00",
+          time: "Nov 11, 2025 4:30 PM",
           operator: "David",
         },
         {
           key: "h3",
-          version: "1.0.3",
-          status: "Failed",
-          time: "2025-11-11 10:00",
+          version: "6.0.2-hot-fix-ome-role.1-1",
+          status: "Success",
+          time: "Nov 10, 2025 3:00 PM",
           operator: "Eve",
         },
-        {
-          key: "h4",
-          version: "1.0.2",
-          status: "Success",
-          time: "2025-11-10 15:00",
-          operator: "Bob",
-        },
       ],
-    },
-  },
-  {
-    key: "default",
-    name: "Default",
-    environments: {
-      test: [
-        {
-          key: "t1",
-          version: "2.0.1",
-          status: "Success",
-          time: "2025-11-12 08:00",
-          operator: "Henry",
-        },
-        {
-          key: "t2",
-          version: "2.0.0",
-          status: "Success",
-          time: "2025-11-11 18:00",
-          operator: "Ivy",
-        },
-        {
-          key: "t3",
-          version: "1.9.9",
-          status: "Failed",
-          time: "2025-11-10 17:00",
-          operator: "Jack",
-        },
-        {
-          key: "t4",
-          version: "1.9.8",
-          status: "Success",
-          time: "2025-11-09 15:00",
-          operator: "Kate",
-        },
-      ],
-      aut: [
-        {
-          key: "a1",
-          version: "2.0.1",
-          status: "Running",
-          time: "2025-11-12 08:30",
-          operator: "Leo",
-        },
-        {
-          key: "a2",
-          version: "2.0.0",
-          status: "Success",
-          time: "2025-11-11 19:00",
-          operator: "Mona",
-        },
-        {
-          key: "a3",
-          version: "1.9.9",
-          status: "Success",
-          time: "2025-11-10 16:00",
-          operator: "Nina",
-        },
-        {
-          key: "a4",
-          version: "1.9.8",
-          status: "Failed",
-          time: "2025-11-09 14:00",
-          operator: "Oscar",
-        },
-      ],
-      prd: [
-        {
-          key: "p1",
-          version: "sdguaigvdsuhcbjcfvaiuhgsflvjbdfiureufygdhbsjdideurghfjdskeiursy",
-          status: "Success",
-          time: "2025-11-11 20:00",
-          operator: "Paul",
-        },
-        {
-          key: "p2",
-          version: "1.9.9",
-          status: "Success",
-          time: "2025-11-10 18:00",
-          operator: "Quinn",
-        },
-        {
-          key: "p3",
-          version: "1.9.8",
-          status: "Failed",
-          time: "2025-11-09 16:00",
-          operator: "Rose",
-        },
-        {
-          key: "p4",
-          version: "1.9.7",
-          status: "Success",
-          time: "2025-11-08 13:00",
-          operator: "Steve",
-        },
-      ],
-      prd1: [
-        {
-          key: "p1",
-          version: "sdguaigvdsuhcbjcfvaiuhgsflvjbdfiureufygdhbsjdideurghfjdskeiursy",
-          status: "Success",
-          time: "2025-11-11 20:00",
-          operator: "Paul",
-        },
-        {
-          key: "p2",
-          version: "1.9.9",
-          status: "Success",
-          time: "2025-11-10 18:00",
-          operator: "Quinn",
-        },
-        {
-          key: "p3",
-          version: "1.9.8",
-          status: "Failed",
-          time: "2025-11-09 16:00",
-          operator: "Rose",
-        },
-        {
-          key: "p4",
-          version: "1.9.7",
-          status: "Success",
-          time: "2025-11-08 13:00",
-          operator: "Steve",
-        },
-      ]
     },
   },
 ];
