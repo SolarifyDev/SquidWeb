@@ -1,3 +1,4 @@
+import { useState } from "react";
 import routes from "../routes";
 import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
 import { Input, Badge, Dropdown, Menu } from "antd";
@@ -19,44 +20,76 @@ interface RouteConfig {
   children?: RouteConfig[];
 }
 
-function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
-  const arr = routesArr.map((route) => {
-    if (route.redirect) {
-      return (
-        <Route
-          key={route.path}
-          path={route.path}
-          element={<Navigate to={route.redirect} replace />}
-        />
-      );
-    }
-    if (route.children && route.children.length > 0) {
-      return (
-        <Route
-          key={route.path}
-          path={route.path}
-          element={route.component ? <route.component /> : undefined}
-        >
-          {renderRoutes(route.children)}
-        </Route>
-      );
-    }
+// function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
+//   const arr = routesArr.map((route) => {
+//     if (route.redirect) {
+//       return (
+//         <Route
+//           key={route.path}
+//           path={route.path}
+//           element={<Navigate to={route.redirect} replace />}
+//         />
+//       );
+//     }
+//     if (route.children && route.children.length > 0) {
+//       return (
+//         <Route
+//           key={route.path}
+//           path={route.path}
+//           element={route.component ? <route.component /> : undefined}
+//         >
+//           {renderRoutes(route.children)}
+//         </Route>
+//       );
+//     }
+//     return (
+//       <Route
+//         key={route.path}
+//         path={route.path}
+//         element={route.component ? <route.component /> : undefined}
+//       />
+//     );
+//   });
+//   console.log(arr);
+
+//   return arr;
+// }
+
+function renderRoutes(routes: RouteConfig[]): React.ReactNode {
+  return routes.map((route) => {
+    const element = route.redirect ? (
+      <Navigate to={route.redirect} replace />
+    ) : route.component ? (
+      <route.component />
+    ) : undefined;
+
     return (
-      <Route
-        key={route.path}
-        path={route.path}
-        element={route.component ? <route.component /> : undefined}
-      />
+      <Route key={route.path} path={route.path} element={element}>
+        {route.children && renderRoutes(route.children)}
+      </Route>
     );
   });
-
-  console.log(arr);
-
-  return arr;
 }
+
+const menuItems = [
+  {
+    path: "/",
+    icon: "🏠",
+    label: "Deploy",
+    isActive: (pathname: string) =>
+      pathname === "/" || !pathname.startsWith("/tasks"),
+  },
+  {
+    path: "/tasks",
+    icon: "📝",
+    label: "Tasks",
+    isActive: (pathname: string) => pathname === "/tasks",
+  },
+];
 
 function App() {
   const location = useLocation();
+  const [isProjectHovered, setIsProjectHovered] = useState(false);
 
   console.log(location);
 
@@ -106,65 +139,58 @@ function App() {
         </div>
       </div>
 
-      <div className="page-content flex flex-1">
+      <div className="page-content flex flex-1 relative">
         {/* 主导航栏 */}
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
-            <Link
-              key="/project"
-              to="/project"
-              className={[
-                "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
-                "text-gray-700 border border-transparent",
-                "hover:bg-white hover:text-blue-600",
-                location.pathname === "/" ||
-                !location.pathname.startsWith("/tasks")
-                  ? "bg-white text-blue-600"
-                  : "",
-              ].join(" ")}
-            >
-              <span className="text-2xl">🏠</span>
-              <span className="truncate mt-1">Deploy</span>
-              <span
-                className={[
-                  "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                  location.pathname === "/" ||
-                  !location.pathname.startsWith("/tasks")
-                    ? "bg-blue-500 opacity-100"
-                    : "bg-transparent opacity-0",
-                ].join(" ")}
-              />
-            </Link>
-            <Link
-              key="/tasks"
-              to="/tasks"
-              className={[
-                "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
-                "text-gray-700 border border-transparent",
-                "hover:bg-white hover:text-blue-600",
-                location.pathname === "/tasks" ? "bg-white text-blue-600" : "",
-              ].join(" ")}
-            >
-              <span className="text-2xl">📝</span>
-              <span className="truncate mt-1">Tasks</span>
-              <span
-                className={[
-                  "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                  location.pathname === "/tasks"
-                    ? "bg-blue-500 opacity-100"
-                    : "bg-transparent opacity-0",
-                ].join(" ")}
-              />
-            </Link>
+            {menuItems.map((item) => {
+              const active = item.isActive(location.pathname);
+              const isDeployItem = item.path === "/";
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onMouseEnter={isDeployItem ? () => setIsProjectHovered(true) : undefined}
+                  onMouseLeave={isDeployItem ? () => setIsProjectHovered(false) : undefined}
+                  className={[
+                    "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
+                    "text-gray-700 border border-transparent",
+                    "hover:bg-white hover:text-blue-600",
+                    active ? "bg-white text-blue-600" : "",
+                  ].join(" ")}
+                >
+                  <span className="text-2xl">{item.icon}</span>
+                  <span className="truncate mt-1">{item.label}</span>
+                  <span
+                    className={[
+                      "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
+                      active ? "bg-blue-500 opacity-100" : "bg-transparent opacity-0",
+                    ].join(" ")}
+                  />
+                </Link>
+              );
+            })}
           </nav>
         </div>
         {/* DeploySidebar 只在点击 Deploy 时显示 */}
-        {location.pathname === "/" ||
-        !location.pathname.startsWith("/tasks") ? (
-          <div className="page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
+        {(location.pathname === "/" ||
+          !location.pathname.startsWith("/tasks")) && (
+          <div
+            className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
+              location.pathname.split("/").length > 2
+                ? "absolute left-[85px] top-0 h-full z-10 bg-white"
+                : ""
+            } ${
+              location.pathname.split("/").length <= 2 || isProjectHovered
+                ? "w-[220px] opacity-100"
+                : "w-0 opacity-0 pointer-events-none"
+            }`}
+            onMouseEnter={() => setIsProjectHovered(true)}
+            onMouseLeave={() => setIsProjectHovered(false)}
+          >
             <DeploySidebar />
           </div>
-        ) : null}
+        )}
         <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
           <Routes>{renderRoutes(routes)}</Routes>
         </div>

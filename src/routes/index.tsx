@@ -12,6 +12,10 @@ const routes = [
     path: "/",
     children: [
       {
+        path: "",
+        redirect: "project",
+      },
+      {
         path: "variable",
         component: VariableSets,
         name: "Variable Sets",

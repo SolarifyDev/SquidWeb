@@ -116,7 +116,7 @@ const Deployments: React.FC = () => {
                   <div className="w-[280px] shrink-0 pr-6 py-1">
                     <a
                       href="#"
-                      className="text-blue-600 text-base hover:underline break-words leading-6"
+                      className="text-blue-600 text-base font-semibold hover:underline break-words leading-6"
                     >
                       {version}
                     </a>
@@ -132,14 +132,14 @@ const Deployments: React.FC = () => {
                       return (
                         <div
                           key={envKey}
-                          className={`w-[240px] shrink-0 flex items-start gap-3 py-1 px-2 mr-4 rounded-md cursor-pointer hover:bg-gray-100 transition-colors ${!isCurrent ? 'opacity-50' : ''}`}
+                          className={`w-[260px] shrink-0 flex items-start gap-3 py-1 px-2 mr-4 rounded-md cursor-pointer hover:bg-gray-100 transition-colors ${!isCurrent ? 'opacity-50' : ''}`}
                         >
                           <div className="mt-1">{getStatusIcon(deployment.status)}</div>
                           <div className="flex flex-col flex-1 min-w-0">
-                            <span className="text-base text-gray-700 break-words leading-6">
+                            <span className={`text-base text-gray-700 break-words leading-6 ${isCurrent ? 'font-semibold' : ''}`}>
                               {deployment.version}
                             </span>
-                            <span className="text-sm text-gray-400 mt-0.5">
+                            <span className={`text-sm text-gray-400 mt-0.5 ${isCurrent ? 'font-medium' : ''}`}>
                               {deployment.time}
                             </span>
                           </div>
@@ -182,32 +182,6 @@ const Deployments: React.FC = () => {
           </Button>
           <Button type="text" icon={<MoreOutlined />} className="text-gray-500 text-lg" />
         </div>
-      </div>
-
-      {/* 筛选栏 */}
-      <div className="flex items-center gap-6 mb-10">
-        <Select
-          value={selectedChannel}
-          onChange={setSelectedChannel}
-          style={{ width: 140 }}
-          size="large"
-          variant="borderless"
-          className="[&_.ant-select-selector]:!border-b [&_.ant-select-selector]:!border-gray-300 [&_.ant-select-selector]:!rounded-none"
-          options={[
-            { label: "Channel", value: "all" },
-            ...channels.map((channel) => ({
-              label: channel.name,
-              value: channel.key,
-            })),
-          ]}
-        />
-        <Button
-          type="link"
-          icon={<FilterOutlined />}
-          className="text-blue-600 p-0 flex items-center gap-1 text-base"
-        >
-          Show advanced filters
-        </Button>
       </div>
 
       {/* Channel 列表 */}
