@@ -177,11 +177,11 @@ function App() {
           !location.pathname.startsWith("/tasks")) && (
           <div
             className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
-              location.pathname.split("/").length > 2
+              location.pathname.split("/").length > 3
                 ? "absolute left-[85px] top-0 h-full z-10 bg-white"
                 : ""
             } ${
-              location.pathname.split("/").length <= 2 || isProjectHovered
+              location.pathname.split("/").length <= 3 || isProjectHovered
                 ? "w-[220px] opacity-100"
                 : "w-0 opacity-0 pointer-events-none"
             }`}

@@ -4,8 +4,12 @@ import Tasks from "pages/tasks";
 import VariableSets from "pages/variablesets";
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
-import { redirect } from "react-router-dom";
-import path from "path";
+import Process from "pages/project-detail/process";
+import ProcessEditor from "pages/project-detail/process/editor";
+import Channels from "pages/project-detail/channels";
+import ChannelItem from "pages/project-detail/channels/item";
+import ProjectVariables from "pages/project-detail/variables";
+import ProjectSetting from "pages/project-detail/project-setting";
 
 const routes = [
   {
@@ -64,6 +68,36 @@ const routes = [
             component: Deployments,
             name: "Deployments",
           },
+          {
+            path: "process",
+            component: Process,
+            name: "Process"
+          },
+          {
+            path: "process/:stepId/editor",
+            component: ProcessEditor,
+            name: "ProcessEditor",
+          },
+          {
+            path: "channels",
+            component: Channels,
+            name: "Channels",
+          },
+          {
+            path: "channels/:channelId",
+            component: ChannelItem,
+            name: "ChannelItem",
+          },
+          {
+            path: "variable",
+            component: ProjectVariables,
+            name: "ProjectVariables",
+          },
+          {
+            path: "settings",
+            component: ProjectSetting,
+            name: "ProjectSetting",
+          },
         ],
       },
     ],
@@ -79,5 +113,6 @@ const routes = [
     name: "404",
   },
 ];
+
 
 export default routes;
