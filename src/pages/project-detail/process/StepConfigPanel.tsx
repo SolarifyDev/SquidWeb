@@ -11,6 +11,7 @@ import type {
   ActionJson,
   ConfigItem,
 } from "./useStepEditor";
+import type { UiValueJson } from "./useStepConfigForm";
 
 interface UnderlineInputProps {
   label: string;
@@ -122,20 +123,6 @@ interface FieldConfig {
   propKey: string;
   placeholder?: string;
   rows?: number;
-}
-
-type UIOptionType = "input" | "dropdown" | "text";
-
-interface UIOptionConfig {
-  key: string;
-  name: string;
-  type: UIOptionType;
-}
-
-interface UIPanelConfig {
-  panelName: string;
-  panelValue: string;
-  options: UIOptionConfig[];
 }
 
 const sectionFieldConfigs: Record<string, FieldConfig[]> = {
@@ -252,6 +239,207 @@ const sectionFieldConfigs: Record<string, FieldConfig[]> = {
   ],
 };
 
+// 独立组件：避免在父组件内部定义导致每次渲染重建
+interface ConfigSectionRendererProps {
+  sectionKey: string;
+  currentAction: ActionJson | undefined;
+  uiValues: UiValueJson;
+  updateActionProperty: (propKey: string, value: string) => void;
+  setFieldValue: (sectionKey: string, fieldKey: string, value: string) => void;
+}
+
+function ConfigSectionRenderer({
+  sectionKey,
+  currentAction,
+  uiValues,
+  updateActionProperty,
+  setFieldValue,
+}: ConfigSectionRendererProps) {
+  const fields = sectionFieldConfigs[sectionKey];
+
+  if (!fields || fields.length === 0) {
+    return null;
+  }
+
+  // 为了避免输入时频繁重建 UI 值导致失焦，目前让「重量级字段」暂时直接绑定 StepJson：
+  // deploymentConfig / service / volumes / containers / ingress* 这些 JSON/文本字段仍直接读写 currentAction.Properties
+  const isHeavySection =
+    sectionKey === "deploymentConfig" ||
+    sectionKey === "service" ||
+    sectionKey === "volumes" ||
+    sectionKey === "containers" ||
+    sectionKey === "ingressRules" ||
+    sectionKey === "ingressTls" ||
+    sectionKey === "ingressAnnotations";
+
+  if (isHeavySection) {
+    return (
+      <div className="space-y-2">
+        {fields.map((field) => {
+          const propValue = currentAction?.Properties[field.propKey] || "";
+
+          if (field.type === "underline") {
+            return (
+              <UnderlineInput
+                key={field.id}
+                label={field.label || ""}
+                value={propValue}
+                onChange={(value) =>
+                  updateActionProperty(field.propKey, value)
+                }
+                placeholder={field.placeholder || field.label || ""}
+              />
+            );
+          }
+
+          return (
+            <Input.TextArea
+              key={field.id}
+              rows={field.rows ?? 3}
+              value={propValue}
+              onChange={(e) =>
+                updateActionProperty(field.propKey, e.target.value)
+              }
+              placeholder={field.placeholder || field.propKey}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  // 其他较轻量字段继续使用 uiValues / setFieldValue 管线
+  const sectionValues = uiValues[sectionKey] || {};
+
+  return (
+    <div className="space-y-2">
+      {fields.map((field) => {
+        const value = sectionValues[field.id] ?? "";
+
+        if (field.type === "underline") {
+          return (
+            <UnderlineInput
+              key={field.id}
+              label={field.label || ""}
+              value={value}
+              onChange={(next) =>
+                setFieldValue(sectionKey, field.id, next)
+              }
+              placeholder={field.placeholder || field.label || ""}
+            />
+          );
+        }
+
+        return (
+          <Input.TextArea
+            key={field.id}
+            rows={field.rows ?? 3}
+            value={value}
+            onChange={(e) =>
+              setFieldValue(sectionKey, field.id, e.target.value)
+            }
+            placeholder={field.placeholder || field.propKey}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// 独立组件：ConfigMap 键值对列表编辑器
+interface KeyValueListEditorProps {
+  item: ConfigItem;
+  currentAction: ActionJson | undefined;
+  configMapItems: ConfigMapItemRow[];
+  updateActionProperty: (propKey: string, value: string) => void;
+  onAddItem: () => void;
+  onRemoveItem: (index: number) => void;
+  onChangeItem: (index: number, field: "key" | "value", value: string) => void;
+}
+
+function KeyValueListEditor({
+  item,
+  currentAction,
+  configMapItems,
+  updateActionProperty,
+  onAddItem,
+  onRemoveItem,
+  onChangeItem,
+}: KeyValueListEditorProps) {
+  const namePropKey =
+    item.uiConfig?.namePropKey ||
+    "Octopus.Action.KubernetesContainers.ConfigMapName";
+
+  return (
+    <div className="space-y-4">
+      <UnderlineInput
+        label="ConfigMap name"
+        value={currentAction?.Properties[namePropKey] || ""}
+        onChange={(value) => updateActionProperty(namePropKey, value)}
+        placeholder="ConfigMap Name"
+      />
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-sm text-gray-700">Config Map Items</div>
+            <div className="text-xs text-gray-500">
+              The config map resource values
+            </div>
+          </div>
+          <Button
+            size="small"
+            type="default"
+            className="border-blue-500 text-blue-500 px-4 py-3"
+            onClick={onAddItem}
+          >
+            Add Config map item
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          {configMapItems.map((cm, idx) => (
+            <div
+              key={idx}
+              className="border border-gray-200 rounded-md bg-white p-4 shadow-sm"
+            >
+              <div className="flex gap-4 items-start">
+                <div className="flex-1">
+                  <UnderlineInput
+                    label="Key"
+                    value={cm.key}
+                    onChange={(value) => onChangeItem(idx, "key", value)}
+                    placeholder="Key"
+                  />
+                </div>
+                <div className="flex-1">
+                  <UnderlineInput
+                    label="Value"
+                    value={cm.value}
+                    onChange={(value) => onChangeItem(idx, "value", value)}
+                    placeholder="Value"
+                  />
+                </div>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={() => onRemoveItem(idx)}
+                />
+              </div>
+            </div>
+          ))}
+          {configMapItems.length === 0 && (
+            <div className="text-xs text-gray-400">
+              No config map items defined.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface StepConfigPanelProps {
   stepJson: StepJson;
   setStepJson: Dispatch<SetStateAction<StepJson>>;
@@ -259,6 +447,8 @@ interface StepConfigPanelProps {
   configItems: ConfigItem[];
   isDirty: boolean;
   markSaved: () => void;
+  uiValues: UiValueJson;
+  setFieldValue: (sectionKey: string, fieldKey: string, value: string) => void;
 }
 
 export function StepConfigPanel({
@@ -268,14 +458,19 @@ export function StepConfigPanel({
   configItems,
   isDirty,
   markSaved,
+  uiValues,
+  setFieldValue,
 }: StepConfigPanelProps) {
-  const currentTargetRole =
-    stepJson.Properties["Octopus.Action.TargetRoles"] || "";
   const targetRoleOptions = [
     "Aliyun-HK-03",
     "Aliyun-HK-01",
     "Aliyun-HK-02",
   ];
+
+  const currentTargetRole =
+    uiValues["targetTags"]?.targetRoles ||
+    stepJson.Properties["Octopus.Action.TargetRoles"] ||
+    "";
 
   const currentResourceType =
     currentAction?.Properties[
@@ -365,46 +560,6 @@ export function StepConfigPanel({
     updateConfigMapItems(next);
   };
 
-  const ConfigSectionRenderer = ({ sectionKey }: { sectionKey: string }) => {
-    const fields = sectionFieldConfigs[sectionKey];
-
-    if (!fields || fields.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="space-y-2">
-        {fields.map((field) => {
-          if (field.type === "underline") {
-            return (
-              <UnderlineInput
-                key={field.id}
-                label={field.label || ""}
-                value={currentAction?.Properties[field.propKey] || ""}
-                onChange={(value) =>
-                  updateActionProperty(field.propKey, value)
-                }
-                placeholder={field.placeholder || field.label || ""}
-              />
-            );
-          }
-
-          return (
-            <Input.TextArea
-              key={field.id}
-              rows={field.rows ?? 3}
-              value={currentAction?.Properties[field.propKey] || ""}
-              onChange={(e) =>
-                updateActionProperty(field.propKey, e.target.value)
-              }
-              placeholder={field.placeholder || field.propKey}
-            />
-          );
-        })}
-      </div>
-    );
-  };
-
   const expandableKeys = configItems
     .filter((item) => item.expandable)
     .map((item) => item.key);
@@ -480,9 +635,9 @@ export function StepConfigPanel({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      {/* 顶部标题区 */}
-      <div className="p-6 border-b border-gray-100">
+    <div className="flex-1 flex flex-col h-full">
+      {/* 顶部标题区（固定在右侧面板顶部） */}
+      <div className="bg-white p-6 border-b border-gray-100">
         <div className="flex items-start gap-4">
           <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-2xl shrink-0">
             ☸️
@@ -523,8 +678,8 @@ export function StepConfigPanel({
         </div>
       </div>
 
-      {/* 配置项列表 */}
-      <div className="p-6">
+      {/* 配置项列表（滚动区域） */}
+      <div className="flex-1 overflow-y-auto p-6">
         <div className="flex justify-end mb-4">
           <Button
             type="link"
@@ -545,7 +700,7 @@ export function StepConfigPanel({
             return (
               <div
                 key={item.key}
-                className={`${index > 0 ? "border-t border-gray-200" : ""}`}
+                className={index > 0 ? "border-t border-gray-200" : ""}
               >
                 <div
                   className={`flex items-start px-4 py-4 ${
@@ -652,13 +807,11 @@ export function StepConfigPanel({
                                     .includes(input.toLowerCase())
                                 }
                                 onChange={(value) =>
-                                  setStepJson((prev) => ({
-                                    ...prev,
-                                    Properties: {
-                                      ...prev.Properties,
-                                      "Octopus.Action.TargetRoles": value,
-                                    },
-                                  }))
+                                  setFieldValue(
+                                    "targetTags",
+                                    "targetRoles",
+                                    value
+                                  )
                                 }
                                 placeholder="Select target role"
                                 bordered={false}
@@ -796,24 +949,14 @@ export function StepConfigPanel({
                           </div>
                         )}
 
-                        {item.key === "ingressBasic" && (
-                          <ConfigSectionRenderer sectionKey="ingressBasic" />
-                        )}
-
-                        {item.key === "ingressRules" && (
-                          <ConfigSectionRenderer sectionKey="ingressRules" />
-                        )}
-
-                        {item.key === "ingressTls" && (
-                          <ConfigSectionRenderer sectionKey="ingressTls" />
-                        )}
-
-                        {item.key === "ingressAnnotations" && (
-                          <ConfigSectionRenderer sectionKey="ingressAnnotations" />
-                        )}
-
-                        {item.key === "deploymentConfig" && (
-                          <ConfigSectionRenderer sectionKey="deploymentConfig" />
+                        {sectionFieldConfigs[item.key] && (
+                          <ConfigSectionRenderer
+                            sectionKey={item.key}
+                            currentAction={currentAction}
+                            uiValues={uiValues}
+                            updateActionProperty={updateActionProperty}
+                            setFieldValue={setFieldValue}
+                          />
                         )}
 
                         {item.key === "deploymentStrategy" && (
@@ -855,121 +998,16 @@ export function StepConfigPanel({
                           </div>
                         )}
 
-                        {item.key === "service" && (
-                          <ConfigSectionRenderer sectionKey="service" />
-                        )}
-
-                        {item.key === "volumes" && (
-                          <ConfigSectionRenderer sectionKey="volumes" />
-                        )}
-
-                        {item.key === "containers" && (
-                          <ConfigSectionRenderer sectionKey="containers" />
-                        )}
-
-                        {item.key === "configMap" && (
-                          <div className="space-y-4">
-                            <UnderlineInput
-                              label="ConfigMap name"
-                              value={
-                                currentAction?.Properties[
-                                  "Octopus.Action.KubernetesContainers.ConfigMapName"
-                                ] || ""
-                              }
-                              onChange={(value) =>
-                                setStepJson((prev) => ({
-                                  ...prev,
-                                  Actions: prev.Actions.map((a, index) =>
-                                    index === 0
-                                      ? {
-                                          ...a,
-                                          Properties: {
-                                            ...a.Properties,
-                                            "Octopus.Action.KubernetesContainers.ConfigMapName":
-                                              value,
-                                          },
-                                        }
-                                      : a
-                                  ),
-                                }))
-                              }
-                              placeholder="ConfigMap Name"
-                            />
-
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <div>
-                                  <div className="text-sm text-gray-700">
-                                    Config Map Items
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    The config map resource values
-                                  </div>
-                                </div>
-                                <Button
-                                  size="small"
-                                  type="default"
-                                  className="border-blue-500 text-blue-500 px-4 py-3"
-                                  onClick={() => handleAddConfigMapItem()}
-                                >
-                                  Add Config map item
-                                </Button>
-                              </div>
-
-                              <div className="space-y-3">
-                                {configMapItems.map((cm, idx) => (
-                                  <div
-                                    key={`${cm.key}-${idx}`}
-                                    className="border border-gray-200 rounded-md bg-white p-4 shadow-sm"
-                                  >
-                                    <div className="flex gap-4 items-start">
-                                      <div className="flex-1">
-                                        <UnderlineInput
-                                          label="Key"
-                                          value={cm.key}
-                                          onChange={(value) =>
-                                            handleConfigMapItemChange(
-                                              idx,
-                                              "key",
-                                              value
-                                            )
-                                          }
-                                          placeholder="Key"
-                                        />
-                                      </div>
-                                      <div className="flex-1">
-                                        <UnderlineInput
-                                          label="Value"
-                                          value={cm.value}
-                                          onChange={(value) =>
-                                            handleConfigMapItemChange(
-                                              idx,
-                                              "value",
-                                              value
-                                            )
-                                          }
-                                          placeholder="Value"
-                                        />
-                                      </div>
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<CloseOutlined />}
-                                        onClick={() =>
-                                          handleRemoveConfigMapItem(idx)
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                                {configMapItems.length === 0 && (
-                                  <div className="text-xs text-gray-400">
-                                    No config map items defined.
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                        {item.uiType === "keyValueList" && (
+                          <KeyValueListEditor
+                            item={item}
+                            currentAction={currentAction}
+                            configMapItems={configMapItems}
+                            updateActionProperty={updateActionProperty}
+                            onAddItem={handleAddConfigMapItem}
+                            onRemoveItem={handleRemoveConfigMapItem}
+                            onChangeItem={handleConfigMapItemChange}
+                          />
                         )}
                       </div>
                     </div>

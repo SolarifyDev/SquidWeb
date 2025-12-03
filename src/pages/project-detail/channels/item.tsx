@@ -1,7 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "antd";
 import { DownOutlined, MoreOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import {
+  CollapsibleSectionList,
+  type CollapsibleSectionItem,
+} from "components/CollapsibleSectionList";
 
 type ChannelSectionKey = "name" | "description" | "lifecycle" | "isDefault";
 
@@ -10,39 +14,6 @@ interface ChannelSection {
   label: string;
   summary: React.ReactNode;
   detail?: React.ReactNode;
-}
-
-function CollapsibleSection({
-  expanded,
-  children,
-}: {
-  expanded: boolean;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [height, setHeight] = useState(0);
-
-  useMemo(() => {
-    if (expanded && ref.current) {
-      setHeight(ref.current.scrollHeight);
-    } else {
-      setHeight(0);
-    }
-  }, [expanded, children]);
-
-  return (
-    <div
-      style={{
-        height: expanded ? height : 0,
-        overflow: "hidden",
-        transition: "height 200ms ease, opacity 200ms ease",
-        opacity: expanded ? 1 : 0,
-        marginTop: expanded ? 8 : 0,
-      }}
-    >
-      <div ref={ref}>{children}</div>
-    </div>
-  );
 }
 
 const channelSections: ChannelSection[] = [
@@ -172,30 +143,21 @@ const channelSections: ChannelSection[] = [
 
 function ChannelItem() {
   const navigate = useNavigate();
-  const [expandedKeys, setExpandedKeys] = useState<ChannelSectionKey[]>([]);
   const [isDirty, setIsDirty] = useState(false);
-
-  const allExpanded = channelSections.every((section) =>
-    expandedKeys.includes(section.key)
-  );
 
   const handleBackToList = () => {
     navigate(-1);
   };
 
-  const toggleItem = (key: ChannelSectionKey) => {
-    setExpandedKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
-
-  const handleToggleAll = () => {
-    if (allExpanded) {
-      setExpandedKeys([]);
-    } else {
-      setExpandedKeys(channelSections.map((section) => section.key));
-    }
-  };
+  const sectionItems: CollapsibleSectionItem[] = channelSections.map(
+    (section) => ({
+      key: section.key,
+      label: section.label,
+      summary: section.summary,
+      detail: section.detail,
+      expandable: true,
+    })
+  );
 
   return (
     <div className="h-full w-full p-6" onChange={() => setIsDirty(true)}>
@@ -230,67 +192,11 @@ function ChannelItem() {
         </div>
 
         <div className="pt-2">
-          <div className="flex justify-end mb-4">
-            <Button
-              type="link"
-              className="text-gray-500 text-sm p-0"
-              onClick={handleToggleAll}
-            >
-              {allExpanded ? "COLLAPSE ALL" : "EXPAND ALL"}
-            </Button>
-          </div>
-
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            {channelSections.map((section, index) => {
-              const isExpanded = expandedKeys.includes(section.key);
-
-              return (
-                <div
-                  key={section.key}
-                  className={index > 0 ? "border-t border-gray-200" : ""}
-                >
-                  <div
-                    className="flex items-start px-4 py-4 cursor-pointer bg-gray-50 hover:bg-gray-100"
-                    onClick={() => toggleItem(section.key)}
-                  >
-                    <div className="w-56 shrink-0">
-                      <span className="text-sm text-gray-700">
-                        {section.label}
-                      </span>
-                    </div>
-                    <div className="flex-1 text-sm text-gray-900">
-                      {section.summary}
-                    </div>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={
-                        <DownOutlined
-                          className={`transition-transform ${
-                            isExpanded ? "rotate-180" : ""
-                          }`}
-                        />
-                      }
-                      className="text-blue-500 ml-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleItem(section.key);
-                      }}
-                    />
-                  </div>
-
-                  <CollapsibleSection expanded={isExpanded}>
-                    <div className="flex px-4 pb-4">
-                      <div className="w-56 shrink-0" />
-                      <div className="flex-1">
-                        {section.detail}
-                      </div>
-                    </div>
-                  </CollapsibleSection>
-                </div>
-              );
-            })}
-          </div>
+          <CollapsibleSectionList
+            items={sectionItems}
+            showExpandAll
+            leftColumnWidthClassName="w-56"
+          />
         </div>
       </div>
     </div>

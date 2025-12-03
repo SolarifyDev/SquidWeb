@@ -65,6 +65,8 @@ function ProcessEditor() {
     configItems,
     isDirty,
     markSaved,
+    uiValues,
+    setFieldValue,
   } = useStepEditor(currentActionType);
 
   useEffect(() => {
@@ -156,6 +158,8 @@ function ProcessEditor() {
         configItems={configItems}
         isDirty={isDirty}
         markSaved={markSaved}
+        uiValues={uiValues}
+        setFieldValue={setFieldValue}
       />
     </div>
   );

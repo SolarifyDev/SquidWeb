@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useStepConfigForm } from "./useStepConfigForm";
 
 // 真实的 Octopus 步骤 JSON（简化版类型）
 export interface ActionJson {
@@ -24,6 +25,14 @@ export interface StepJson {
 }
 
 // 右侧栏目配置（纯数据，驱动 UI）
+export type UiControlType =
+  | "input"
+  | "textarea"
+  | "select"
+  | "radioGroup"
+  | "sectionFields"
+  | "keyValueList";
+
 export interface ConfigItem {
   key: string;
   label: string;
@@ -35,6 +44,8 @@ export interface ConfigItem {
   isSection?: boolean;
   detailParagraphs?: string[];
   detailBullets?: string[];
+  uiType?: UiControlType;
+  uiConfig?: any;
 }
 
 // 部署 Deployment 的 stepJson
@@ -282,6 +293,13 @@ const buildDeploymentConfigItems = (step: StepJson): ConfigItem[] => {
         `ConfigMap 名称: ${configMapName || "(未配置)"}`,
         "ConfigMapValues 中是注入到应用的配置键值对（JSON 格式）。",
       ],
+      uiType: "keyValueList",
+      uiConfig: {
+        namePropKey:
+          "Octopus.Action.KubernetesContainers.ConfigMapName",
+        valuesPropKey:
+          "Octopus.Action.KubernetesContainers.ConfigMapValues",
+      },
     },
   ];
 };
@@ -376,6 +394,18 @@ const buildIngressConfigItems = (step: StepJson): ConfigItem[] => {
       detailBullets: [
         "IngressTlsCertificates 为 JSON 数组，定义 hosts 与 secretName 对应关系。",
       ],
+      uiType: "sectionFields",
+      uiConfig: {
+        fields: [
+          {
+            control: "textarea",
+            propKey:
+              "Octopus.Action.KubernetesContainers.IngressTlsCertificates",
+            placeholder: "IngressTlsCertificates JSON",
+            rows: 4,
+          },
+        ],
+      },
     },
     {
       key: "ingressAnnotations",
@@ -387,6 +417,18 @@ const buildIngressConfigItems = (step: StepJson): ConfigItem[] => {
       detailBullets: [
         "IngressAnnotations 为 JSON 数组，定义 nginx 等控制器的自定义注解。",
       ],
+      uiType: "sectionFields",
+      uiConfig: {
+        fields: [
+          {
+            control: "textarea",
+            propKey:
+              "Octopus.Action.KubernetesContainers.IngressAnnotations",
+            placeholder: "IngressAnnotations JSON",
+            rows: 4,
+          },
+        ],
+      },
     },
   ];
 };
@@ -425,6 +467,10 @@ export function useStepEditor(actionType?: string) {
 
   const currentAction = stepJson.Actions[0];
 
+  // 基于当前 stepJson 构建 UI 层的表单值 Json（解耦 UI 与 StepJson）
+  const { uiValues, setFieldValue, buildUpdatedStepJson } =
+    useStepConfigForm(stepJson);
+
   const configItems = useMemo(() => buildConfigItems(stepJson), [stepJson]);
 
   const isDirty = useMemo(
@@ -433,7 +479,10 @@ export function useStepEditor(actionType?: string) {
   );
 
   const markSaved = () => {
-    setInitialSnapshot(JSON.stringify(stepJson));
+    // 先用 UI 表单的值构建一个最新的 StepJson，再作为保存基准
+    const updated = buildUpdatedStepJson();
+    setStepJson(updated);
+    setInitialSnapshot(JSON.stringify(updated));
   };
 
   return {
@@ -443,5 +492,8 @@ export function useStepEditor(actionType?: string) {
     configItems,
     isDirty,
     markSaved,
+    uiValues,
+    setFieldValue,
+    buildUpdatedStepJson,
   };
 }

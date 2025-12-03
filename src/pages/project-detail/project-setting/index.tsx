@@ -1,58 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "antd";
+import { DownOutlined, MoreOutlined } from "@ant-design/icons";
 import {
-  DownOutlined,
-  InfoCircleOutlined,
-  MoreOutlined,
-} from "@ant-design/icons";
-
-type SettingSectionKey =
-  | "name"
-  | "enabled"
-  | "logo"
-  | "description"
-  | "projectGroup"
-  | "lifecycle";
-
-interface SettingSection {
-  key: SettingSectionKey;
-  label: string;
-  summary: React.ReactNode;
-  detail?: React.ReactNode;
-}
-
-function CollapsibleSection({
-  expanded,
-  children,
-}: {
-  expanded: boolean;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [height, setHeight] = useState(0);
-
-  useMemo(() => {
-    if (expanded && ref.current) {
-      setHeight(ref.current.scrollHeight);
-    } else {
-      setHeight(0);
-    }
-  }, [expanded, children]);
-
-  return (
-    <div
-      style={{
-        height: expanded ? height : 0,
-        overflow: "hidden",
-        transition: "height 200ms ease, opacity 200ms ease",
-        opacity: expanded ? 1 : 0,
-        marginTop: expanded ? 8 : 0,
-      }}
-    >
-      <div ref={ref}>{children}</div>
-    </div>
-  );
-}
+  CollapsibleSectionList,
+  type CollapsibleSectionItem,
+} from "components/CollapsibleSectionList";
 
 function ProjectSetting() {
   const [projectName, setProjectName] = useState("Squid");
@@ -62,12 +14,11 @@ function ProjectSetting() {
   const [projectGroup, setProjectGroup] = useState("Solar");
   const [lifecycle, setLifecycle] = useState("All");
 
-  const [expandedKeys, setExpandedKeys] = useState<SettingSectionKey[]>([]);
   const [isDirty, setIsDirty] = useState(false);
 
   const markDirty = () => setIsDirty(true);
 
-  const sections: SettingSection[] = [
+  const sectionItems: CollapsibleSectionItem[] = [
     {
       key: "name",
       label: "Name",
@@ -110,6 +61,7 @@ function ProjectSetting() {
           </div>
         </div>
       ),
+      expandable: true,
     },
     {
       key: "enabled",
@@ -117,9 +69,7 @@ function ProjectSetting() {
       summary: (
         <span className="text-gray-900">
           {enabled ? "Yes" : "No"}
-          {enabled && (
-            <span className="text-gray-500"> (default)</span>
-          )}
+          {enabled && <span className="text-gray-500"> (default)</span>}
         </span>
       ),
       detail: (
@@ -142,6 +92,7 @@ function ProjectSetting() {
           </label>
         </div>
       ),
+      expandable: true,
     },
     {
       key: "logo",
@@ -159,15 +110,14 @@ function ProjectSetting() {
           <Button className="border-gray-300">Change logo...</Button>
         </div>
       ),
+      expandable: true,
     },
     {
       key: "description",
       label: "Description",
       summary: (
         <span className="text-gray-500">
-          {description
-            ? description
-            : "No project description provided"}
+          {description || "No project description provided"}
         </span>
       ),
       detail: (
@@ -200,6 +150,7 @@ function ProjectSetting() {
           </div>
         </div>
       ),
+      expandable: true,
     },
     {
       key: "projectGroup",
@@ -224,6 +175,7 @@ function ProjectSetting() {
           </div>
         </div>
       ),
+      expandable: true,
     },
     {
       key: "lifecycle",
@@ -231,9 +183,7 @@ function ProjectSetting() {
       summary: <span className="text-gray-900">{lifecycle}</span>,
       detail: (
         <div className="space-y-3 text-sm text-gray-700">
-          <div>
-            Select the default lifecycle for this project.
-          </div>
+          <div>Select the default lifecycle for this project.</div>
           <div className="space-y-1">
             <div className="text-xs text-gray-500">Lifecycle</div>
             <div className="border-b border-blue-500 pb-1 flex items-center justify-between text-sm text-gray-900">
@@ -260,37 +210,17 @@ function ProjectSetting() {
           </button>
         </div>
       ),
+      expandable: true,
     },
   ];
 
-  const allExpanded = sections.every((s) =>
-    expandedKeys.includes(s.key)
-  );
-
-  const toggleItem = (key: SettingSectionKey) => {
-    setExpandedKeys((prev) =>
-      prev.includes(key)
-        ? prev.filter((k) => k !== key)
-        : [...prev, key]
-    );
-  };
-
-  const handleToggleAll = () => {
-    if (allExpanded) {
-      setExpandedKeys([]);
-    } else {
-      setExpandedKeys(sections.map((s) => s.key));
-    }
-  };
-
   const handleSave = () => {
-    // 在这里接后端保存逻辑
-    // 目前只做 UI 效果
+    // TODO: 接入后端保存逻辑
     setIsDirty(false);
   };
 
   return (
-    <div className="h-full w-full p-6">
+    <div className="h-full w-full p-6" onChange={markDirty}>
       <div className="h-full w-full bg-white border border-gray-200 rounded shadow-sm px-8 py-0">
         {/* Header */}
         <div className="flex items-center justify-between py-4 mb-2">
@@ -316,65 +246,11 @@ function ProjectSetting() {
 
         {/* Sections */}
         <div className="pt-2">
-          <div className="flex justify-end mb-4">
-            <Button
-              type="link"
-              className="text-gray-500 text-sm p-0"
-              onClick={handleToggleAll}
-            >
-              {allExpanded ? "COLLAPSE ALL" : "EXPAND ALL"}
-            </Button>
-          </div>
-
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            {sections.map((section, index) => {
-              const isExpanded = expandedKeys.includes(section.key);
-
-              return (
-                <div
-                  key={section.key}
-                  className={index > 0 ? "border-top border-gray-200" : ""}
-                >
-                  <div
-                    className="flex items-start px-4 py-4 cursor-pointer bg-gray-50 hover:bg-gray-100"
-                    onClick={() => toggleItem(section.key)}
-                  >
-                    <div className="w-56 shrink-0">
-                      <span className="text-sm text-gray-700">
-                        {section.label}
-                      </span>
-                    </div>
-                    <div className="flex-1 text-sm text-gray-900">
-                      {section.summary}
-                    </div>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={
-                        <DownOutlined
-                          className={`transition-transform ${
-                            isExpanded ? "rotate-180" : ""
-                          }`}
-                        />
-                      }
-                      className="text-blue-500 ml-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleItem(section.key);
-                      }}
-                    />
-                  </div>
-
-                  <CollapsibleSection expanded={isExpanded}>
-                    <div className="flex px-4 pb-4">
-                      <div className="w-56 shrink-0" />
-                      <div className="flex-1">{section.detail}</div>
-                    </div>
-                  </CollapsibleSection>
-                </div>
-              );
-            })}
-          </div>
+          <CollapsibleSectionList
+            items={sectionItems}
+            showExpandAll
+            leftColumnWidthClassName="w-56"
+          />
         </div>
       </div>
     </div>
