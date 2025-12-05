@@ -9,7 +9,7 @@ const menu: MenuSection[] = [
   {
     group: '',
     items: [
-      { label: 'Projects', path: '/' }
+      { label: 'Projects', path: '/project' }
     ]
   },
   {
@@ -24,9 +24,9 @@ const menu: MenuSection[] = [
   {
     group: 'INFRASTRUCTURE',
     items: [
-      { label: 'Deployment Targets', path: '/deploy/deployment/targets' },
-      { label: 'Environments', path: '/deploy/environments' },
-      { label: 'Machine Policies', path: '/deploy/machine/policies' }
+      { label: 'Deployment Targets', path: '/deployment/targets' },
+      { label: 'Environments', path: '/environments' },
+      { label: 'Machine Policies', path: '/machine/policies' }
     ]
   },
   {
@@ -35,9 +35,9 @@ const menu: MenuSection[] = [
   {
     group: 'MANAGE',
     items: [
-      { label: 'Variable Sets', path: '/deploy/variable' },
-      { label: 'External Feeds', path: '/deploy/external/feeds' },
-      { label: 'Lifecycles', path: '/deploy/lifecycles' }
+      { label: 'Variable Sets', path: '/variable' },
+      { label: 'External Feeds', path: '/external/feeds' },
+      { label: 'Lifecycles', path: '/lifecycles' }
     ]
   }
 ];
@@ -70,7 +70,7 @@ const DeploySidebar: React.FC = () => {
             <div
               key={i}
               className={`px-8 py-1 text-sm cursor-pointer rounded ${
-                location.pathname === item.path
+                item.path && location.pathname.startsWith(item.path)
                   ? 'bg-blue-50 text-blue-600 font-semibold'
                   : 'hover:bg-gray-100'
               }`}

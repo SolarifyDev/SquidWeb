@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { Button, Input, Modal, Typography, Tooltip } from 'antd';
-import { 
+import React, { useState, useRef, useEffect } from 'react';
+import { Button, Input, Modal, Typography, Tooltip, Spin } from 'antd';
+import {
   SearchOutlined,
   BoldOutlined,
   ItalicOutlined,
@@ -11,15 +11,11 @@ import {
   CodeOutlined,
   FontSizeOutlined
 } from '@ant-design/icons';
+import { loadVariableSets, VariableSetItem } from 'pages/apis/variableSet';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
 
-interface VariableSet {
-  id: string;
-  name: string;
-  description?: string;
-}
 
 const VariableSets: React.FC = () => {
   const [searchText, setSearchText] = useState('');
@@ -28,15 +24,19 @@ const VariableSets: React.FC = () => {
   const [newSetDescription, setNewSetDescription] = useState('');
   const [showMarkdown, setShowMarkdown] = useState(false);
   const textAreaRef = useRef<any>(null);
-  
-  const variableSets: VariableSet[] = [
-    { id: '6', name: 'K8S Template Variable' },
-    { id: '8', name: 'PHP Team', description: 'PHP Team' },
-    { id: '9', name: 'PickGoGo' },
-    { id: '10', name: 'PocketStore' },
-  ];
+  const [variableSets, setVariableSets] = useState<VariableSetItem[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const filteredSets = variableSets.filter(set =>
+  useEffect(() => {
+    const fetchVariableSets = async () => {
+      var items = await loadVariableSets(setLoading);
+      setVariableSets(items);
+    };
+
+    fetchVariableSets();
+  }, []);
+
+  const filteredSets = variableSets.filter((set) =>
     set.name.toLowerCase().includes(searchText.toLowerCase())
   );
 
@@ -57,7 +57,7 @@ const VariableSets: React.FC = () => {
     setShowMarkdown(false);
   };
 
-  const handleItemClick = (item: VariableSet) => {
+  const handleItemClick = (item: VariableSetItem) => {
     console.log('Clicked:', item.name);
   };
 
@@ -122,25 +122,35 @@ const VariableSets: React.FC = () => {
       </div>
 
       {/* List */}
-      <div className="border-t border-gray-200">
-        {filteredSets.map((item) => (
-          <div
-            key={item.id}
-            className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-            onClick={() => handleItemClick(item)}
-          >
-            <div className="flex flex-col gap-1">
-              <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
-                {item.name}
-              </Link>
-              {item.description && (
-                <Text className="text-xs text-gray-500">
-                  {item.description}
-                </Text>
-              )}
-            </div>
+      <div className="border-t border-gray-200 min-h-[120px]">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <Spin tip="Loading variable sets..." />
           </div>
-        ))}
+        ) : filteredSets.length === 0 ? (
+          <div className="py-6 text-center text-gray-400 text-sm">
+            No variable sets found
+          </div>
+        ) : (
+          filteredSets.map((item) => (
+            <div
+              key={item.id}
+              className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => handleItemClick(item)}
+            >
+              <div className="flex flex-col gap-1">
+                <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
+                  {item.name}
+                </Link>
+                {item.description && (
+                  <Text className="text-xs text-gray-500">
+                    {item.description}
+                  </Text>
+                )}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Add Variable Set Modal */}
