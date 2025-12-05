@@ -159,7 +159,11 @@ const VariableSets: React.FC = () => {
         open={showAddModal}
         onCancel={handleCancelModal}
         footer={[
-          <Button key="cancel" onClick={handleCancelModal}>
+          <Button 
+            key="cancel" 
+            onClick={handleCancelModal}
+            className="!border-gray-300 !text-gray-700 hover:!border-gray-400 hover:!text-gray-800"
+          >
             Cancel
           </Button>,
           <Button 
@@ -167,7 +171,7 @@ const VariableSets: React.FC = () => {
             type="primary" 
             onClick={handleSaveVariableSet}
             disabled={!newSetName.trim()}
-            className="!bg-green-600 hover:!bg-green-700"
+            className="!bg-green-600 hover:!bg-green-700 !border-green-600 hover:!border-green-700 disabled:!bg-gray-300 disabled:!border-gray-300"
           >
             Save
           </Button>,
