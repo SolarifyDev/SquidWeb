@@ -2,6 +2,8 @@ import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
+import ExternalFeeds from 'pages/externalfeeds'
+import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
@@ -109,7 +111,7 @@ const routes = [
   },
   {
     path: '/deploy/external/feeds',
-    component: Project,
+    component: ExternalFeeds,
     name: 'External Feeds',
     meta: {
       icon: '🏠',
@@ -118,7 +120,7 @@ const routes = [
   },
   {
     path: '/deploy/lifecycles',
-    component: Project,
+    component: Lifecycles,
     name: 'Lifecycles',
     meta: {
       icon: '🏠',
