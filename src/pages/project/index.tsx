@@ -599,6 +599,12 @@ const Project: React.FC = () => {
                   pagination={false}
                   className="project-table"
                   scroll={{ x: 1000 }}
+                  rowClassName={() => "cursor-pointer"}
+                  onRow={(record: ProjectData) => ({
+                    onClick: () => {
+                      navigate(`/project/${encodeURIComponent(record.name)}/project-detail`);
+                    },
+                  })}
                 />
               </div>
             </div>

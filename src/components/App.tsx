@@ -150,8 +150,12 @@ function App() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  onMouseEnter={isDeployItem ? () => setIsProjectHovered(true) : undefined}
-                  onMouseLeave={isDeployItem ? () => setIsProjectHovered(false) : undefined}
+                  onMouseEnter={
+                    isDeployItem ? () => setIsProjectHovered(true) : undefined
+                  }
+                  onMouseLeave={
+                    isDeployItem ? () => setIsProjectHovered(false) : undefined
+                  }
                   className={[
                     "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
                     "text-gray-700 border border-transparent",
@@ -164,7 +168,9 @@ function App() {
                   <span
                     className={[
                       "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                      active ? "bg-blue-500 opacity-100" : "bg-transparent opacity-0",
+                      active
+                        ? "bg-blue-500 opacity-100"
+                        : "bg-transparent opacity-0",
                     ].join(" ")}
                   />
                 </Link>
@@ -173,38 +179,27 @@ function App() {
           </nav>
         </div>
         {/* DeploySidebar 只在点击 Deploy 时显示 */}
-        {(location.pathname === "/" || !location.pathname.startsWith("/tasks")) ? (
-        <div
-        className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
-          location.pathname.split("/").length > 3
-          ? "absolute left-[85px] top-0 h-full z-10 bg-white"
-          : ""
-        } ${
-          location.pathname.split("/").length <= 3 || isProjectHovered
-          ? "w-[220px] opacity-100"
-          : "w-0 opacity-0 pointer-events-none"
-        }`}
-        onMouseEnter={() => setIsProjectHovered(true)}
-        onMouseLeave={() => setIsProjectHovered(false)}
-        >
-          <DeploySidebar />
-        </div>
-         ) : null}
+        {location.pathname === "/" ||
+        !location.pathname.startsWith("/tasks") && (
+          <div
+            className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
+              location.pathname.split("/").length > 3
+                ? "absolute left-[85px] top-0 h-full z-10 bg-white"
+                : ""
+            } ${
+              location.pathname.split("/").length <= 3 || isProjectHovered
+                ? "w-[220px] opacity-100"
+                : "w-0 opacity-0 pointer-events-none"
+            }`}
+            onMouseEnter={() => setIsProjectHovered(true)}
+            onMouseLeave={() => setIsProjectHovered(false)}
+          >
+            <DeploySidebar />
+          </div>
+        )}
 
         <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] overflow-y-auto min-h-0">
-        <Routes>
-             {routes.map((route) => {
-                   const Component = route.component;
-
-                return (
-                   <Route
-                      key={route.path}
-                      path={route.path}
-                      element={Component ? <Component /> : null}
-               />
-              );
-              })}
-        </Routes>
+          <Routes>{renderRoutes(routes)}</Routes>
         </div>
       </div>
     </div>
