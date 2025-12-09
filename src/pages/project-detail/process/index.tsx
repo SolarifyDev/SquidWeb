@@ -1,60 +1,33 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button, Input, Modal } from "antd";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Button, Input, Modal, Alert, Spin } from "antd";
 import {
   SearchOutlined,
   FilterOutlined,
 } from "@ant-design/icons";
-
- // 模拟数据
-interface ProcessStep {
-  key: string;
-  order: number;
-  name: string;
-  description: string;
-  icon: string;
-  actionType: string;
-}
-
-interface LifecycleEnv {
-  key: string;
-  name: string;
-}
-
-const mockProcessSteps: ProcessStep[] = [
-  {
-    key: "1",
-    order: 1,
-    name: "Deploy deployment",
-    description:
-      "Deploy containers to Kubernetes, optionally exposed by a service and an ingress rule.",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployContainers",
-  },
-  {
-    key: "2",
-    order: 2,
-    name: "Deploy ingress",
-    description: "Deploy an ingress resource to Kubernetes",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployIngress",
-  },
-];
-
-const mockLifecycle = {
-  name: "AI",
-  environments: [
-    { key: "test", name: "TEST" },
-    { key: "prd", name: "PRD" },
-    { key: "uat", name: "UAT" },
-  ] as LifecycleEnv[],
-};
+import { useProcessSteps, useLifecycle } from "./data";
+import type { ProcessStep, LifecycleEnv } from "./constraints";
 
 function Process() {
   const navigate = useNavigate();
+  const location = useLocation();
+
   const [filterText, setFilterText] = useState("");
   const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
-  const [steps, setSteps] = useState<ProcessStep[]>(mockProcessSteps);
+
+  // 从 URL 查询参数里读取 deploymentProcessId，例如：
+  // /project/demo/project-detail/process?deploymentProcessId=1
+  const searchParams = new URLSearchParams(location.search);
+  const deploymentProcessIdParam = searchParams.get("deploymentProcessId");
+  const deploymentProcessId = deploymentProcessIdParam
+    ? Number(deploymentProcessIdParam)
+    : undefined;
+
+  // 后续接入接口时，只需要在 useProcessSteps/useLifecycle 内部改为请求数据即可
+  const { steps, setSteps, loading, error } = useProcessSteps(
+    Number.isFinite(deploymentProcessId) ? deploymentProcessId : undefined
+  );
+  const { lifecycle } = useLifecycle();
 
   const handleAddTemplate = (actionType: string) => {
     // 根据模板新增一个空的 step，然后跳转到对应 editor
@@ -93,7 +66,9 @@ function Process() {
   const filteredSteps = steps.filter(
     (step) =>
       step.name.toLowerCase().includes(filterText.toLowerCase()) ||
-      step.description.toLowerCase().includes(filterText.toLowerCase())
+      (step.description || "")
+        .toLowerCase()
+        .includes(filterText.toLowerCase())
   );
 
   return (
@@ -116,6 +91,18 @@ function Process() {
           </div>
         </div>
 
+        {/* 错误提示 */}
+        {error && (
+          <div className="mb-4">
+            <Alert
+              type="error"
+              message="Failed to load deployment process steps"
+              description={error}
+              showIcon
+            />
+          </div>
+        )}
+
         {/* 筛选栏 */}
         <div className="flex items-center gap-4 mb-6">
           <Input
@@ -137,34 +124,38 @@ function Process() {
 
         {/* 步骤列表 */}
         <div className="space-y-4">
-          {filteredSteps.map((step) => (
-            <div
-              key={step.key}
-              onClick={() =>
-                navigate(
-                  `${step.key}/editor?actionType=${encodeURIComponent(
-                    step.actionType
-                  )}`
-                )
-              }
-              className="flex items-start gap-4 py-4 border-t border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors -mx-2 px-2 rounded"
-            >
-              {/* 图标 */}
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-2xl shrink-0">
-                {step.icon}
-              </div>
-              {/* 内容 */}
-              <div className="flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-gray-500 text-base">{step.order}.</span>
-                  <span className="text-blue-600 font-semibold text-base hover:underline">
-                    {step.name}
-                  </span>
+          <Spin spinning={loading}>
+            {filteredSteps.map((step) => (
+              <div
+                key={step.key}
+                onClick={() =>
+                  navigate(
+                    `${step.key}/editor?actionType=${encodeURIComponent(
+                      step.actionType
+                    )}`
+                  )
+                }
+                className="flex items-start gap-4 py-4 border-t border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors -mx-2 px-2 rounded"
+              >
+                {/* 图标 */}
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-2xl shrink-0">
+                  {step.icon}
                 </div>
-                <p className="text-gray-500 text-sm mt-1">{step.description}</p>
+                {/* 内容 */}
+                <div className="flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-gray-500 text-base">{step.order}.</span>
+                    <span className="text-blue-600 font-semibold text-base hover:underline">
+                      {step.name}
+                    </span>
+                  </div>
+                  <p className="text-gray-500 text-sm mt-1">
+                    {step.description}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </Spin>
         </div>
       </div>
 
@@ -177,14 +168,14 @@ function Process() {
           </h3>
           <div className="flex items-center justify-between mb-3">
             <a href="#" className="text-blue-600 hover:underline">
-              {mockLifecycle.name}
+              {lifecycle.name}
             </a>
             <Button size="small" className="border-gray-300 text-gray-600">
               Change
             </Button>
           </div>
           <div className="space-y-2">
-            {mockLifecycle.environments.map((env) => (
+            {lifecycle.environments.map((env: LifecycleEnv) => (
               <div key={env.key} className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded bg-gray-400" />
                 <span className="text-gray-700 text-sm">{env.name}</span>

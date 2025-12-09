@@ -10,7 +10,7 @@ import type {
   StepJson,
   ActionJson,
   ConfigItem,
-} from "./useStepEditor";
+} from "../constraints";
 import type { UiValueJson } from "./useStepConfigForm";
 
 interface UnderlineInputProps {
@@ -503,9 +503,9 @@ export function StepConfigPanel({
   );
 
   const updateActionProperty = (propKey: string, value: string) => {
-    setStepJson((prev) => ({
+    setStepJson((prev: StepJson) => ({
       ...prev,
-      Actions: prev.Actions.map((a, index) =>
+      Actions: prev.Actions.map((a: ActionJson, index: number) =>
         index === 0
           ? {
               ...a,
@@ -522,9 +522,9 @@ export function StepConfigPanel({
   const updateConfigMapItems = (items: ConfigMapItemRow[]) => {
     const json = stringifyConfigMapValues(items);
 
-    setStepJson((prev) => ({
+    setStepJson((prev: StepJson) => ({
       ...prev,
-      Actions: prev.Actions.map((a, index) =>
+      Actions: prev.Actions.map((a: ActionJson, index: number) =>
         index === 0
           ? {
               ...a,
@@ -561,8 +561,8 @@ export function StepConfigPanel({
   };
 
   const expandableKeys = configItems
-    .filter((item) => item.expandable)
-    .map((item) => item.key);
+    .filter((item: ConfigItem) => item.expandable)
+    .map((item: ConfigItem) => item.key);
 
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
@@ -571,7 +571,7 @@ export function StepConfigPanel({
   );
 
   const toggleItem = (key: string) => {
-    setExpandedKeys((prev) =>
+    setExpandedKeys((prev: string[]) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
   };
@@ -588,7 +588,7 @@ export function StepConfigPanel({
     if (item.type === "tags" && item.tags && item.tags.length > 0) {
       return (
         <div className="flex flex-wrap gap-1">
-          {item.tags.map((tag) => (
+          {item.tags.map((tag: string) => (
             <Tag key={tag} className="bg-gray-100 border-gray-300">
               {tag}
             </Tag>
@@ -620,12 +620,12 @@ export function StepConfigPanel({
 
     return (
       <div className="space-y-1 text-xs text-gray-500">
-        {item.detailParagraphs?.map((text) => (
+        {item.detailParagraphs?.map((text: string) => (
           <p key={text}>{text}</p>
         ))}
         {item.detailBullets && item.detailBullets.length > 0 && (
           <ul className="list-disc list-inside space-y-1">
-            {item.detailBullets.map((bullet) => (
+            {item.detailBullets.map((bullet: string) => (
               <li key={bullet}>{bullet}</li>
             ))}
           </ul>
@@ -691,7 +691,7 @@ export function StepConfigPanel({
         </div>
 
         <div className="border border-gray-200 rounded-lg overflow-hidden">
-          {configItems.map((item, index) => {
+          {configItems.map((item: ConfigItem, index: number) => {
             const isExpanded = expandedKeys.includes(item.key);
             const hasDetailText =
               (item.detailParagraphs && item.detailParagraphs.length > 0) ||

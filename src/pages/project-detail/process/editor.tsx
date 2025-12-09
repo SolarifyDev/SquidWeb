@@ -6,40 +6,9 @@ import {
   MoreOutlined,
 } from "@ant-design/icons";
 import { useStepEditor } from "./useStepEditor";
-import { StepConfigPanel } from "./StepConfigPanel";
-
-interface ProcessStep {
-  key: string;
-  order: number;
-  name: string;
-  icon: string;
-  actionType: string;
-}
-
-const mockSteps: ProcessStep[] = [
-  {
-    key: "1",
-    order: 1,
-    name: "Deploy deployment",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployContainers",
-  },
-  {
-    key: "2",
-    order: 2,
-    name: "Deploy ingress",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployIngress",
-  },
-];
-
-const stepTypeMap: Record<string, string> = mockSteps.reduce(
-  (acc, step) => {
-    acc[step.key] = step.actionType;
-    return acc;
-  },
-  {} as Record<string, string>
-);
+import { StepConfigPanel } from "./component/StepConfigPanel";
+import { useEditorSteps } from "./data";
+import type { ProcessStep } from "./constraints";
 
 function ProcessEditor() {
   const { stepId } = useParams<{ stepId?: string }>();
@@ -47,7 +16,18 @@ function ProcessEditor() {
   const searchParams = new URLSearchParams(location.search);
   const actionTypeFromUrl = searchParams.get("actionType") || undefined;
 
-  const initialStepKey = stepId ?? mockSteps[0].key;
+  // 左侧步骤列表数据，通过 hook 获取，后续可在 hook 内部改为真实接口
+  const { steps } = useEditorSteps();
+
+  const stepTypeMap: Record<string, string> = steps.reduce(
+    (acc: Record<string, string>, step: ProcessStep) => {
+      acc[step.key] = step.actionType;
+      return acc;
+    },
+    {}
+  );
+
+  const initialStepKey = stepId ?? steps[0]?.key ?? "1";
   const initialActionType =
     actionTypeFromUrl ||
     stepTypeMap[initialStepKey] ||
@@ -77,9 +57,9 @@ function ProcessEditor() {
         setCurrentActionType(t);
       }
     }
-  }, [stepId, actionTypeFromUrl]);
+  }, [stepId, actionTypeFromUrl, stepTypeMap]);
 
-  const filteredSteps = mockSteps.filter((step) =>
+  const filteredSteps = steps.filter((step) =>
     step.name.toLowerCase().includes(filterText.toLowerCase())
   );
 

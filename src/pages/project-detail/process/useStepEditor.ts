@@ -1,134 +1,7 @@
 import { useMemo, useState } from "react";
-import { useStepConfigForm } from "./useStepConfigForm";
-
-// 真实的 Octopus 步骤 JSON（简化版类型）
-export interface ActionJson {
-  Id: string;
-  Name: string;
-  Slug: string;
-  ActionType: string;
-  Properties: Record<string, string>;
-  Condition: string;
-  [key: string]: any;
-}
-
-export interface StepJson {
-  Id: string;
-  Name: string;
-  Slug: string;
-  PackageRequirement: string;
-  Properties: Record<string, string>;
-  Condition: string;
-  StartTrigger: string;
-  Actions: ActionJson[];
-  [key: string]: any;
-}
-
-// 右侧栏目配置（纯数据，驱动 UI）
-export type UiControlType =
-  | "input"
-  | "textarea"
-  | "select"
-  | "radioGroup"
-  | "sectionFields"
-  | "keyValueList";
-
-export interface ConfigItem {
-  key: string;
-  label: string;
-  summary: string;
-  summaryNote?: string;
-  type?: "tags" | "text";
-  tags?: string[];
-  expandable?: boolean;
-  isSection?: boolean;
-  detailParagraphs?: string[];
-  detailBullets?: string[];
-  uiType?: UiControlType;
-  uiConfig?: any;
-}
-
-// 部署 Deployment 的 stepJson
-export const deploymentStepJson: StepJson = {
-  Id: "5cc5ffe5-0460-416a-87e6-d2e4240b04bc",
-  Name: "Deploy deployment",
-  Slug: "deploy-web",
-  PackageRequirement: "LetOctopusDecide",
-  Properties: {
-    "Octopus.Action.TargetRoles": "Aliyun-HK-03",
-  },
-  Condition: "Success",
-  StartTrigger: "StartAfterPrevious",
-  Actions: [
-    {
-      Id: "dde201be-1129-43b1-8bbe-835d60a101c2",
-      Name: "Deploy deployment",
-      Slug: "deploy-deployment",
-      ActionType: "Octopus.KubernetesDeployContainers",
-      Condition: "Success",
-      Properties: {
-        "Octopus.Action.EnabledFeatures":
-          ",Octopus.Features.KubernetesService,Octopus.Features.KubernetesIngress,Octopus.Features.KubernetesConfigMap,Octopus.Features.KubernetesSecret",
-        "Octopus.Action.KubernetesContainers.Replicas": "1",
-        "Octopus.Action.KubernetesContainers.DeploymentStyle": "RollingUpdate",
-        "Octopus.Action.KubernetesContainers.PodManagementPolicy": "OrderedReady",
-        "Octopus.Action.KubernetesContainers.ServiceNameType": "External",
-        "Octopus.Action.KubernetesContainers.DeploymentResourceType": "Deployment",
-        "Octopus.Action.KubernetesContainers.DeploymentWait": "Wait",
-        "Octopus.Action.KubernetesContainers.ServiceType": "ClusterIP",
-        "Octopus.Action.KubernetesContainers.IngressAnnotations": "[]",
-        "Octopus.Action.KubernetesContainers.DeploymentName": "squid-deploy",
-        "Octopus.Action.KubernetesContainers.CombinedVolumes": "[]",
-        "Octopus.Action.KubernetesContainers.Containers":
-          '[{"Name":"squid","FeedId":"Feeds-1083","Ports":[{"key":"http","value":"8080","option":"TCP"}]}]',
-        "Octopus.Action.KubernetesContainers.Namespace": "#{namespace}",
-        "Octopus.Action.KubernetesContainers.ServiceName": "squid-service",
-        "Octopus.Action.KubernetesContainers.ServicePorts":
-          '[{"name":"http","port":"8080","targetPort":"8080","nodePort":"","protocol":"TCP"}]',
-        "Octopus.Action.KubernetesContainers.ConfigMapValues":
-          '{"ASPNETCORE_ENVIRONMENT":"#{ASPNETCORE_ENVIRONMENT}","Environment":"#{Environment}","Serilog__Seq__ApiKey":"#{Serilog:Seq:ApiKey}","Serilog__Seq__ServerUrl":"#{Serilog:Seq:ServerUrl}","SquidStore__Postgres__ConnectionString":"#{SquidStore:Postgres:ConnectionString}","SquidStore__Type":"#{SquidStore:Type}","Security__VariableEncryption__MasterKey":"#{Security:VariableEncryption:MasterKey}","AllowableCorsOrigins":"#{AllowableCorsOrigins}","SelfCert__Base64":"#{SelfCert:Base64}","SelfCert__Password":"#{SelfCert:Password}"}',
-        "Octopus.Action.Kubernetes.ServerSideApply.Enabled": "False",
-        "Octopus.Action.Kubernetes.ServerSideApply.ForceConflicts": "False",
-        "Octopus.Action.KubernetesContainers.ConfigMapName": "squid-configmap",
-      },
-    },
-  ],
-};
-
-// 你提供的 Ingress stepJson
-export const ingressStepJson: StepJson = {
-  Id: "1ed2f05c-a330-40ed-9936-987a61bb1df4",
-  Name: "Deploy ingress",
-  Slug: "deploy-ingress",
-  PackageRequirement: "LetOctopusDecide",
-  Properties: {
-    "Octopus.Action.TargetRoles": "Aliyun-HK-03",
-  },
-  Condition: "Success",
-  StartTrigger: "StartAfterPrevious",
-  Actions: [
-    {
-      Id: "8ea1a5c4-1c8f-4466-901e-7c3b34e20260",
-      Name: "Deploy ingress",
-      Slug: "deploy-ingress",
-      ActionType: "Octopus.KubernetesDeployIngress",
-      Condition: "Success",
-      Properties: {
-        "Octopus.Action.KubernetesContainers.IngressAnnotations":
-          '[{"key":"nginx.ingress.kubernetes.io/ssl-redirect","keyError":null,"value":"true","valueError":null,"option":"","optionError":null,"option2":"","option2Error":null},{"key":"prometheus.io/probe","keyError":null,"value":"true","valueError":null,"option":"","optionError":null,"option2":"","option2Error":null},{"key":"cert-manager.io/cluster-issuer","keyError":null,"value":"letsencrypt","valueError":null,"option":"","optionError":null,"option2":"","option2Error":null},{"key":"kubernetes.io/tls-acme","keyError":null,"value":"true","valueError":null,"option":"","optionError":null,"option2":"","option2Error":null},{"key":"nginx.ingress.kubernetes.io/proxy-body-size","keyError":null,"value":"0","valueError":null,"option":"","optionError":null,"option2":"","option2Error":null}]',
-        "Octopus.Action.KubernetesContainers.IngressName": "squid-ingress",
-        "Octopus.Action.KubernetesContainers.IngressRules":
-          '[{"host":"#{IngressBaseDomainName}","http":{"paths":[{"key":"/","value":"8080","option":"squid-service","option2":"ImplementationSpecific"}]}}]',
-        "Octopus.Action.KubernetesContainers.IngressTlsCertificates":
-          '[{"hosts":["#{IngressBaseDomainName}"],"certificateVariableName":null,"secretName":"tls-squid-secret"}]',
-        "Octopus.Action.KubernetesContainers.Namespace": "#{namespace}",
-        "Octopus.Action.Kubernetes.ServerSideApply.Enabled": "False",
-        "Octopus.Action.Kubernetes.ServerSideApply.ForceConflicts": "False",
-        "Octopus.Action.KubernetesContainers.IngressClassName": "nginx",
-      },
-    },
-  ],
-};
+import { useStepConfigForm } from "./component/useStepConfigForm";
+import type { StepJson, ActionJson, ConfigItem } from "./constraints";
+import { getInitialTemplate } from "./data";
 
 // Deployment 类型的右侧栏目
 const buildDeploymentConfigItems = (step: StepJson): ConfigItem[] => {
@@ -433,7 +306,7 @@ const buildIngressConfigItems = (step: StepJson): ConfigItem[] => {
   ];
 };
 
- // 根据当前 stepJson 组装右侧栏目信息（纯数据）
+// 根据当前 stepJson 组装右侧栏目信息（纯数据）
 export const buildConfigItems = (step: StepJson): ConfigItem[] => {
   const action = step.Actions[0];
 
@@ -443,11 +316,6 @@ export const buildConfigItems = (step: StepJson): ConfigItem[] => {
 
   return buildDeploymentConfigItems(step);
 };
-
-const getInitialTemplate = (actionType?: string): StepJson =>
-  actionType === "Octopus.KubernetesDeployIngress"
-    ? ingressStepJson
-    : deploymentStepJson;
 
 export function useStepEditor(actionType?: string) {
   const [stepJson, setStepJson] = useState<StepJson>(() =>
@@ -465,7 +333,7 @@ export function useStepEditor(actionType?: string) {
     setInitialSnapshot(JSON.stringify(next));
   }, [actionType]);
 
-  const currentAction = stepJson.Actions[0];
+  const currentAction: ActionJson | undefined = stepJson.Actions[0];
 
   // 基于当前 stepJson 构建 UI 层的表单值 Json（解耦 UI 与 StepJson）
   const { uiValues, setFieldValue, buildUpdatedStepJson } =

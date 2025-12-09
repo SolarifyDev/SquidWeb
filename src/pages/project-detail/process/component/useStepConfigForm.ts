@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { StepJson, ActionJson } from "./useStepEditor";
+import type { StepJson, ActionJson } from "../constraints";
 
 /**
  * UI 层的通用配置模型（完全不关心 StepJson 结构）
