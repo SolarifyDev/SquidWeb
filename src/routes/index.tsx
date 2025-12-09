@@ -1,7 +1,12 @@
-import Project from "pages/project";
-import NotFound from "pages/notfound";
-import Tasks from "pages/tasks";
-import VariableSets from "pages/variablesets";
+import Project from 'pages/project'
+import NotFound from 'pages/notfound'
+import Tasks from 'pages/tasks'
+import VariableSets from 'pages/variablesets'
+import ExternalFeeds from 'pages/externalfeeds'
+import Lifecycles from 'pages/lifecycles'
+import DeploymentTargets from 'pages/deploymentTargets'
+import Environments from 'pages/Environments/index'
+import MachinePolicies from 'pages/machinePolicies'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/process";
@@ -103,7 +108,61 @@ const routes = [
     ],
   },
   {
-    path: "/tasks",
+    path: '/deploy/variable',
+    component: VariableSets,
+    name: 'Variable Sets',
+    meta: {
+      icon: '⚙️',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/deployment/targets',
+    component: DeploymentTargets,
+    name: 'Deployment Targets',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/environments',
+    component: Environments,
+    name: 'Environments',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/machine/policies',
+    component: MachinePolicies,
+    name: 'Machine Policies',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/external/feeds',
+    component: ExternalFeeds,
+    name: 'External Feeds',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/deploy/lifecycles',
+    component: Lifecycles,
+    name: 'Lifecycles',
+    meta: {
+      icon: '🏠',
+      showInNav: true
+    }
+  },
+  {
+    path: '/tasks',
     component: Tasks,
     name: "Tasks",
   },

@@ -139,7 +139,7 @@ function App() {
         </div>
       </div>
 
-      <div className="page-content flex flex-1 relative">
+      <div className="page-content flex flex-1 min-h-0">
         {/* 主导航栏 */}
         <div className="page-content-left-bar">
           <nav className="flex flex-col gap-2 mt-4">
@@ -173,26 +173,38 @@ function App() {
           </nav>
         </div>
         {/* DeploySidebar 只在点击 Deploy 时显示 */}
-        {(location.pathname === "/" ||
-          !location.pathname.startsWith("/tasks")) && (
-          <div
-            className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
-              location.pathname.split("/").length > 3
-                ? "absolute left-[85px] top-0 h-full z-10 bg-white"
-                : ""
-            } ${
-              location.pathname.split("/").length <= 3 || isProjectHovered
-                ? "w-[220px] opacity-100"
-                : "w-0 opacity-0 pointer-events-none"
-            }`}
-            onMouseEnter={() => setIsProjectHovered(true)}
-            onMouseLeave={() => setIsProjectHovered(false)}
-          >
-            <DeploySidebar />
-          </div>
-        )}
-        <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)]">
-          <Routes>{renderRoutes(routes)}</Routes>
+        {(location.pathname === "/" || !location.pathname.startsWith("/tasks")) ? (
+        <div
+        className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
+          location.pathname.split("/").length > 3
+          ? "absolute left-[85px] top-0 h-full z-10 bg-white"
+          : ""
+        } ${
+          location.pathname.split("/").length <= 3 || isProjectHovered
+          ? "w-[220px] opacity-100"
+          : "w-0 opacity-0 pointer-events-none"
+        }`}
+        onMouseEnter={() => setIsProjectHovered(true)}
+        onMouseLeave={() => setIsProjectHovered(false)}
+        >
+          <DeploySidebar />
+        </div>
+         ) : null}
+
+        <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] overflow-y-auto min-h-0">
+        <Routes>
+             {routes.map((route) => {
+                   const Component = route.component;
+
+                return (
+                   <Route
+                      key={route.path}
+                      path={route.path}
+                      element={Component ? <Component /> : null}
+               />
+              );
+              })}
+        </Routes>
         </div>
       </div>
     </div>
