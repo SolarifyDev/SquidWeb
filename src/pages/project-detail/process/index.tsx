@@ -1,32 +1,65 @@
-import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { Button, Input, Modal, Alert, Spin } from "antd";
-import {
-  SearchOutlined,
-  FilterOutlined,
-} from "@ant-design/icons";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Button, Input, Modal, Alert, Spin, message } from "antd";
+import { SearchOutlined, FilterOutlined } from "@ant-design/icons";
 import { useProcessSteps, useLifecycle } from "./data";
 import type { ProcessStep, LifecycleEnv } from "./constraints";
+import { GetProjects, ProjectDto } from "pages/apis/project";
 
 function Process() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { projectName } = useParams<{ projectName: string }>();
 
   const [filterText, setFilterText] = useState("");
   const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
 
-  // 从 URL 查询参数里读取 deploymentProcessId，例如：
-  // /project/demo/project-detail/process?deploymentProcessId=1
-  const searchParams = new URLSearchParams(location.search);
-  const deploymentProcessIdParam = searchParams.get("deploymentProcessId");
-  const deploymentProcessId = deploymentProcessIdParam
-    ? Number(deploymentProcessIdParam)
-    : undefined;
+  const [project, setProject] = useState<ProjectDto | null>(null);
+  const [loadingProject, setLoadingProject] = useState(false);
 
-  // 后续接入接口时，只需要在 useProcessSteps/useLifecycle 内部改为请求数据即可
-  const { steps, setSteps, loading, error } = useProcessSteps(
-    Number.isFinite(deploymentProcessId) ? deploymentProcessId : undefined
+  // 根据路由里的 projectName 加载项目，再从 ProjectDto.deploymentProcessId 推导 deploymentProcessId
+  useEffect(() => {
+    if (!projectName) {
+      return;
+    }
+
+    const loadProject = async () => {
+      try {
+        setLoadingProject(true);
+        const res = await GetProjects({
+          pageIndex: 1,
+          pageSize: 50,
+          keyword: projectName,
+        });
+
+        const found =
+          res.projects.find((p) => p.name === projectName) ||
+          res.projects[0] ||
+          null;
+
+        setProject(found);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("加载项目失败", error);
+        message.error("加载项目失败");
+      } finally {
+        setLoadingProject(false);
+      }
+    };
+
+    loadProject();
+  }, [projectName]);
+
+  const deploymentProcessId = project?.deploymentProcessId;
+
+  const {
+    steps,
+    setSteps,
+    loading: loadingSteps,
+    error,
+  } = useProcessSteps(
+    typeof deploymentProcessId === "number" ? deploymentProcessId : undefined
   );
+
   const { lifecycle } = useLifecycle();
 
   const handleAddTemplate = (actionType: string) => {
@@ -57,9 +90,7 @@ function Process() {
 
     setSteps((prev) => [...prev, newStep]);
 
-    navigate(
-      `${newKey}/editor?actionType=${encodeURIComponent(actionType)}`
-    );
+    navigate(`${newKey}/editor?actionType=${encodeURIComponent(actionType)}`);
     setIsAddStepModalOpen(false);
   };
 
@@ -124,7 +155,7 @@ function Process() {
 
         {/* 步骤列表 */}
         <div className="space-y-4">
-          <Spin spinning={loading}>
+          <Spin spinning={loadingSteps || loadingProject}>
             {filteredSteps.map((step) => (
               <div
                 key={step.key}
@@ -144,7 +175,9 @@ function Process() {
                 {/* 内容 */}
                 <div className="flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500 text-base">{step.order}.</span>
+                    <span className="text-gray-500 text-base">
+                      {step.order}.
+                    </span>
                     <span className="text-blue-600 font-semibold text-base hover:underline">
                       {step.name}
                     </span>

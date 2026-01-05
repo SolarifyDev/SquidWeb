@@ -7,25 +7,6 @@ import type {
 import { GetDeploymentProcess } from "pages/apis/deploymentProcess";
 
 // 内部 mock 数据，后续可以在各个 hook 里替换为接口请求结果
-const defaultProcessSteps: ProcessStep[] = [
-  {
-    key: "1",
-    order: 1,
-    name: "Deploy deployment",
-    description:
-      "Deploy containers to Kubernetes, optionally exposed by a service and an ingress rule.",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployContainers",
-  },
-  {
-    key: "2",
-    order: 2,
-    name: "Deploy ingress",
-    description: "Deploy an ingress resource to Kubernetes",
-    icon: "☸️",
-    actionType: "Octopus.KubernetesDeployIngress",
-  },
-];
 
 const defaultLifecycle = {
   name: "AI",
@@ -137,13 +118,15 @@ const defaultIngressStepJson: StepJson = {
 
 // hook：获取 Process 列表步骤（后续可以在这里发请求）
 export function useProcessSteps(deploymentProcessId?: number) {
-  const [steps, setSteps] = useState<ProcessStep[]>(defaultProcessSteps);
+  const [steps, setSteps] = useState<ProcessStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!deploymentProcessId) {
-      // 没有传入 id 时，暂时使用默认 mock 数据
+      setSteps([]);
+      setError(null);
+      setLoading(false);
       return;
     }
 

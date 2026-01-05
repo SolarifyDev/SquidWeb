@@ -20,7 +20,7 @@ function getToken(): string | null {
 
 // 创建 axios 实例
 const instance: AxiosInstance = axios.create({
-  baseURL: 'https://test-squid.solarifyai.com/api',
+  baseURL: 'https://localhost:7078/api',
   timeout: 15000,
 })
 
@@ -136,4 +136,3 @@ export default {
   put,
   delete: del,
 }
-

@@ -1,170 +1,126 @@
-import React, { useState } from "react";
-import { Select, Button } from "antd";
+import React, { useState, useEffect, useMemo } from "react";
+import { Select, Button, Spin, Empty, Tag, message } from "antd";
 import {
   CheckOutlined,
   MoreOutlined,
   FilterOutlined,
-  LoadingOutlined,
-  ClockCircleOutlined,
 } from "@ant-design/icons";
-import channels, { DeploymentItem, ChannelData } from "./mock-detail-data";
+import { useParams } from "react-router-dom";
+import { GetProjects, ProjectDto } from "pages/apis/project";
+import { GetChannels, ChannelDto } from "pages/apis/channel";
+import { GetReleases, ReleaseDto, GetReleasesResponseData } from "pages/apis/release";
+
+const { Option } = Select;
 
 const Deployments: React.FC = () => {
-  const [selectedChannel, setSelectedChannel] = useState<string>("all");
+  const { projectName } = useParams<{ projectName: string }>();
 
-  // 获取环境标签
-  const getEnvironmentLabel = (envKey: string) => {
-    const labels: { [key: string]: string } = {
-      test: "TEST",
-      aut: "AUT",
-      prd: "PRD",
-      prd1: "PRD1",
-      staging: "STAGING",
-      production: "PRODUCTION",
-    };
-    return labels[envKey] || envKey.toUpperCase();
-  };
+  const [project, setProject] = useState<ProjectDto | null>(null);
+  const [channels, setChannels] = useState<ChannelDto[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | "all">("all");
+  const [releases, setReleases] = useState<ReleaseDto[]>([]);
+  const [currentDeployedReleaseIds, setCurrentDeployedReleaseIds] = useState<number[]>([]);
 
-  // 获取状态图标
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "Success":
-        return (
-          <div className="flex items-center justify-center w-7 h-7 rounded bg-green-600 text-white">
-            <CheckOutlined className="text-base" />
-          </div>
-        );
-      case "Running":
-        return (
-          <div className="flex items-center justify-center w-7 h-7 rounded bg-blue-500 text-white">
-            <LoadingOutlined className="text-base" />
-          </div>
-        );
-      case "Pending":
-        return (
-          <div className="flex items-center justify-center w-7 h-7 rounded bg-gray-400 text-white">
-            <ClockCircleOutlined className="text-base" />
-          </div>
-        );
-      case "Failed":
-        return (
-          <div className="flex items-center justify-center w-7 h-7 rounded bg-red-500 text-white">
-            <span className="text-base font-bold">×</span>
-          </div>
-        );
-      default:
-        return null;
+  const [loadingProject, setLoadingProject] = useState(false);
+  const [loadingChannels, setLoadingChannels] = useState(false);
+  const [loadingReleases, setLoadingReleases] = useState(false);
+
+  // 加载项目（根据路由里的 projectName 模糊匹配）
+  useEffect(() => {
+    if (!projectName) {
+      return;
     }
-  };
 
-  // 过滤要显示的 channels
-  const displayChannels =
-    selectedChannel === "all"
-      ? channels
-      : channels.filter((c) => c.key === selectedChannel);
+    const loadProject = async () => {
+      try {
+        setLoadingProject(true);
+        const res = await GetProjects({ pageIndex: 1, pageSize: 50, keyword: projectName });
+        const found = res.projects.find((p) => p.name === projectName) || res.projects[0] || null;
+        setProject(found);
+      } catch (error) {
+        console.error("加载项目失败", error);
+        message.error("加载项目失败");
+      } finally {
+        setLoadingProject(false);
+      }
+    };
 
-  // 渲染单个 Channel 区块
-  const renderChannelSection = (channel: ChannelData) => {
-    const envKeys = Object.keys(channel.environments);
+    loadProject();
+  }, [projectName]);
 
-    // 收集所有版本并按时间排序
-    const allVersions = new Set<string>();
-    const deploymentMap = new Map<string, Map<string, DeploymentItem>>();
+  // 加载项目下的渠道
+  useEffect(() => {
+    if (!project) {
+      return;
+    }
 
-    Object.entries(channel.environments).forEach(([envKey, deployments]) => {
-      deployments.forEach((deployment) => {
-        allVersions.add(deployment.version);
-        if (!deploymentMap.has(deployment.version)) {
-          deploymentMap.set(deployment.version, new Map());
+    const loadChannels = async () => {
+      try {
+        setLoadingChannels(true);
+        const res = await GetChannels({ pageIndex: 1, pageSize: 100 });
+        const projectChannels = res.channels.filter((c) => c.projectId === project.id);
+        setChannels(projectChannels);
+
+        if (projectChannels.length > 0) {
+          setSelectedChannelId(projectChannels[0].id);
         }
-        deploymentMap.get(deployment.version)!.set(envKey, deployment);
-      });
-    });
+      } catch (error) {
+        console.error("加载渠道失败", error);
+        message.error("加载渠道失败");
+      } finally {
+        setLoadingChannels(false);
+      }
+    };
 
-    const sortedVersions = Array.from(allVersions);
+    loadChannels();
+  }, [project]);
 
-    return (
-      <div key={channel.key} className="mb-12">
-        <div className="overflow-x-auto">
-          {/* Channel 标题行 */}
-          <div className="flex items-center mb-4 min-w-max">
-            <div className="w-[280px] shrink-0">
-              <span className="font-semibold text-base text-gray-800">
-                Channel: {channel.name}
-              </span>
-            </div>
-            {envKeys.map((envKey) => (
-              <div key={envKey} className="w-[240px] shrink-0 mr-4">
-                <span className="text-gray-500 text-base">
-                  {getEnvironmentLabel(envKey)}
-                </span>
-              </div>
-            ))}
-          </div>
+  // 加载 Release 列表
+  useEffect(() => {
+    if (!project) {
+      return;
+    }
 
-          {/* 版本行 */}
-          <div>
-            {sortedVersions.map((version) => {
-              const envDeployments = deploymentMap.get(version)!;
+    const loadReleases = async () => {
+      try {
+        setLoadingReleases(true);
 
-              return (
-                <div
-                  key={version}
-                  className="flex items-start py-3 border-t border-gray-100 min-w-max"
-                >
-                  {/* 版本链接 */}
-                  <div className="w-[280px] shrink-0 pr-6 py-1">
-                    <a
-                      href="#"
-                      className="text-blue-600 text-base font-semibold hover:underline break-words leading-6"
-                    >
-                      {version}
-                    </a>
-                  </div>
+        const params: { pageIndex: number; pageSize: number; projectId: number; channelId?: number } = {
+          pageIndex: 1,
+          pageSize: 50,
+          projectId: project.id,
+        };
 
-                  {/* 各环境状态 */}
-                  {envKeys.map((envKey) => {
-                    const deployment = envDeployments.get(envKey);
-                    const currentVersion = channel.currentDeployed?.[envKey];
-                    const isCurrent = deployment?.version === currentVersion;
+        if (selectedChannelId !== "all") {
+          params.channelId = selectedChannelId as number;
+        }
 
-                    if (deployment) {
-                      return (
-                        <div
-                          key={envKey}
-                          className={`w-[260px] shrink-0 flex items-start gap-3 py-1 px-2 mr-4 rounded-md cursor-pointer hover:bg-gray-100 transition-colors ${!isCurrent ? 'opacity-50' : ''}`}
-                        >
-                          <div className="mt-1">{getStatusIcon(deployment.status)}</div>
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <span className={`text-base text-gray-700 break-words leading-6 ${isCurrent ? 'font-semibold' : ''}`}>
-                              {deployment.version}
-                            </span>
-                            <span className={`text-sm text-gray-400 mt-0.5 ${isCurrent ? 'font-medium' : ''}`}>
-                              {deployment.time}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }
+        const res: GetReleasesResponseData = await GetReleases(params);
+        setReleases(res.releases || []);
+        setCurrentDeployedReleaseIds(res.currentDeployedReleaseIds || []);
+      } catch (error) {
+        console.error("加载 Release 列表失败", error);
+        message.error("加载 Release 列表失败");
+      } finally {
+        setLoadingReleases(false);
+      }
+    };
 
-                    // 没有部署记录时显示 Deploy 按钮
-                    return (
-                      <div key={envKey} className="w-[240px] shrink-0 py-1 px-2 mr-4">
-                        <Button
-                          className="border-gray-300 text-gray-600 hover:border-blue-500 hover:text-blue-500"
-                        >
-                          Deploy...
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
+    loadReleases();
+  }, [project, selectedChannelId]);
+
+  const loading = loadingProject || loadingChannels || loadingReleases;
+
+  const filteredReleases = useMemo(
+    () =>
+      releases.filter((r) =>
+        selectedChannelId === "all" ? true : r.channelId === selectedChannelId,
+      ),
+    [releases, selectedChannelId],
+  );
+
+  const getChannelName = (channelId: number) => {
+    return channels.find((c) => c.id === channelId)?.name || `Channel ${channelId}`;
   };
 
   return (
@@ -184,8 +140,83 @@ const Deployments: React.FC = () => {
         </div>
       </div>
 
-      {/* Channel 列表 */}
-      <div>{displayChannels.map(renderChannelSection)}</div>
+      {/* 过滤栏 */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600">Channel</span>
+          <Select
+            value={selectedChannelId}
+            onChange={setSelectedChannelId}
+            style={{ minWidth: 200 }}
+            size="middle"
+            loading={loadingChannels}
+          >
+            <Option value="all">All channels</Option>
+            {channels.map((c) => (
+              <Option key={c.id} value={c.id}>
+                {c.name || `Channel ${c.id}`}
+              </Option>
+            ))}
+          </Select>
+        </div>
+
+        <Button icon={<FilterOutlined />} className="flex items-center">
+          Filters
+        </Button>
+      </div>
+
+      {/* 内容区域 */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Spin tip="Loading deployments..." />
+        </div>
+      ) : !project ? (
+        <div className="flex items-center justify-center py-20">
+          <Empty description="Project not found" />
+        </div>
+      ) : filteredReleases.length === 0 ? (
+        <div className="flex items-center justify-center py-20">
+          <Empty description="No releases found" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredReleases.map((release) => {
+            const isCurrent = currentDeployedReleaseIds.includes(release.id);
+
+            return (
+              <div
+                key={release.id}
+                className="flex items-center justify-between border border-gray-200 rounded px-4 py-3 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex flex-col gap-1 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <a
+                      href="#"
+                      className="text-blue-600 font-semibold text-sm truncate max-w-xs"
+                    >
+                      {release.version}
+                    </a>
+                    {isCurrent && (
+                      <Tag color="green" icon={<CheckOutlined />}>Current</Tag>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Assembled: {new Date(release.assembled).toLocaleString()} · {getChannelName(release.channelId)}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* 预留后续 Operation 按钮位置 */}
+                  <Button size="small" className="text-xs">
+                    View
+                  </Button>
+                  <Button size="small" icon={<MoreOutlined />} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

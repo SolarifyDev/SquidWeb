@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Button, 
   Input, 
@@ -64,6 +64,8 @@ interface ProjectGroup {
 }
 
 import { useNavigate } from "react-router-dom";
+import { GetProjects, ProjectDto, CreateProject, CreateProjectPayload } from 'pages/apis/project';
+import { GetLifeCycles, LifecyclePhaseDto } from 'pages/apis/lifecycle';
 
 const Project: React.FC = () => {
   const [searchText, setSearchText] = useState('');
@@ -84,162 +86,74 @@ const Project: React.FC = () => {
   // Add Project form states
   const [projectName, setProjectName] = useState('');
   const [storageLocation, setStorageLocation] = useState('octopus');
-  const [deployTarget, setDeployTarget] = useState('');
+  const [deployTarget, setDeployTarget] = useState('kubernetes');
   const [projectDescription, setProjectDescription] = useState('');
   const [selectedProjectGroup, setSelectedProjectGroup] = useState('all-projects');
-  const [selectedLifecycle, setSelectedLifecycle] = useState('.NET TEST PRD');
+  const [selectedLifecycleId, setSelectedLifecycleId] = useState<number | undefined>(undefined);
   const [showLifecycle, setShowLifecycle] = useState(false);
   const [projectIcon, setProjectIcon] = useState<string | null>(null);
-  
-  const totalProjects = 399;
+  const [totalProjects, setTotalProjects] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [lifecycles, setLifecycles] = useState<LifecyclePhaseDto[]>([]);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
 
   const navigate = useNavigate();
 
-  // 模拟数据
-  const projectGroupsData: ProjectGroup[] = [
-    {
-      name: '.NET A TEAM',
-      count: 12,
-      projects: [
-        {
-          key: '1',
-          name: 'FoundationNew',
+  const [projectGroupsData, setProjectGroupsData] = useState<ProjectGroup[]>([]);
+
+  const reloadProjects = async () => {
+    try {
+      setLoading(true);
+      const res = await GetProjects({
+        pageIndex: currentPage,
+        pageSize,
+        keyword: searchText || undefined,
+      });
+
+      const group: ProjectGroup = {
+        name: 'All Projects',
+        count: res.count,
+        projects: res.projects.map((p: ProjectDto): ProjectData => ({
+          key: String(p.id),
+          name: p.name || '',
           dev: null,
-          test: {
-            version: '2.2.0-addPagingF...',
-            timestamp: 'Apr 10, 2024 3:55 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2.2.0-addPagingF...',
-            timestamp: 'Apr 29, 2024 2:32 PM',
-            status: 'failed'
-          },
-          prd: {
-            version: '2.2.0--4185.1+598',
-            timestamp: 'Jan 22, 2024 4:20 PM',
-            status: 'success'
-          }
-        },
-        {
-          key: '2',
-          name: 'HrTicketingSystem',
-          dev: null,
-          test: {
-            version: '2.4.13-mixture-no...',
-            timestamp: 'Dec 13, 2024 2:15 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2.4.13-mixture-no...',
-            timestamp: 'Dec 12, 2024 9:07 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '3',
-          name: 'HrTicketingSystem_Dotnet Core',
-          dev: null,
-          test: {
-            version: '2.5.0-upgrade-to...',
-            timestamp: 'Oct 16, 2024 11:06 AM',
-            status: 'failed'
-          },
-          uat: {
-            version: '2.5.0-upgrade-to...',
-            timestamp: 'Dec 12, 2024 9:16 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '4',
-          name: 'IsTicketingSystem',
-          dev: null,
-          test: {
-            version: '2.1.8-synchronize...',
-            timestamp: 'Dec 16, 2024 2:48 PM',
-            status: 'success'
-          },
+          test: null,
           uat: null,
-          prd: null
-        },
-        {
-          key: '5',
-          name: 'IsTicketingSystem_DotnetCore',
-          dev: null,
-          test: {
-            version: '2.1.4-upgrade-to-...',
-            timestamp: 'Oct 9, 2024 6:23 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2.1.4-upgrade-to-...',
-            timestamp: 'Dec 2, 2024 10:57 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '6',
-          name: 'JustIM',
-          dev: null,
-          test: {
-            version: '5.5.1-mixture-no-...',
-            timestamp: 'Dec 17, 2024 5:35 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '5.5.1-mixture-no-...',
-            timestamp: 'Dec 13, 2024 8:44 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '7',
-          name: 'JustIM_DotnetCore',
-          dev: null,
-          test: {
-            version: '5.6.1',
-            timestamp: 'Jan 22, 2025 6:38 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '5.6.2',
-            timestamp: 'Jan 21, 2025 3:26 PM',
-            status: 'success'
-          },
-          prd: {
-            version: '5.6.2',
-            timestamp: 'Jan 21, 2025 5:38 PM',
-            status: 'success'
-          }
-        },
-        {
-          key: '8',
-          name: 'JustIM_SugarChat',
-          dev: null,
-          test: {
-            version: '2023.4.2',
-            timestamp: 'Sep 4, 2023 2:33 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2023.4.2',
-            timestamp: 'Sep 4, 2023 2:34 PM',
-            status: 'success'
-          },
-          prd: {
-            version: '2023.4.2',
-            timestamp: 'Sep 13, 2023 3:14 PM',
-            status: 'success'
-          }
-        }
-      ]
+          prd: null,
+        })),
+      };
+
+      setProjectGroupsData([group]);
+      setTotalProjects(res.count);
+    } catch (error) {
+      console.error('加载项目列表失败', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  useEffect(() => {
+    reloadProjects();
+  }, [currentPage, pageSize, searchText]);
+
+  useEffect(() => {
+    const loadLifecycles = async () => {
+      try {
+        setLifecycleLoading(true);
+        const res = await GetLifeCycles({ pageIndex: 1, pageSize: 50 });
+        setLifecycles(res.lifeCycles);
+        if (res.lifeCycles.length > 0) {
+          setSelectedLifecycleId(res.lifeCycles[0].lifecycle.id);
+        }
+      } catch (error) {
+        console.error('加载生命周期列表失败', error);
+      } finally {
+        setLifecycleLoading(false);
+      }
+    };
+
+    loadLifecycles();
+  }, []);
 
   const importExportItems: MenuProps['items'] = [
     {
@@ -326,26 +240,52 @@ const Project: React.FC = () => {
     setProjectGroupDesc('');
   };
 
-  const handleCreateProject = () => {
-    console.log('Creating project:', {
-      projectName,
-      storageLocation,
-      deployTarget,
-      projectDescription,
-      selectedProjectGroup,
-      selectedLifecycle,
-      projectIcon
-    });
-    setShowAddProjectModal(false);
-    // Reset form
-    setProjectName('');
-    setStorageLocation('octopus');
-    setDeployTarget('');
-    setProjectDescription('');
-    setSelectedProjectGroup('all-projects');
-    setSelectedLifecycle('.NET TEST PRD');
-    setShowLifecycle(false);
-    setProjectIcon(null);
+  const handleCreateProject = async () => {
+    if (!projectName.trim()) {
+      message.error('Project name is required');
+      return;
+    }
+
+    try {
+      const slug =
+        projectName
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-_]/g, '') || null;
+
+      const payload: CreateProjectPayload = {
+        name: projectName,
+        slug,
+        isDisabled: false,
+        projectGroupId: 1,
+        lifecycleId: selectedLifecycleId ?? 1,
+        autoCreateRelease: false,
+        json: projectDescription || null,
+        includedLibraryVariableSetIds: null,
+        discreteChannelRelease: false,
+        spaceId: 1,
+        allowIgnoreChannelRules: false,
+      };
+
+      await CreateProject({ project: payload });
+
+      message.success('Project created');
+
+      setShowAddProjectModal(false);
+      setProjectName('');
+      setStorageLocation('octopus');
+      setDeployTarget('kubernetes');
+      setProjectDescription('');
+      setSelectedProjectGroup('all-projects');
+      setShowLifecycle(false);
+      setProjectIcon(null);
+
+      await reloadProjects();
+    } catch (error) {
+      console.error('创建项目失败', error);
+      message.error('Failed to create project');
+    }
   };
 
   const handleCancelAddProject = () => {
@@ -356,7 +296,6 @@ const Project: React.FC = () => {
     setDeployTarget('');
     setProjectDescription('');
     setSelectedProjectGroup('all-projects');
-    setSelectedLifecycle('.NET TEST PRD');
     setShowLifecycle(false);
     setProjectIcon(null);
   };
@@ -597,6 +536,7 @@ const Project: React.FC = () => {
                   columns={columns}
                   dataSource={group.projects}
                   pagination={false}
+                  loading={loading}
                   className="project-table"
                   scroll={{ x: 1000 }}
                   rowClassName={() => "cursor-pointer"}
@@ -873,24 +813,9 @@ const Project: React.FC = () => {
             onChange={(e) => setDeployTarget(e.target.value)}
             className="w-full"
           >
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <Radio.Button value="kubernetes" className="h-12 flex items-center justify-center font-medium">
                 Kubernetes
-              </Radio.Button>
-              <Radio.Button value="azure" className="h-12 flex items-center justify-center font-medium">
-                Azure
-              </Radio.Button>
-              <Radio.Button value="aws" className="h-12 flex items-center justify-center font-medium">
-                AWS
-              </Radio.Button>
-              <Radio.Button value="linux" className="h-12 flex items-center justify-center font-medium">
-                Linux
-              </Radio.Button>
-              <Radio.Button value="windows" className="h-12 flex items-center justify-center font-medium">
-                Windows
-              </Radio.Button>
-              <Radio.Button value="other" className="h-12 flex items-center justify-center font-medium">
-                Other
               </Radio.Button>
             </div>
           </Radio.Group>
@@ -926,7 +851,6 @@ const Project: React.FC = () => {
               className="w-full"
               options={[
                 { value: 'all-projects', label: 'All Projects' },
-                { value: '.net-a-team', label: '.NET A TEAM' },
               ]}
             />
           </div>
@@ -938,12 +862,14 @@ const Project: React.FC = () => {
             </label>
             <div className="flex gap-2 items-center">
               <Select
-                value={selectedLifecycle}
-                onChange={setSelectedLifecycle}
+                value={selectedLifecycleId}
+                onChange={setSelectedLifecycleId}
                 className="flex-1"
-                options={[
-                  { value: '.NET TEST PRD', label: '.NET TEST PRD' },
-                ]}
+                loading={lifecycleLoading}
+                options={lifecycles.map((item) => ({
+                  value: item.lifecycle.id,
+                  label: item.lifecycle.name || `Lifecycle ${item.lifecycle.id}`,
+                }))}
               />
               <Button icon={<ReloadOutlined />} />
             </div>
