@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Input, Table, Button, Select, InputNumber, Checkbox, Collapse } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Input, Table, Button, Select, InputNumber, Checkbox, Collapse, Spin } from 'antd';
 import { SearchOutlined, LinkOutlined, ArrowLeftOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
+import { getExternalFeeds, ExternalFeedDto } from 'pages/apis/externalFeed';
 
 const { Panel } = Collapse;
 const { Password } = Input;
@@ -30,64 +31,23 @@ const ExternalFeeds = () => {
     { value: 'AWS ECR Feed', label: 'AWS ECR Feed' },
   ];
 
-  // 模拟数据
-  const dataSource = [
-    {
-      key: '1',
-      name: 'Yamimeal ACR',
-      url: 'https://yamimeal.azurecr.io',
-    },
-    {
-      key: '2',
-      name: 'Alibaba Cloud',
-      url: 'https://registry.cn-hongkong.aliyuncs.com/wiltechs',
-    },
-    {
-      key: '3',
-      name: 'Docker Hub Registry',
-      url: 'https://index.docker.io',
-    },
-    {
-      key: '4',
-      name: 'test',
-      url: 'https://index.docker.io',
-    },
-    {
-      key: '5',
-      name: 'EasyPOS ACR',
-      url: 'https://easypos.azurecr.io',
-    },
-    {
-      key: '6',
-      name: 'nuget',
-      url: 'https://api.nuget.org/v3/index.json',
-    },
-    {
-      key: '7',
-      name: 'Hongkong Aliyuncs Hub',
-      url: 'https://registry.cn-hongkong.aliyuncs.com/',
-    },
-    {
-      key: '8',
-      name: 'OmegoDev Test',
-      url: 'https://index.docker.io',
-    },
-    {
-      key: '9',
-      name: 'Github Repository',
-      url: 'https://ghcr.io',
-    },
-    {
-      key: '10',
-      name: 'PickGoGo ACR',
-      url: 'https://pickgogo.azurecr.io',
-    },
-    {
-      key: '11',
-      name: 'Docker Registry',
-      url: 'https://registry-1.docker.io',
-    },
-  ];
+  // API 数据
+  const [feeds, setFeeds] = useState<ExternalFeedDto[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    getExternalFeeds()
+      .then((res) => setFeeds(res.externalFeeds))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const dataSource = feeds.map((f) => ({
+    key: String(f.id),
+    name: f.name,
+    url: f.feedUri,
+  }));
 
   // 过滤数据
   const filteredData = dataSource.filter((item) =>
@@ -314,7 +274,7 @@ const ExternalFeeds = () => {
                 <div className="flex items-start justify-between w-full pr-4">
                   <div className="flex-1">
                     <div className="font-semibold text-base mb-1">Retry Attempts</div>
-                    <div className="text-sm text-gray-600">Control how Octopus should deal with feed errors.</div>
+                    <div className="text-sm text-gray-600">Control how Squid should deal with feed errors.</div>
                   </div>
                 </div>
               }
@@ -444,7 +404,9 @@ const ExternalFeeds = () => {
       </div>
 
       {/* 表格 */}
-      <Table dataSource={filteredData} columns={columns} pagination={false} bordered className="border border-gray-200" />
+      <Spin spinning={loading}>
+        <Table dataSource={filteredData} columns={columns} pagination={false} bordered className="border border-gray-200" />
+      </Spin>
     </div>
   );
 };

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Input, Button, Dropdown, Radio, Checkbox, Alert } from 'antd';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Input, Button, Dropdown, Radio, Checkbox, Alert, Spin } from 'antd';
 import {
   SearchOutlined,
   ThunderboltFilled,
@@ -16,6 +16,7 @@ import {
   PlusOutlined,
   ArrowLeftOutlined
 } from '@ant-design/icons';
+import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle';
 
 interface Phase {
   name: string;
@@ -64,58 +65,41 @@ const Lifecycles: React.FC = () => {
     phases: [],
   });
 
-  // 模拟数据
-  const lifecyclesData: Lifecycle[] = [
-    {
-      id: 1,
-      name: 'Only Test',
-      slug: 'only-test',
-      description: 'No lifecycle description provided',
-      retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-      phases: [{ name: 'TEST', type: 'default' }],
-      projectCount: 11,
-    },
-    {
-      id: 2,
-      name: 'Only PRD',
-      slug: 'only-prd',
-      description: 'No lifecycle description provided',
-      retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-      phases: [{ name: 'PRD', type: 'default' }],
-      projectCount: 5,
-    },
-    {
-      id: 3,
-      name: 'PHP New Lifecycles',
-      slug: 'php-new-lifecycles',
-      description: 'UAT TEST PRD',
-      retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-      phases: [
-        { name: 'TEST', type: 'active' },
-        { name: 'UAT', type: 'active' },
-        { name: 'PRD', type: 'default' },
-      ],
-      projectCount: 8,
-    },
-    {
-      id: 4,
-      name: 'PHP Only UAT',
-      slug: 'php-only-uat',
-      description: 'PHP Only UAT',
-      retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-      phases: [{ name: 'UAT', type: 'default' }],
-      projectCount: 3,
-    },
-    {
-      id: 5,
-      name: 'Default',
-      slug: 'default',
-      description: 'No lifecycle description provided',
-      retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-      phases: [],
-      projectCount: 0,
-    },
-  ];
+  // API 数据
+  const [lifecyclesData, setLifecyclesData] = useState<Lifecycle[]>([]);
+  const [loadingLifecycles, setLoadingLifecycles] = useState(false);
+
+  useEffect(() => {
+    setLoadingLifecycles(true);
+    getLifecycles()
+      .then((res) => {
+        const mapped: Lifecycle[] = res.lifecycles.map((lc: LifecycleDto) => {
+          let phases: Phase[] = [];
+          if (lc.json) {
+            try {
+              const parsed = JSON.parse(lc.json);
+              if (Array.isArray(parsed.phases)) {
+                phases = parsed.phases.map((p: any) => ({
+                  name: p.name || p.Name || '',
+                  type: p.isOptionalPhase ? 'default' : 'active',
+                }));
+              }
+            } catch {}
+          }
+          return {
+            id: lc.id,
+            name: lc.name,
+            slug: lc.slug,
+            description: lc.description || 'No lifecycle description provided',
+            retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
+            phases,
+          };
+        });
+        setLifecyclesData(mapped);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingLifecycles(false));
+  }, []);
 
   // 过滤数据
   const filteredData = useMemo(() => {
@@ -893,6 +877,7 @@ const Lifecycles: React.FC = () => {
     </div>
 
     {/* 生命周期列表 */}
+    <Spin spinning={loadingLifecycles}>
     <div className="space-y-4">
       {filteredData.map((lifecycle) => (
         <div
@@ -918,6 +903,7 @@ const Lifecycles: React.FC = () => {
         </div>
       ))}
     </div>
+    </Spin>
   </div>
 );
 

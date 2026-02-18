@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { Select, Button } from "antd";
+import React, { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { Select, Button, Spin } from "antd";
 import {
   CheckOutlined,
   MoreOutlined,
@@ -7,10 +8,110 @@ import {
   LoadingOutlined,
   ClockCircleOutlined,
 } from "@ant-design/icons";
-import channels, { DeploymentItem, ChannelData } from "./mock-detail-data";
+import { getProjects, ProjectDto } from "pages/apis/project";
+import { getChannels, ChannelDto } from "pages/apis/channel";
+import { getReleases, ReleaseDto } from "pages/apis/release";
+import { getEnvironments, EnvironmentDto } from "pages/apis/environment";
+
+export interface DeploymentItem {
+  key: string;
+  version: string;
+  status: "Success" | "Running" | "Failed" | "Pending";
+  time: string;
+  operator: string;
+}
+
+export interface ChannelData {
+  key: string;
+  name: string;
+  environments: {
+    [envKey: string]: DeploymentItem[];
+  };
+  currentDeployed: {
+    [envKey: string]: string;
+  };
+}
 
 const Deployments: React.FC = () => {
+  const { projectName } = useParams<{ projectName: string }>();
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
+  const [channels, setChannels] = useState<ChannelData[]>([]);
+  const [loadingDeployments, setLoadingDeployments] = useState(false);
+
+  useEffect(() => {
+    if (!projectName) return;
+    setLoadingDeployments(true);
+
+    (async () => {
+      try {
+        // Resolve projectName → projectId
+        const projRes = await getProjects({ pageSize: 500 });
+        const project = projRes.projects.find(
+          (p) => p.slug === projectName || p.name === projectName
+        );
+        if (!project) return;
+
+        // Fetch channels, releases, and environments in parallel
+        const [channelRes, releaseRes, envRes] = await Promise.all([
+          getChannels({ pageSize: 500 }),
+          getReleases({ projectId: project.id, pageSize: 500 }),
+          getEnvironments({ pageSize: 500 }),
+        ]);
+
+        // Filter channels for this project
+        const projectChannels = channelRes.channels.filter(
+          (c) => c.projectId === project.id
+        );
+
+        // Build environment name map
+        const envNameMap = new Map<number, string>();
+        envRes.environments.forEach((e) => envNameMap.set(e.id, e.name));
+
+        // Build channel data from releases
+        const currentDeployedIds = new Set(releaseRes.currentDeployedReleaseIds);
+        const channelDataList: ChannelData[] = projectChannels.map((ch) => {
+          const channelReleases = releaseRes.releases.filter(
+            (r) => r.channelId === ch.id
+          );
+
+          // Group releases as deployment items
+          const environments: { [envKey: string]: DeploymentItem[] } = {};
+          const currentDeployed: { [envKey: string]: string } = {};
+
+          channelReleases.forEach((r) => {
+            // Use a generic environment key since we don't have per-environment deployment data
+            const envKey = "releases";
+            if (!environments[envKey]) environments[envKey] = [];
+            environments[envKey].push({
+              key: String(r.id),
+              version: r.version,
+              status: currentDeployedIds.has(r.id) ? "Success" : "Pending",
+              time: r.assembled
+                ? new Date(r.assembled).toLocaleString()
+                : "",
+              operator: r.lastModifiedBy || "",
+            });
+            if (currentDeployedIds.has(r.id)) {
+              currentDeployed[envKey] = r.version;
+            }
+          });
+
+          return {
+            key: String(ch.id),
+            name: ch.name,
+            environments,
+            currentDeployed,
+          };
+        });
+
+        setChannels(channelDataList);
+      } catch {
+        // silently handle
+      } finally {
+        setLoadingDeployments(false);
+      }
+    })();
+  }, [projectName]);
 
   // 获取环境标签
   const getEnvironmentLabel = (envKey: string) => {
@@ -185,7 +286,9 @@ const Deployments: React.FC = () => {
       </div>
 
       {/* Channel 列表 */}
-      <div>{displayChannels.map(renderChannelSection)}</div>
+      <Spin spinning={loadingDeployments}>
+        <div>{displayChannels.map(renderChannelSection)}</div>
+      </Spin>
     </div>
   );
 };

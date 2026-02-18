@@ -62,27 +62,7 @@ const Tasks: React.FC = () => {
   const [scriptLanguage, setScriptLanguage] = useState('PowerShell');
   const [scriptBody, setScriptBody] = useState('');
 
-  // 模拟数据
-  const tasksData: TaskData[] = [
-    {
-      key: '1',
-      state: 'Executing',
-      taskName: 'Deploy Customer Intention in MTR release 0.0.7 to TEST',
-      taskDate: 'November 7th 2025',
-      startTime: 'Friday, November 7, 2025 3:28 PM +08:00',
-      completedTime: 'Friday, November 7, 2025 3:29 PM +08:00',
-      duration: '1 minute',
-    },
-    {
-      key: '2',
-      state: 'Success',
-      taskName: 'Deploy Smarties.Api release 6.0.1-mixture-v6.1-3550 to TEST',
-      taskDate: 'November 7th 2025',
-      startTime: 'Friday, November 7, 2025 3:24 PM +08:00',
-      completedTime: 'Friday, November 7, 2025 3:27 PM +08:00',
-      duration: '2 minutes',
-    }
-  ];
+  const tasksData: TaskData[] = [];
 
   const renderStateCell = (state: string) => {
     if (state === 'Executing') {
@@ -416,7 +396,7 @@ const Tasks: React.FC = () => {
                   </Radio>
                   <Radio value="server">
                     <span className="text-sm">
-                      Run the script on the Octopus Server
+                      Run the script on the Squid Server
                     </span>
                   </Radio>
                 </Radio.Group>

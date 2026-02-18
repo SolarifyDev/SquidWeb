@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Input, Checkbox, Button, Badge, Tag, Collapse, Modal, Tabs } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Input, Checkbox, Button, Badge, Tag, Collapse, Modal, Tabs, Spin } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
@@ -11,6 +11,8 @@ import {
   MenuOutlined,
   EllipsisOutlined,
 } from '@ant-design/icons';
+import { getEnvironments, EnvironmentDto } from 'pages/apis/environment';
+import { getMachines, MachineDto } from 'pages/apis/machine';
 
 const { Panel } = Collapse;
 
@@ -53,132 +55,80 @@ const Environments = () => {
     cli: [],
   });
 
-  // 模拟环境数据
-  const environments = [
-    {
-      key: 'DEV',
-      name: 'DEV',
-      targets: 8,
-      healthy: 3,
-      disabled: 5,
-      deployments: [
-        {
-          name: 'AWS Cluster',
-          type: 'Kubernetes API',
-          url: 'https://0316B691AEF6C9B1BC53AEB77EDC061D4.yl4.ap-east-1.eks.amazonaws.com',
-          status: 'healthy',
-          environments: 3,
-          tags: ['aws-eks', 'Normal'],
-        },
-        {
-          name: 'AWS-EKS-US',
-          type: 'Kubernetes API',
-          url: 'https://D9773498E6AAB1BDB768CF862EF6B18B.gr7.us-west-1.eks.amazonaws.com',
-          status: 'healthy',
-          environments: 3,
-          tags: ['aws-eks-us'],
-        },
-        {
-          name: 'SJ-US-AKS',
-          type: 'Kubernetes API',
-          url: 'https://47.254.20.160:6443',
-          status: 'healthy',
-          environments: 6,
-          tags: ['SJUSAKS', 'vendor-queue-web'],
-        },
-      ],
-      disabledTargets: [
-        {
-          name: 'Aliyun-HK-AI-Cluster',
-          type: 'Kubernetes API',
-          url: 'https://172.20.41.126:6443',
-          status: 'disabled',
-          environments: 8,
-          tags: ['Aliyun-HK-AI'],
-        },
-        {
-          name: 'Cloud-Deployment-Target',
-          type: 'Polling Tentacle',
-          url: 'poll://j64fxsyfrk6j37d6q7wss/',
-          status: 'disabled',
-          environments: 6,
-          tags: ['DotnetCore'],
-        },
-      ],
-    },
-    {
-      key: 'TEST',
-      name: 'TEST',
-      targets: 12,
-      healthy: 3,
-      disabled: 9,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'UAT',
-      name: 'UAT',
-      targets: 8,
-      healthy: 1,
-      disabled: 7,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'PRD',
-      name: 'PRD',
-      targets: 14,
-      healthy: 3,
-      disabled: 11,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'PRD2',
-      name: 'PRD2',
-      targets: 4,
-      healthy: 1,
-      disabled: 3,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'TEST2',
-      name: 'TEST2',
-      targets: 2,
-      healthy: 1,
-      disabled: 1,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'PRE-PROD',
-      name: 'PRE-PROD',
-      targets: 2,
-      healthy: 0,
-      disabled: 2,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'Startup',
-      name: 'Startup',
-      targets: 1,
-      healthy: 0,
-      disabled: 1,
-      deployments: [],
-      disabledTargets: [],
-    },
-    {
-      key: 'Shutdown',
-      name: 'Shutdown',
-      targets: 1,
-      healthy: 0,
-      disabled: 1,
-      deployments: [],
-      disabledTargets: [],
-    },
-  ];
+  // API 数据
+  interface EnvironmentWithTargets {
+    key: string;
+    name: string;
+    targets: number;
+    healthy: number;
+    disabled: number;
+    deployments: { name: string; type: string; url: string; status: string; environments: number; tags: string[] }[];
+    disabledTargets: { name: string; type: string; url: string; status: string; environments: number; tags: string[] }[];
+  }
+
+  const [environments, setEnvironments] = useState<EnvironmentWithTargets[]>([]);
+  const [loadingEnvs, setLoadingEnvs] = useState(false);
+
+  useEffect(() => {
+    setLoadingEnvs(true);
+    Promise.all([
+      getEnvironments({ pageSize: 1000 }),
+      getMachines({ pageSize: 1000 }),
+    ])
+      .then(([envRes, machineRes]) => {
+        const envMap = new Map<number, EnvironmentDto>();
+        envRes.environments.forEach((e) => envMap.set(e.id, e));
+
+        // Group machines by environment
+        const envTargets = new Map<number, { healthy: MachineDto[]; disabled: MachineDto[] }>();
+        envRes.environments.forEach((e) => envTargets.set(e.id, { healthy: [], disabled: [] }));
+
+        machineRes.machines.forEach((m) => {
+          const envIds = m.environmentIds ? m.environmentIds.split(',').map((id) => parseInt(id.trim(), 10)).filter((id) => !isNaN(id)) : [];
+          envIds.forEach((envId) => {
+            const bucket = envTargets.get(envId);
+            if (bucket) {
+              if (m.isDisabled) {
+                bucket.disabled.push(m);
+              } else {
+                bucket.healthy.push(m);
+              }
+            }
+          });
+        });
+
+        const mapMachine = (m: MachineDto, status: string) => {
+          const mEnvIds = m.environmentIds ? m.environmentIds.split(',').filter(Boolean) : [];
+          const roles = m.roles ? m.roles.split(',').map((r) => r.trim()).filter(Boolean) : [];
+          return {
+            name: m.name,
+            type: m.endpoint || 'Unknown',
+            url: m.uri,
+            status,
+            environments: mEnvIds.length,
+            tags: roles,
+          };
+        };
+
+        const result: EnvironmentWithTargets[] = envRes.environments
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((e) => {
+            const bucket = envTargets.get(e.id) || { healthy: [], disabled: [] };
+            return {
+              key: String(e.id),
+              name: e.name,
+              targets: bucket.healthy.length + bucket.disabled.length,
+              healthy: bucket.healthy.length,
+              disabled: bucket.disabled.length,
+              deployments: bucket.healthy.map((m) => mapMachine(m, 'healthy')),
+              disabledTargets: bucket.disabled.map((m) => mapMachine(m, 'disabled')),
+            };
+          });
+        setEnvironments(result);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingEnvs(false));
+  }, []);
 
   // 处理过滤器选择
   const handleFilterChange = (category: string, value: string, checked: boolean) => {
@@ -506,6 +456,7 @@ const Environments = () => {
 
           {/* 右侧环境列表 */}
           <div className="flex-1 p-6">
+            <Spin spinning={loadingEnvs}>
             <div className="flex justify-end mb-4">
               <Button type="link" onClick={toggleExpandAll} className="text-gray-600 uppercase text-xs font-semibold">
                 {expandedKeys.length === filteredEnvironments.length ? 'Collapse All' : 'Expand All'}
@@ -557,7 +508,7 @@ const Environments = () => {
                   </div>
 
                   {/* 展开内容 */}
-                  {expandedKeys.includes(env.key) && env.key === 'DEV' && (
+                  {expandedKeys.includes(env.key) && (
                     <div className="border-t bg-gray-50">
                       <div className="p-4">
                         {/* Healthy */}
@@ -637,6 +588,7 @@ const Environments = () => {
                 </div>
               ))}
             </div>
+            </Spin>
           </div>
         </div>
       </div>

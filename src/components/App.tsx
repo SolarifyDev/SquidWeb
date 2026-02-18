@@ -1,12 +1,14 @@
 import { useState } from "react";
 import routes from "../routes";
 import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
-import { Input, Badge, Dropdown, Menu } from "antd";
+import { Input, Badge, Dropdown } from "antd";
 import {
   SearchOutlined,
   BellOutlined,
   QuestionCircleOutlined,
   DownOutlined,
+  RocketOutlined,
+  ScheduleOutlined,
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
 import DeploySidebar from "./DeploySidebar";
@@ -19,41 +21,6 @@ interface RouteConfig {
   meta?: any;
   children?: RouteConfig[];
 }
-
-// function renderRoutes(routesArr: RouteConfig[]): React.ReactNode {
-//   const arr = routesArr.map((route) => {
-//     if (route.redirect) {
-//       return (
-//         <Route
-//           key={route.path}
-//           path={route.path}
-//           element={<Navigate to={route.redirect} replace />}
-//         />
-//       );
-//     }
-//     if (route.children && route.children.length > 0) {
-//       return (
-//         <Route
-//           key={route.path}
-//           path={route.path}
-//           element={route.component ? <route.component /> : undefined}
-//         >
-//           {renderRoutes(route.children)}
-//         </Route>
-//       );
-//     }
-//     return (
-//       <Route
-//         key={route.path}
-//         path={route.path}
-//         element={route.component ? <route.component /> : undefined}
-//       />
-//     );
-//   });
-//   console.log(arr);
-
-//   return arr;
-// }
 
 function renderRoutes(routes: RouteConfig[]): React.ReactNode {
   return routes.map((route) => {
@@ -74,14 +41,14 @@ function renderRoutes(routes: RouteConfig[]): React.ReactNode {
 const menuItems = [
   {
     path: "/",
-    icon: "🏠",
+    icon: RocketOutlined,
     label: "Deploy",
     isActive: (pathname: string) =>
       pathname === "/" || !pathname.startsWith("/tasks"),
   },
   {
     path: "/tasks",
-    icon: "📝",
+    icon: ScheduleOutlined,
     label: "Tasks",
     isActive: (pathname: string) => pathname === "/tasks",
   },
@@ -91,30 +58,34 @@ function App() {
   const location = useLocation();
   const [isProjectHovered, setIsProjectHovered] = useState(false);
 
-  console.log(location);
-
-  // 项目切换菜单
   const projectMenuItems: MenuProps["items"] = [];
+
+  const isDeploySection = !location.pathname.startsWith("/tasks");
+  const isTopLevel = location.pathname.split("/").length <= 2;
+  const showSidebarInline = isDeploySection && isTopLevel;
+  const showSidebarOverlay = isDeploySection && !isTopLevel && isProjectHovered;
 
   return (
     <div
       className="page flex h-screen w-full flex-col"
       style={{ background: "#F5F6F8" }}
     >
-      <div className="page-top-bar flex items-center justify-between px-6 py-3">
+      {/* Header - dark theme */}
+      <div
+        className="page-top-bar flex items-center justify-between px-6 py-3"
+        style={{ backgroundColor: "#0a151e" }}
+      >
         <div className="left-box flex items-center gap-4">
-          {/* Logo/Project Selector */}
           <Dropdown menu={{ items: projectMenuItems }} trigger={["click"]}>
-            <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-3 py-2 rounded-md transition-colors">
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded">
+            <div className="flex items-center gap-2 cursor-pointer hover:bg-white/10 px-3 py-2 rounded-md transition-colors">
+              <div className="flex items-center justify-center w-8 h-8 bg-squid-blue rounded">
                 <span className="text-white text-sm font-bold">D</span>
               </div>
-              <span className="font-medium text-gray-900">Default</span>
-              <DownOutlined className="text-gray-500 text-xs" />
+              <span className="font-medium text-white">Default</span>
+              <DownOutlined className="text-gray-400 text-xs" />
             </div>
           </Dropdown>
 
-          {/* Search Box */}
           <Input
             placeholder="Type Ctrl+Space to search or switch projects..."
             prefix={<SearchOutlined className="text-gray-400" />}
@@ -122,30 +93,29 @@ function App() {
             style={{
               height: "36px",
               borderRadius: "6px",
-              backgroundColor: "#F5F6F8",
-              border: "1px solid #ccc",
+              backgroundColor: "rgba(255,255,255,0.1)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              color: "#fff",
             }}
           />
         </div>
 
         <div className="right-box flex items-center gap-4">
-          {/* Notification Bell with Badge */}
           <Badge count={1} size="small">
-            <BellOutlined className="text-gray-600 hover:text-gray-900 cursor-pointer text-xl transition-colors" />
+            <BellOutlined className="text-gray-300 hover:text-white cursor-pointer text-xl transition-colors" />
           </Badge>
-
-          {/* Help Icon */}
-          <QuestionCircleOutlined className="text-gray-600 hover:text-gray-900 cursor-pointer text-xl transition-colors" />
+          <QuestionCircleOutlined className="text-gray-300 hover:text-white cursor-pointer text-xl transition-colors" />
         </div>
       </div>
 
       <div className="page-content flex flex-1 min-h-0">
-        {/* 主导航栏 */}
-        <div className="page-content-left-bar">
+        {/* Left icon bar - fixed 80px */}
+        <div className="flex-shrink-0" style={{ width: "80px" }}>
           <nav className="flex flex-col gap-2 mt-4">
             {menuItems.map((item) => {
               const active = item.isActive(location.pathname);
               const isDeployItem = item.path === "/";
+              const Icon = item.icon;
               return (
                 <Link
                   key={item.path}
@@ -153,18 +123,18 @@ function App() {
                   onMouseEnter={isDeployItem ? () => setIsProjectHovered(true) : undefined}
                   onMouseLeave={isDeployItem ? () => setIsProjectHovered(false) : undefined}
                   className={[
-                    "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-base transition-all duration-200 border",
-                    "text-gray-700 border border-transparent",
-                    "hover:bg-white hover:text-blue-600",
-                    active ? "bg-white text-blue-600" : "",
+                    "group relative flex flex-col items-center justify-center h-16 px-4 rounded-lg font-medium text-sm transition-all duration-200",
+                    "text-gray-500",
+                    "hover:bg-white hover:text-squid-blue",
+                    active ? "bg-white text-squid-blue" : "",
                   ].join(" ")}
                 >
-                  <span className="text-2xl">{item.icon}</span>
+                  <Icon className="text-2xl" />
                   <span className="truncate mt-1">{item.label}</span>
                   <span
                     className={[
-                      "absolute right-0 top-0 w-1.5 h-full rounded-full transition-all duration-200",
-                      active ? "bg-blue-500 opacity-100" : "bg-transparent opacity-0",
+                      "absolute right-0 top-0 w-1 h-full rounded-full transition-all duration-200",
+                      active ? "bg-squid-blue opacity-100" : "bg-transparent opacity-0",
                     ].join(" ")}
                   />
                 </Link>
@@ -172,39 +142,28 @@ function App() {
             })}
           </nav>
         </div>
-        {/* DeploySidebar 只在点击 Deploy 时显示 */}
-        {(location.pathname === "/" || !location.pathname.startsWith("/tasks")) ? (
-        <div
-        className={`page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden ${
-          location.pathname.split("/").length > 2
-          ? "absolute left-[85px] top-0 h-full z-10 bg-white"
-          : ""
-        } ${
-          location.pathname.split("/").length <= 2 || isProjectHovered
-          ? "w-[220px] opacity-100"
-          : "w-0 opacity-0 pointer-events-none"
-        }`}
-        onMouseEnter={() => setIsProjectHovered(true)}
-        onMouseLeave={() => setIsProjectHovered(false)}
-        >
-          <DeploySidebar />
-        </div>
-         ) : null}
+
+        {/* Deploy Sidebar */}
+        {isDeploySection && (
+          <div
+            className={[
+              "page-content-deploy-sidebar shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] transition-all duration-300 ease-in-out overflow-hidden",
+              !isTopLevel ? "absolute left-[80px] top-[56px] h-[calc(100%-56px)] z-10 bg-white" : "",
+              showSidebarInline || showSidebarOverlay
+                ? "w-[220px] opacity-100"
+                : "w-0 opacity-0 pointer-events-none",
+            ].join(" ")}
+            onMouseEnter={() => setIsProjectHovered(true)}
+            onMouseLeave={() => setIsProjectHovered(false)}
+          >
+            <DeploySidebar />
+          </div>
+        )}
 
         <div className="page-content-right flex-1 bg-white rounded-md shadow-[-2px_-2px_10px_rgba(0,0,0,0.1)] overflow-y-auto min-h-0">
-        <Routes>
-             {routes.map((route) => {
-                   const Component = route.component;
-
-                return (
-                   <Route
-                      key={route.path}
-                      path={route.path}
-                      element={Component ? <Component /> : null}
-               />
-              );
-              })}
-        </Routes>
+          <Routes>
+            {renderRoutes(routes)}
+          </Routes>
         </div>
       </div>
     </div>

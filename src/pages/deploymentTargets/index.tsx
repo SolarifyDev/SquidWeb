@@ -1,6 +1,6 @@
 // src/pages/deploymentTargets/index.tsx
-import React, { useState } from 'react'
-import { Input, Button, Tag, Space, Checkbox, Collapse, Modal, Tabs } from 'antd'
+import React, { useState, useEffect } from 'react'
+import { Input, Button, Tag, Space, Checkbox, Collapse, Modal, Tabs, Spin } from 'antd'
 import {
   SearchOutlined,
   FilterOutlined,
@@ -10,6 +10,7 @@ import {
   SettingOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
+import { getMachines, MachineDto } from 'pages/apis/machine'
 
 const { Panel } = Collapse
 
@@ -34,78 +35,51 @@ interface DeploymentData {
 }
 
 /** -------------------------------
- * 模拟数据
+ * Helper: map MachineDto to DeploymentTarget
  * ------------------------------*/
-const deploymentData: DeploymentData = {
-  healthy: [
-    {
-      id: 1,
-      name: 'AWS Cluster',
-      type: 'Kubernetes API',
-      url: 'https://916BB91AF6C5919BC53AEB97E0C061DA.yl4.ap-east-1.eks.amazonaws.com',
-      environments: 3,
-      environmentList: ['DEV', 'TEST', 'PRD'],
-      tags: ['aws-eks', 'Normal'],
-      status: 'Healthy',
-    },
-    {
-      id: 2,
-      name: 'AWS-EKS-US',
-      type: 'Kubernetes API',
-      url: 'https://D977349BE6AAB1BD6786BCF8626F6B19B.gr7.us-west-1.eks.amazonaws.com',
-      environments: 3,
-      environmentList: ['DEV', 'TEST', 'PROD'],
-      tags: ['aws-eks-us'],
-      status: 'Healthy',
-    },
-    {
-      id: 3,
-      name: 'SJ-US-AKS',
-      type: 'Kubernetes API',
-      url: 'https://47.254.20.160:6443',
-      environments: 6,
-      environmentList: ['DEV', 'TEST', 'STAGE', 'PRD', 'UAT', 'QA'],
-      tags: ['SJUSAKS', 'vendor-queue-web'],
-      status: 'Healthy',
-    },
-  ],
-  disabled: [
-    {
-      id: 4,
-      name: 'Aliyun-HK-AI-Cluster',
-      type: 'Kubernetes API',
-      url: 'https://172.20.41.126:6443',
-      environments: 8,
-      environmentList: ['DEV', 'TEST', 'STAGE', 'PRD', 'UAT', 'QA', 'DEMO', 'BETA'],
-      tags: ['Aliyun-HK-AI'],
-    },
-    {
-      id: 5,
-      name: 'Cloud-.NET-P001',
-      type: 'Polling Tentacle',
-      url: 'poll://r97yx2qtbnwrd526kke/',
-      environments: 0,
-      environmentList: [],
-      tags: ['PRD'],
-      roles: 24,
-    },
-    {
-      id: 6,
-      name: 'Cloud-.NET-P002',
-      type: 'Polling Tentacle',
-      url: 'poll://jne38ygehqfsdnxyuzp92/',
-      environments: 0,
-      environmentList: [],
-      tags: ['PRD'],
-      roles: 5,
-    },
-  ],
+function mapMachineToTarget(m: MachineDto): DeploymentTarget {
+  const envIds = m.environmentIds ? m.environmentIds.split(',').filter(Boolean) : []
+  const rolesList = m.roles ? m.roles.split(',').map((r) => r.trim()).filter(Boolean) : []
+  return {
+    id: m.id,
+    name: m.name,
+    type: m.endpoint || 'Unknown',
+    url: m.uri,
+    environments: envIds.length,
+    environmentList: envIds,
+    tags: rolesList,
+    status: m.isDisabled ? 'Disabled' : 'Healthy',
+  }
 }
 
 /** -------------------------------
  * 主组件
  * ------------------------------*/
 const DeploymentTargets: React.FC = () => {
+  // ---------------- API 数据 ----------------
+  const [deploymentData, setDeploymentData] = useState<DeploymentData>({ healthy: [], disabled: [] })
+  const [loadingTargets, setLoadingTargets] = useState(false)
+
+  useEffect(() => {
+    setLoadingTargets(true)
+    getMachines({ pageSize: 1000 })
+      .then((res) => {
+        const healthy: DeploymentTarget[] = []
+        const disabled: DeploymentTarget[] = []
+        res.machines.forEach((m) => {
+          const target = mapMachineToTarget(m)
+          if (m.isDisabled) {
+            disabled.push(target)
+          } else {
+            healthy.push(target)
+          }
+        })
+        setDeploymentData({ healthy, disabled })
+      })
+      .catch(() => {})
+      .finally(() => setLoadingTargets(false))
+  }, [])
+
   // ---------------- 状态定义 ----------------
   const [searchText, setSearchText] = useState<string>('')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(true)
@@ -458,6 +432,7 @@ const DeploymentTargets: React.FC = () => {
 
           {/* 右侧主内容 */}
           <div className="flex-1 p-6">
+            <Spin spinning={loadingTargets}>
             {/* 状态统计 */}
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
@@ -502,6 +477,7 @@ const DeploymentTargets: React.FC = () => {
                 </div>
               </div>
             )}
+            </Spin>
           </div>
         </div>
       </div>

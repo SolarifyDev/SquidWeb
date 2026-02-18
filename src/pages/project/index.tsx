@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Button, 
   Input, 
@@ -15,7 +15,8 @@ import {
   Steps,
   Upload,
   message,
-  List
+  List,
+  Spin
 } from 'antd';
 import type { UploadProps, MenuProps, TableColumnsType } from 'antd';
 import {
@@ -64,6 +65,7 @@ interface ProjectGroup {
 }
 
 import { useNavigate } from "react-router-dom";
+import { getProjects, ProjectDto } from "pages/apis/project";
 
 const Project: React.FC = () => {
   const [searchText, setSearchText] = useState('');
@@ -83,163 +85,59 @@ const Project: React.FC = () => {
   const [showMarkdownControls, setShowMarkdownControls] = useState(true);
   // Add Project form states
   const [projectName, setProjectName] = useState('');
-  const [storageLocation, setStorageLocation] = useState('octopus');
+  const [storageLocation, setStorageLocation] = useState('squid');
   const [deployTarget, setDeployTarget] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
   const [selectedProjectGroup, setSelectedProjectGroup] = useState('all-projects');
   const [selectedLifecycle, setSelectedLifecycle] = useState('.NET TEST PRD');
   const [showLifecycle, setShowLifecycle] = useState(false);
   const [projectIcon, setProjectIcon] = useState<string | null>(null);
-  
-  const totalProjects = 399;
+  const [projectGroupsData, setProjectGroupsData] = useState<ProjectGroup[]>([]);
+  const [totalProjects, setTotalProjects] = useState(0);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
   const navigate = useNavigate();
 
-  // 模拟数据
-  const projectGroupsData: ProjectGroup[] = [
-    {
-      name: '.NET A TEAM',
-      count: 12,
-      projects: [
-        {
-          key: '1',
-          name: 'FoundationNew',
+  // 从 API 加载项目列表
+  useEffect(() => {
+    let cancelled = false;
+    const fetchProjects = async () => {
+      try {
+        setLoadingProjects(true);
+        const res = await getProjects({
+          pageIndex: currentPage,
+          pageSize,
+          keyword: searchText || undefined,
+        });
+        if (cancelled) return;
+
+        const projects: ProjectData[] = (res.projects ?? []).map((p: ProjectDto) => ({
+          key: String(p.id),
+          name: p.name,
           dev: null,
-          test: {
-            version: '2.2.0-addPagingF...',
-            timestamp: 'Apr 10, 2024 3:55 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2.2.0-addPagingF...',
-            timestamp: 'Apr 29, 2024 2:32 PM',
-            status: 'failed'
-          },
-          prd: {
-            version: '2.2.0--4185.1+598',
-            timestamp: 'Jan 22, 2024 4:20 PM',
-            status: 'success'
-          }
-        },
-        {
-          key: '2',
-          name: 'HrTicketingSystem',
-          dev: null,
-          test: {
-            version: '2.4.13-mixture-no...',
-            timestamp: 'Dec 13, 2024 2:15 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2.4.13-mixture-no...',
-            timestamp: 'Dec 12, 2024 9:07 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '3',
-          name: 'HrTicketingSystem_Dotnet Core',
-          dev: null,
-          test: {
-            version: '2.5.0-upgrade-to...',
-            timestamp: 'Oct 16, 2024 11:06 AM',
-            status: 'failed'
-          },
-          uat: {
-            version: '2.5.0-upgrade-to...',
-            timestamp: 'Dec 12, 2024 9:16 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '4',
-          name: 'IsTicketingSystem',
-          dev: null,
-          test: {
-            version: '2.1.8-synchronize...',
-            timestamp: 'Dec 16, 2024 2:48 PM',
-            status: 'success'
-          },
+          test: null,
           uat: null,
-          prd: null
-        },
-        {
-          key: '5',
-          name: 'IsTicketingSystem_DotnetCore',
-          dev: null,
-          test: {
-            version: '2.1.4-upgrade-to-...',
-            timestamp: 'Oct 9, 2024 6:23 PM',
-            status: 'success'
+          prd: null,
+        }));
+
+        setProjectGroupsData([
+          {
+            name: 'All Projects',
+            count: res.count,
+            projects,
           },
-          uat: {
-            version: '2.1.4-upgrade-to-...',
-            timestamp: 'Dec 2, 2024 10:57 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '6',
-          name: 'JustIM',
-          dev: null,
-          test: {
-            version: '5.5.1-mixture-no-...',
-            timestamp: 'Dec 17, 2024 5:35 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '5.5.1-mixture-no-...',
-            timestamp: 'Dec 13, 2024 8:44 AM',
-            status: 'success'
-          },
-          prd: null
-        },
-        {
-          key: '7',
-          name: 'JustIM_DotnetCore',
-          dev: null,
-          test: {
-            version: '5.6.1',
-            timestamp: 'Jan 22, 2025 6:38 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '5.6.2',
-            timestamp: 'Jan 21, 2025 3:26 PM',
-            status: 'success'
-          },
-          prd: {
-            version: '5.6.2',
-            timestamp: 'Jan 21, 2025 5:38 PM',
-            status: 'success'
-          }
-        },
-        {
-          key: '8',
-          name: 'JustIM_SugarChat',
-          dev: null,
-          test: {
-            version: '2023.4.2',
-            timestamp: 'Sep 4, 2023 2:33 PM',
-            status: 'success'
-          },
-          uat: {
-            version: '2023.4.2',
-            timestamp: 'Sep 4, 2023 2:34 PM',
-            status: 'success'
-          },
-          prd: {
-            version: '2023.4.2',
-            timestamp: 'Sep 13, 2023 3:14 PM',
-            status: 'success'
-          }
-        }
-      ]
-    }
-  ];
+        ]);
+        setTotalProjects(res.count);
+      } catch (error) {
+        console.error('Failed to load projects', error);
+      } finally {
+        if (!cancelled) setLoadingProjects(false);
+      }
+    };
+
+    fetchProjects();
+    return () => { cancelled = true; };
+  }, [currentPage, pageSize, searchText]);
 
   const importExportItems: MenuProps['items'] = [
     {
@@ -339,7 +237,7 @@ const Project: React.FC = () => {
     setShowAddProjectModal(false);
     // Reset form
     setProjectName('');
-    setStorageLocation('octopus');
+    setStorageLocation('squid');
     setDeployTarget('');
     setProjectDescription('');
     setSelectedProjectGroup('all-projects');
@@ -352,7 +250,7 @@ const Project: React.FC = () => {
     setShowAddProjectModal(false);
     // Reset form
     setProjectName('');
-    setStorageLocation('octopus');
+    setStorageLocation('squid');
     setDeployTarget('');
     setProjectDescription('');
     setSelectedProjectGroup('all-projects');
@@ -425,9 +323,12 @@ const Project: React.FC = () => {
       fixed: 'left',
       ellipsis: true,
       render: (name: string) => (
-        <Space className="min-w-0">
+        <Space
+          className="min-w-0 cursor-pointer"
+          onClick={() => navigate(`/project/${encodeURIComponent(name)}/project-detail`)}
+        >
           <ProjectOutlined className="text-gray-400 text-base flex-shrink-0" />
-          <Text className="text-xs text-gray-600 font-medium truncate">{name}</Text>
+          <Text className="text-xs text-squid-blue font-medium truncate hover:underline">{name}</Text>
         </Space>
       ),
     },
@@ -581,28 +482,36 @@ const Project: React.FC = () => {
       {/* Scrollable Content Area - 只有这部分滚动 */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="px-4 sm:px-6 py-4">
-          {projectGroupsData.map((group) => (
-            <div key={group.name} className="mb-6">
-              <div className="py-2 border-b-2 border-gray-200 mb-0">
-                <Space>
-                  <Text strong className="text-sm font-bold">{group.name}</Text>
-                  <Badge 
-                    count={group.count} 
-                    className="[&_.ant-badge-count]:bg-gray-300 [&_.ant-badge-count]:text-gray-700 [&_.ant-badge-count]:text-xs [&_.ant-badge-count]:font-semibold"
-                  />
-                </Space>
-              </div>
-              <div className="overflow-x-auto">
-                <Table
-                  columns={columns}
-                  dataSource={group.projects}
-                  pagination={false}
-                  className="project-table"
-                  scroll={{ x: 1000 }}
-                />
-              </div>
+          {loadingProjects ? (
+            <div className="flex items-center justify-center py-20">
+              <Spin tip="Loading projects..." />
             </div>
-          ))}
+          ) : projectGroupsData.length === 0 ? (
+            <div className="py-20 text-center text-gray-400">No projects found</div>
+          ) : (
+            projectGroupsData.map((group) => (
+              <div key={group.name} className="mb-6">
+                <div className="py-2 border-b-2 border-gray-200 mb-0">
+                  <Space>
+                    <Text strong className="text-sm font-bold">{group.name}</Text>
+                    <Badge
+                      count={group.count}
+                      className="[&_.ant-badge-count]:bg-gray-300 [&_.ant-badge-count]:text-gray-700 [&_.ant-badge-count]:text-xs [&_.ant-badge-count]:font-semibold"
+                    />
+                  </Space>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table
+                    columns={columns}
+                    dataSource={group.projects}
+                    pagination={false}
+                    className="project-table"
+                    scroll={{ x: 1000 }}
+                  />
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -845,9 +754,9 @@ const Project: React.FC = () => {
             onChange={(e) => setStorageLocation(e.target.value)}
             className="w-full flex gap-3"
           >
-            <Radio.Button value="octopus" className="h-12 flex items-center justify-center flex-1">
+            <Radio.Button value="squid" className="h-12 flex items-center justify-center flex-1">
               <div className="text-center">
-                <div className="font-semibold">Octopus</div>
+                <div className="font-semibold">Squid</div>
                 <div className="text-xs text-gray-500 mt-0.5 font-normal">Recommended</div>
               </div>
             </Radio.Button>
