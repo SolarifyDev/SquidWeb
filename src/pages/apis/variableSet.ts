@@ -107,10 +107,14 @@ export function GetVariableSets(params?: GetVariableSetsRequest) {
   return get<GetVariableSetsResponseData>('/variableSet', { params })
 }
 
-export async function loadVariableSets(setLoading: React.Dispatch<React.SetStateAction<boolean>>) {
+export function GetVariableSet(id: number) {
+  return get<VariableSetDto>(`/variableSet/${id}`)
+}
+
+export async function loadVariableSets(setLoading: React.Dispatch<React.SetStateAction<boolean>>, spaceId?: number) {
   try {
     setLoading(true);
-    const res = await GetVariableSets({ pageIndex: 1, pageSize: 50 });
+    const res = await GetVariableSets({ pageIndex: 1, pageSize: 50, spaceId });
     const items: VariableSetItem[] = res.variableSets.map((item) => ({
       id: item.id,
       name: item.name,

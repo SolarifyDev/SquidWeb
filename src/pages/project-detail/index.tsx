@@ -19,7 +19,7 @@ const menu = (projectName?: string) => [
     icon: <RocketOutlined />,
     label: "Deployments",
     path: projectName
-      ? `/project/${projectName}/project-detail/deployments`
+      ? `/projects/${projectName}/project-detail/deployments`
       : "/project-detail/deployments",
   },
   {
@@ -27,7 +27,7 @@ const menu = (projectName?: string) => [
     icon: <BranchesOutlined />,
     label: "Process",
     path: projectName
-      ? `/project/${projectName}/project-detail/process`
+      ? `/projects/${projectName}/project-detail/process`
       : "/project-detail/process",
   },
   {
@@ -35,7 +35,7 @@ const menu = (projectName?: string) => [
     icon: <AppstoreOutlined />,
     label: "Channels",
     path: projectName
-      ? `/project/${projectName}/project-detail/channels`
+      ? `/projects/${projectName}/project-detail/channels`
       : "/project-detail/channels",
   },
   {
@@ -43,7 +43,7 @@ const menu = (projectName?: string) => [
     icon: <DeploymentUnitOutlined />,
     label: "Variable",
     path: projectName
-      ? `/project/${projectName}/project-detail/variable`
+      ? `/projects/${projectName}/project-detail/variable`
       : "/project-detail/releases",
   },
   {
@@ -51,7 +51,7 @@ const menu = (projectName?: string) => [
     icon: <SettingOutlined />,
     label: "Project Settings",
     path: projectName
-      ? `/project/${projectName}/project-detail/settings`
+      ? `/projects/${projectName}/project-detail/settings`
       : "/project-detail/settings",
   },
 ];

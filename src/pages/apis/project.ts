@@ -23,6 +23,7 @@ export interface GetProjectsRequest {
   pageIndex?: number
   pageSize?: number
   keyword?: string
+  spaceId?: number
 }
 
 export interface GetProjectsResponseData {

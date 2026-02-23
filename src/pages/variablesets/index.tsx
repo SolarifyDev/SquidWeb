@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Input, Modal, Typography, Tooltip, Spin } from 'antd';
 import {
   SearchOutlined,
@@ -12,12 +13,15 @@ import {
   FontSizeOutlined
 } from '@ant-design/icons';
 import { loadVariableSets, VariableSetItem } from 'pages/apis/variableSet';
+import { useSpace } from 'contexts/SpaceContext';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
 
 
 const VariableSets: React.FC = () => {
+  const navigate = useNavigate();
+  const { space } = useSpace();
   const [searchText, setSearchText] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newSetName, setNewSetName] = useState('');
@@ -29,7 +33,7 @@ const VariableSets: React.FC = () => {
 
   useEffect(() => {
     const fetchVariableSets = async () => {
-      var items = await loadVariableSets(setLoading);
+      var items = await loadVariableSets(setLoading, space.id);
       setVariableSets(items);
     };
 
@@ -58,7 +62,7 @@ const VariableSets: React.FC = () => {
   };
 
   const handleItemClick = (item: VariableSetItem) => {
-    console.log('Clicked:', item.name);
+    navigate(`/${space.slug}/variable/${item.id}`);
   };
 
   // Markdown formatting functions

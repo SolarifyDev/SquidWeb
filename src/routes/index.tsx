@@ -2,6 +2,7 @@ import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
+import VariableSetDetail from 'pages/variablesets/detail'
 import ExternalFeeds from 'pages/externalfeeds'
 import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
@@ -17,61 +18,75 @@ const routes = [
     children: [
       {
         path: "",
-        redirect: "project",
+        redirect: "Spaces-1/projects",
       },
       {
-        path: "variable",
-        component: VariableSets,
-        name: "Variable Sets",
-      },
-      {
-        path: "deployment/targets",
-        component: DeploymentTargets,
-        name: "Deployment Targets",
-      },
-      {
-        path: "environments",
-        component: Environments,
-        name: "Environments",
-      },
-      {
-        path: "machine/policies",
-        component: MachinePolicies,
-        name: "Machine Policies",
-      },
-      {
-        path: "external/feeds",
-        component: ExternalFeeds,
-        name: "External Feeds",
-      },
-      {
-        path: "lifecycles",
-        component: Lifecycles,
-        name: "Lifecycles",
-      },
-      {
-        path: "project",
-        component: Project,
-        name: "Project",
-      },
-      {
-        path: "project/:projectName/project-detail",
-        component: ProjectDetail,
-        name: "ProjectDetail",
+        path: ":spaceId",
         children: [
           {
             path: "",
-            redirect: "deployments",
+            redirect: "projects",
           },
           {
-            path: "deployments",
-            component: Deployments,
-            name: "Deployments",
+            path: "projects",
+            component: Project,
+            name: "Project",
           },
           {
-            path: "process",
-            component: Process,
-            name: "Process",
+            path: "variable",
+            component: VariableSets,
+            name: "Variable Sets",
+          },
+          {
+            path: "variable/:id",
+            component: VariableSetDetail,
+            name: "Variable Set Detail",
+          },
+          {
+            path: "deployment/targets",
+            component: DeploymentTargets,
+            name: "Deployment Targets",
+          },
+          {
+            path: "environments",
+            component: Environments,
+            name: "Environments",
+          },
+          {
+            path: "machine/policies",
+            component: MachinePolicies,
+            name: "Machine Policies",
+          },
+          {
+            path: "external/feeds",
+            component: ExternalFeeds,
+            name: "External Feeds",
+          },
+          {
+            path: "lifecycles",
+            component: Lifecycles,
+            name: "Lifecycles",
+          },
+          {
+            path: "projects/:projectName/project-detail",
+            component: ProjectDetail,
+            name: "ProjectDetail",
+            children: [
+              {
+                path: "",
+                redirect: "deployments",
+              },
+              {
+                path: "deployments",
+                component: Deployments,
+                name: "Deployments",
+              },
+              {
+                path: "process",
+                component: Process,
+                name: "Process",
+              },
+            ],
           },
         ],
       },

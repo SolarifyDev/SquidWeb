@@ -22,6 +22,7 @@ export interface MachineDto {
 export interface GetMachinesRequest {
   pageIndex?: number
   pageSize?: number
+  spaceId?: number
 }
 
 export interface GetMachinesResponseData {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Input, Checkbox, Button, Badge, Tag, Collapse, Modal, Tabs, Spin } from 'antd';
 import {
   SearchOutlined,
@@ -13,10 +14,13 @@ import {
 } from '@ant-design/icons';
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment';
 import { getMachines, MachineDto } from 'pages/apis/machine';
+import { useSpace } from 'contexts/SpaceContext';
 
 const { Panel } = Collapse;
 
 const Environments = () => {
+  const navigate = useNavigate();
+  const { space } = useSpace();
   const [searchText, setSearchText] = useState<string>('');
   const [showFilters, setShowFilters] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
@@ -36,7 +40,6 @@ const Environments = () => {
     tags: ['aws-eks', 'Normal', 'aws-eks-us', 'SJUSAKS', 'vendor-queue-web', 'Aliyun-HK-AI', 'DotnetCore'],
     health: ['Healthy', 'Unhealthy', 'Unavailable', 'Disabled', 'Unknown'],
     types: ['Kubernetes API', 'Polling Tentacle', 'Listening Tentacle', 'SSH Connection', 'Offline Package Drop'],
-    tenants: ['Tenant A', 'Tenant B', 'Tenant C'],
     smartassistant: ['Tag 1', 'Tag 2', 'Tag 3'],
     restore: ['Database 1', 'Database 2', 'Database 3'],
     cli: ['Bash', 'PowerShell', 'Python', 'Node.js'],
@@ -49,7 +52,6 @@ const Environments = () => {
     tags: [],
     health: [],
     types: [],
-    tenants: [],
     smartassistant: [],
     restore: [],
     cli: [],
@@ -72,8 +74,8 @@ const Environments = () => {
   useEffect(() => {
     setLoadingEnvs(true);
     Promise.all([
-      getEnvironments({ pageSize: 1000 }),
-      getMachines({ pageSize: 1000 }),
+      getEnvironments({ pageSize: 1000, spaceId: space.id }),
+      getMachines({ pageSize: 1000, spaceId: space.id }),
     ])
       .then(([envRes, machineRes]) => {
         const envMap = new Map<number, EnvironmentDto>();
@@ -150,7 +152,6 @@ const Environments = () => {
       tags: [],
       health: [],
       types: [],
-      tenants: [],
       smartassistant: [],
       restore: [],
       cli: [],
@@ -214,7 +215,7 @@ const Environments = () => {
             {/* 右侧按钮组 */}
             <div className="flex items-center gap-3">
               <Button
-                onClick={() => setShowAddDeploymentTarget(true)}
+                onClick={() => navigate(`/${space.slug}/deployment/targets`)}
                 className="border-blue-600 text-blue-600 hover:bg-blue-50 font-medium"
               >
                 Add Deployment Target
@@ -379,25 +380,7 @@ const Environments = () => {
                   </div>
                 </Panel>
 
-                <Panel 
-                  header={<span className="text-sm text-gray-700">By tenants</span>} 
-                  key="tenants"
-                  className="border-b"
-                >
-                  <div className="space-y-2 pl-2">
-                    {filterOptions.tenants.map((option) => (
-                      <Checkbox
-                        key={option}
-                        checked={selectedFilters.tenants.includes(option)}
-                        onChange={(e) => handleFilterChange('tenants', option, e.target.checked)}
-                      >
-                        {option}
-                      </Checkbox>
-                    ))}
-                  </div>
-                </Panel>
-
-                <Panel 
+                <Panel
                   header={<span className="text-sm text-gray-700">By ForSmartAssistant tags</span>} 
                   key="smartassistant"
                   className="border-b"

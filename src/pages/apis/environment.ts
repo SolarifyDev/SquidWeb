@@ -16,6 +16,7 @@ export interface EnvironmentDto {
 export interface GetEnvironmentsRequest {
   pageIndex?: number
   pageSize?: number
+  spaceId?: number
 }
 
 export interface GetEnvironmentsResponseData {

@@ -16,6 +16,7 @@ export interface ExternalFeedDto {
 export interface GetExternalFeedsRequest {
   pageIndex?: number
   pageSize?: number
+  spaceId?: number
 }
 
 export interface GetExternalFeedsResponseData {

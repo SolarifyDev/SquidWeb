@@ -1,24 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Button, 
-  Input, 
-  Dropdown, 
-  Space, 
-  Table, 
-  Badge, 
+import {
+  Button,
+  Input,
+  Dropdown,
+  Space,
+  Table,
+  Badge,
   Typography,
   Tooltip,
   Menu,
   Modal,
   Radio,
   Select,
-  Steps,
-  Upload,
-  message,
-  List,
   Spin
 } from 'antd';
-import type { UploadProps, MenuProps, TableColumnsType } from 'antd';
+import type { MenuProps, TableColumnsType } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
@@ -29,16 +25,18 @@ import {
   LeftOutlined,
   RightOutlined,
   ProjectOutlined,
-  ReloadOutlined,
-  ArrowLeftOutlined,
   BoldOutlined,
   ItalicOutlined,
   UnorderedListOutlined,
   OrderedListOutlined,
   PictureOutlined,
   LinkOutlined,
-  CodeOutlined
+  CodeOutlined,
+  ThunderboltFilled,
+  CloseOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
+import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
@@ -66,6 +64,7 @@ interface ProjectGroup {
 
 import { useNavigate } from "react-router-dom";
 import { getProjects, ProjectDto } from "pages/apis/project";
+import { useSpace } from "contexts/SpaceContext";
 
 const Project: React.FC = () => {
   const [searchText, setSearchText] = useState('');
@@ -77,7 +76,6 @@ const Project: React.FC = () => {
   const [projectGroups, setProjectGroups] = useState('all');
   const [projects, setProjects] = useState('all');
   const [environments, setEnvironments] = useState('all');
-  const [tenants, setTenants] = useState('all');
   
   // Add Project Group states
   const [projectGroupName, setProjectGroupName] = useState('');
@@ -85,18 +83,50 @@ const Project: React.FC = () => {
   const [showMarkdownControls, setShowMarkdownControls] = useState(true);
   // Add Project form states
   const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [selectedLifecycle, setSelectedLifecycle] = useState<string | undefined>(undefined);
+  const [showLifecyclePreview, setShowLifecyclePreview] = useState(false);
+  const [lifecycleOptions, setLifecycleOptions] = useState<{ value: string; label: string; phases: { name: string; type?: string }[] }[]>([]);
+  const [loadingLifecycles, setLoadingLifecycles] = useState(false);
   const [storageLocation, setStorageLocation] = useState('squid');
   const [deployTarget, setDeployTarget] = useState('');
-  const [projectDescription, setProjectDescription] = useState('');
   const [selectedProjectGroup, setSelectedProjectGroup] = useState('all-projects');
-  const [selectedLifecycle, setSelectedLifecycle] = useState('.NET TEST PRD');
-  const [showLifecycle, setShowLifecycle] = useState(false);
-  const [projectIcon, setProjectIcon] = useState<string | null>(null);
   const [projectGroupsData, setProjectGroupsData] = useState<ProjectGroup[]>([]);
   const [totalProjects, setTotalProjects] = useState(0);
   const [loadingProjects, setLoadingProjects] = useState(false);
 
   const navigate = useNavigate();
+  const { space } = useSpace();
+
+  // 加载 Lifecycle 列表（当 Add Project 弹窗打开时）
+  useEffect(() => {
+    if (!showAddProjectModal) return;
+    setLoadingLifecycles(true);
+    getLifecycles()
+      .then((res) => {
+        const options = res.lifecycles.map((lc: LifecycleDto) => {
+          let phases: { name: string; type?: string }[] = [];
+          if (lc.json) {
+            try {
+              const parsed = JSON.parse(lc.json);
+              if (Array.isArray(parsed.phases)) {
+                phases = parsed.phases.map((p: any) => ({
+                  name: p.name || p.Name || '',
+                  type: p.isOptionalPhase ? 'default' : 'active',
+                }));
+              }
+            } catch {}
+          }
+          return { value: String(lc.id), label: lc.name, phases };
+        });
+        setLifecycleOptions(options);
+        if (options.length > 0 && !selectedLifecycle) {
+          setSelectedLifecycle(options[0].value);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingLifecycles(false));
+  }, [showAddProjectModal]);
 
   // 从 API 加载项目列表
   useEffect(() => {
@@ -108,6 +138,7 @@ const Project: React.FC = () => {
           pageIndex: currentPage,
           pageSize,
           keyword: searchText || undefined,
+          spaceId: space.id,
         });
         if (cancelled) return;
 
@@ -207,7 +238,7 @@ const Project: React.FC = () => {
   const endIndex = Math.min(currentPage * pageSize, totalProjects);
 
   const handleSaveFilters = () => {
-    console.log('Filters saved:', { projectGroups, projects, environments, tenants });
+    console.log('Filters saved:', { projectGroups, projects, environments });
     setShowFiltersModal(false);
   };
 
@@ -224,59 +255,27 @@ const Project: React.FC = () => {
     setProjectGroupDesc('');
   };
 
-  const handleCreateProject = () => {
-    console.log('Creating project:', {
-      projectName,
-      storageLocation,
-      deployTarget,
-      projectDescription,
-      selectedProjectGroup,
-      selectedLifecycle,
-      projectIcon
-    });
-    setShowAddProjectModal(false);
-    // Reset form
+  const resetAddProjectForm = () => {
     setProjectName('');
+    setProjectDescription('');
+    setSelectedLifecycle(undefined);
+    setShowLifecyclePreview(false);
+    setLifecycleOptions([]);
     setStorageLocation('squid');
     setDeployTarget('');
-    setProjectDescription('');
     setSelectedProjectGroup('all-projects');
-    setSelectedLifecycle('.NET TEST PRD');
-    setShowLifecycle(false);
-    setProjectIcon(null);
+  };
+
+  const handleCreateProject = () => {
+    if (!projectName.trim()) return;
+    console.log('Creating project:', { projectName, projectDescription, selectedLifecycle, storageLocation, deployTarget, selectedProjectGroup });
+    setShowAddProjectModal(false);
+    resetAddProjectForm();
   };
 
   const handleCancelAddProject = () => {
     setShowAddProjectModal(false);
-    // Reset form
-    setProjectName('');
-    setStorageLocation('squid');
-    setDeployTarget('');
-    setProjectDescription('');
-    setSelectedProjectGroup('all-projects');
-    setSelectedLifecycle('.NET TEST PRD');
-    setShowLifecycle(false);
-    setProjectIcon(null);
-  };
-
-  const handleIconUpload: UploadProps['beforeUpload'] = (file) => {
-    const isImage = file.type.startsWith('image/');
-    if (!isImage) {
-      message.error('You can only upload image files!');
-      return false;
-    }
-    const isLt2M = file.size / 1024 / 1024 < 2;
-    if (!isLt2M) {
-      message.error('Image must be smaller than 2MB!');
-      return false;
-    }
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setProjectIcon(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
-    return false;
+    resetAddProjectForm();
   };
 
   const renderDeploymentCell = (deployment: DeploymentInfo | null) => {
@@ -325,7 +324,7 @@ const Project: React.FC = () => {
       render: (name: string) => (
         <Space
           className="min-w-0 cursor-pointer"
-          onClick={() => navigate(`/project/${encodeURIComponent(name)}/project-detail`)}
+          onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(name)}/project-detail`)}
         >
           <ProjectOutlined className="text-gray-400 text-base flex-shrink-0" />
           <Text className="text-xs text-squid-blue font-medium truncate hover:underline">{name}</Text>
@@ -408,6 +407,32 @@ const Project: React.FC = () => {
       .project-table .ant-table-tbody > tr > td {
         padding: 8px 10px;
       }
+    }
+
+    /* Fullscreen Add Project Modal */
+    .fullscreen-add-project-modal .ant-modal-wrap {
+      overflow: hidden;
+    }
+    .fullscreen-add-project-modal .ant-modal {
+      top: 0 !important;
+      max-width: 100vw !important;
+      margin: 0 !important;
+      padding-bottom: 0 !important;
+      width: 100vw !important;
+    }
+    .fullscreen-add-project-modal .ant-modal-content {
+      height: 100vh;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .fullscreen-add-project-modal .ant-modal-body {
+      padding: 0 !important;
+      flex: 1;
+      overflow: hidden;
+      height: 100vh;
     }
   `;
 
@@ -537,7 +562,7 @@ const Project: React.FC = () => {
       >
         <div className="text-gray-500 text-sm mb-6 font-normal">
           Change and save the default view of the dashboard to display all or only selected projects, 
-          environments or releases for a tenant.
+          environments or releases.
         </div>
 
         <div className="mb-6 pb-6 border-b border-gray-200">
@@ -579,18 +604,6 @@ const Project: React.FC = () => {
           </Radio.Group>
         </div>
 
-        <div className="mb-6">
-          <div className="text-base font-bold text-gray-900 mb-1">Tenants</div>
-          <div className="text-xs text-gray-500 mb-3 font-normal">View all or selected tenants</div>
-          <Radio.Group 
-            value={tenants} 
-            onChange={(e) => setTenants(e.target.value)}
-            className="flex flex-col gap-2"
-          >
-            <Radio value="all" className="font-medium">All tenants (default)</Radio>
-            <Radio value="selected" className="font-medium">Only selected tenants</Radio>
-          </Radio.Group>
-        </div>
       </Modal>
 
       {/* Add Project Group Modal - 添加项目组弹窗 */}
@@ -663,205 +676,356 @@ const Project: React.FC = () => {
         </div>
       </Modal>
       
-      {/* Add New Project Modal */}
+      {/* Add New Project Modal - Fullscreen */}
       <Modal
-        title={
-          <div className="flex items-center gap-3">
-            <Button 
-              type="text" 
-              icon={<ArrowLeftOutlined />} 
-              onClick={handleCancelAddProject}
-              className="!p-1"
-            />
-            <span className="font-bold text-lg">Add New Project</span>
-          </div>
-        }
         open={showAddProjectModal}
         onCancel={handleCancelAddProject}
-        footer={[
-          <Button key="cancel" onClick={handleCancelAddProject} className="font-medium">
-            Cancel
-          </Button>,
-          <Button 
-            key="create" 
-            type="primary" 
-            onClick={handleCreateProject}
-            disabled={!projectName.trim()}
-            className="font-semibold"
-          >
-            Create Project
-          </Button>,
-        ]}
-        centered
-        width="90%"
-        style={{ top: 40, maxWidth: 1200, margin: '0 auto', paddingBottom: 0 }}
-        bodyStyle={{ height: 'calc(100vh - 110px)', overflowY: 'auto', padding: '24px' }}
-        maskStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.85)' }}
-        closeIcon={null}
+        destroyOnClose
+        footer={null}
+        title={null}
+        closable={false}
+        width="100vw"
+        style={{ top: 0, margin: 0, maxWidth: '100vw', padding: 0 }}
+        wrapClassName="fullscreen-add-project-modal"
       >
-        {/* Steps indicator */}
-        <div className="mb-6">
-          <Steps
-            current={0}
-            items={[
-              { title: 'Project' },
-              { title: 'Deployment Process' },
-              { title: 'Release and Deploy' }
-            ]}
-            size="small"
-          />
-        </div>
+        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+          {/* ── Left Panel ── */}
+          <div style={{ width: '62%', display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
 
-        {/* Project Icon and Name in same row */}
-        <div className="flex items-center gap-4 mb-6">
-          <Upload
-            beforeUpload={handleIconUpload}
-            showUploadList={false}
-            accept="image/*"
-          >
-            <Tooltip title="Click to upload project icon">
-              <div 
-                className="w-12 h-12 bg-blue-500 rounded flex items-center justify-center text-white text-2xl cursor-pointer border-2 border-dashed border-transparent transition-all flex-shrink-0 overflow-hidden hover:border-blue-500 hover:bg-blue-50"
+            {/* Top bar: close + brand */}
+            <div className="flex items-center justify-between px-10 py-4 border-b border-gray-100 flex-shrink-0">
+              <button
+                onClick={handleCancelAddProject}
+                className="text-gray-400 hover:text-gray-600 transition-colors leading-none"
               >
-                {projectIcon ? (
-                  <img 
-                    src={projectIcon} 
-                    alt="Project icon" 
-                    className="w-full h-full object-cover rounded"
+                <CloseOutlined style={{ fontSize: 18 }} />
+              </button>
+              <span className="text-gray-500 font-semibold text-sm tracking-wide">Squid</span>
+            </div>
+
+            {/* Breadcrumb + step indicator */}
+            <div className="px-10 pt-8 pb-2 flex-shrink-0">
+              <button
+                onClick={handleCancelAddProject}
+                className="flex items-center gap-1 text-squid-blue text-sm hover:opacity-75 mb-8 transition-opacity"
+              >
+                <LeftOutlined style={{ fontSize: 11 }} />
+                <span>Projects</span>
+              </button>
+
+              {/* Step indicator */}
+              <div className="flex items-center mb-8">
+                {/* Step 1 – active */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: '#00B065' }}
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">Project</span>
+                </div>
+
+                <div className="mx-3 h-px bg-gray-200" style={{ width: 40 }} />
+
+                {/* Step 2 – inactive */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
+                  <span className="text-sm text-gray-400 whitespace-nowrap">Deployment Process</span>
+                </div>
+
+                <div className="mx-3 h-px bg-gray-200" style={{ width: 40 }} />
+
+                {/* Step 3 – inactive */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
+                  <span className="text-sm text-gray-400 whitespace-nowrap">Release and Deploy</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable form */}
+            <div className="flex-1 overflow-y-auto px-10 pb-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-8">Add New Project</h2>
+
+              {/* Project name + icon */}
+              <div className="flex items-center gap-4 mb-10">
+                <div className="w-10 h-10 rounded bg-squid-blue flex items-center justify-center text-white flex-shrink-0">
+                  <ProjectOutlined style={{ fontSize: 16 }} />
+                </div>
+                <div
+                  className="flex-1 pb-1 transition-colors"
+                  style={{ borderBottom: '2px solid #d1d5db' }}
+                  onFocus={(e) => (e.currentTarget.style.borderBottomColor = '#0d80d8')}
+                  onBlur={(e) => (e.currentTarget.style.borderBottomColor = '#d1d5db')}
+                >
+                  <input
+                    autoFocus
+                    placeholder="New project name"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    className="w-full text-lg outline-none border-0 bg-transparent py-1 text-gray-900 placeholder-gray-400 font-medium"
                   />
-                ) : (
-                  <ProjectOutlined />
-                )}
+                </div>
               </div>
-            </Tooltip>
-          </Upload>
-          <Input
-            placeholder="Project name"
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            size="large"
-            className="text-base font-semibold flex-1"
-          />
-        </div>
 
-        {/* Storage Location */}
-        <div className="mb-5">
-          <label className="text-xs text-gray-900 font-bold mb-2 block uppercase tracking-wide">
-            Store project process, settings, and non-sensitive variables in
-          </label>
-          <Radio.Group 
-            value={storageLocation} 
-            onChange={(e) => setStorageLocation(e.target.value)}
-            className="w-full flex gap-3"
-          >
-            <Radio.Button value="squid" className="h-12 flex items-center justify-center flex-1">
-              <div className="text-center">
-                <div className="font-semibold">Squid</div>
-                <div className="text-xs text-gray-500 mt-0.5 font-normal">Recommended</div>
+              {/* Storage Location */}
+              <div className="mb-8">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Storage Location</div>
+                <Radio.Group value={storageLocation} onChange={(e) => setStorageLocation(e.target.value)}>
+                  <div className="flex flex-col gap-4">
+                    <Radio value="squid">
+                      <div className="ml-1">
+                        <div className="text-sm font-semibold text-gray-900">Squid</div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Store project and deployment process in the Squid database.
+                        </div>
+                      </div>
+                    </Radio>
+                    <Radio value="git">
+                      <div className="ml-1">
+                        <div className="text-sm font-semibold text-gray-900">Git Repository</div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Store deployment process in a Git repository using Configuration as Code.
+                        </div>
+                      </div>
+                    </Radio>
+                  </div>
+                </Radio.Group>
               </div>
-            </Radio.Button>
-            <Radio.Button value="git" className="h-12 flex items-center justify-center flex-1">
-              <div className="text-center">
-                <div className="font-semibold">Git Repository</div>
-              </div>
-            </Radio.Button>
-          </Radio.Group>
-        </div>
 
-        {/* Deploy to */}
-        <div className="mb-5">
-          <label className="text-xs text-gray-900 font-bold mb-2 block uppercase tracking-wide">Deploy to</label>
-          <Radio.Group 
-            value={deployTarget} 
-            onChange={(e) => setDeployTarget(e.target.value)}
-            className="w-full"
-          >
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <Radio.Button value="kubernetes" className="h-12 flex items-center justify-center font-medium">
-                Kubernetes
-              </Radio.Button>
-              <Radio.Button value="azure" className="h-12 flex items-center justify-center font-medium">
-                Azure
-              </Radio.Button>
-              <Radio.Button value="aws" className="h-12 flex items-center justify-center font-medium">
-                AWS
-              </Radio.Button>
-              <Radio.Button value="linux" className="h-12 flex items-center justify-center font-medium">
-                Linux
-              </Radio.Button>
-              <Radio.Button value="windows" className="h-12 flex items-center justify-center font-medium">
-                Windows
-              </Radio.Button>
-              <Radio.Button value="other" className="h-12 flex items-center justify-center font-medium">
-                Other
-              </Radio.Button>
+              {/* Deploy To */}
+              <div className="mb-8">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Deploy To</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: 'kubernetes', label: 'Kubernetes', emoji: '⚓' },
+                    { value: 'azure', label: 'Azure Cloud', emoji: '☁' },
+                    { value: 'aws', label: 'AWS', emoji: '🟡' },
+                    { value: 'linux', label: 'Linux/Unix', emoji: '🐧' },
+                    { value: 'windows', label: 'Windows', emoji: '🪟' },
+                    { value: 'other', label: 'Other', emoji: '⚡' },
+                  ].map(({ value, label, emoji }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setDeployTarget(value)}
+                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                        deployTarget === value
+                          ? 'border-squid-blue bg-blue-50 shadow-sm'
+                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                      }`}
+                    >
+                      <span className="text-2xl leading-none">{emoji}</span>
+                      <span
+                        className={`text-sm font-medium ${deployTarget === value ? 'text-squid-blue' : 'text-gray-700'}`}
+                      >
+                        {label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Advanced Settings separator */}
+              <div className="flex items-center gap-3 mb-6">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                  Advanced Settings
+                </span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+
+              {/* Description */}
+              <div className="mb-6">
+                <div className="text-xs text-gray-500 mb-1">Description</div>
+                <div className="border-b border-gray-300 pb-1 focus-within:border-squid-blue transition-colors">
+                  <textarea
+                    placeholder="Describe your project (optional)"
+                    value={projectDescription}
+                    onChange={(e) => setProjectDescription(e.target.value)}
+                    rows={2}
+                    className="w-full outline-none border-0 bg-transparent resize-none text-sm text-gray-900 placeholder-gray-400 py-1"
+                  />
+                </div>
+              </div>
+
+              {/* Project Group */}
+              <div className="mb-6">
+                <div className="text-xs text-gray-500 mb-1">Project Group</div>
+                <div className="border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                  <Select
+                    className="w-full"
+                    value={selectedProjectGroup}
+                    onChange={setSelectedProjectGroup}
+                    bordered={false}
+                    options={[{ value: 'all-projects', label: 'All Projects' }]}
+                    style={{ paddingLeft: 0 }}
+                    dropdownStyle={{ zIndex: 10001 }}
+                  />
+                </div>
+              </div>
+
+              {/* Lifecycle */}
+              <div className="mb-6">
+                <div className="text-xs text-gray-500 mb-1">Lifecycle</div>
+                <div className="flex items-center gap-2 border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                  <Select
+                    className="flex-1"
+                    loading={loadingLifecycles}
+                    value={selectedLifecycle}
+                    onChange={setSelectedLifecycle}
+                    placeholder="Select a lifecycle"
+                    bordered={false}
+                    options={lifecycleOptions.map((o) => ({ value: o.value, label: o.label }))}
+                    style={{ paddingLeft: 0 }}
+                    dropdownStyle={{ zIndex: 10001 }}
+                  />
+                  <button
+                    type="button"
+                    title="Refresh lifecycles"
+                    className="text-squid-blue hover:text-blue-700 p-1 transition-colors flex-shrink-0"
+                    onClick={() => {
+                      setLoadingLifecycles(true);
+                      getLifecycles()
+                        .then((res) => {
+                          const options = res.lifecycles.map((lc: LifecycleDto) => {
+                            let phases: { name: string; type?: string }[] = [];
+                            if (lc.json) {
+                              try {
+                                const parsed = JSON.parse(lc.json);
+                                if (Array.isArray(parsed.phases)) {
+                                  phases = parsed.phases.map((p: any) => ({
+                                    name: p.name || p.Name || '',
+                                    type: p.isOptionalPhase ? 'default' : 'active',
+                                  }));
+                                }
+                              } catch {}
+                            }
+                            return { value: String(lc.id), label: lc.name, phases };
+                          });
+                          setLifecycleOptions(options);
+                        })
+                        .catch(() => {})
+                        .finally(() => setLoadingLifecycles(false));
+                    }}
+                  >
+                    <ReloadOutlined />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Lifecycles determine which environments the project can be deployed to and in what order.{' '}
+                  <button
+                    type="button"
+                    className="text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0"
+                    onClick={() => setShowLifecyclePreview((v) => !v)}
+                  >
+                    {showLifecyclePreview ? 'Hide' : 'Show'} lifecycle
+                  </button>
+                </p>
+                {showLifecyclePreview && (() => {
+                  const sel = lifecycleOptions.find((o) => o.value === selectedLifecycle);
+                  return (
+                    <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                      {sel && sel.phases.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {sel.phases.map((phase, i) => (
+                            <div key={i} className="flex items-center gap-2 text-sm">
+                              {phase.type === 'active' ? (
+                                <ThunderboltFilled className="text-orange-500 text-xs" />
+                              ) : (
+                                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-gray-400" />
+                              )}
+                              <span className={phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'}>
+                                {phase.name}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-500">Uses default conventions</span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Bottom spacing */}
+              <div className="h-4" />
             </div>
-          </Radio.Group>
-        </div>
 
-        {/* Advanced Settings */}
-        <div className="mt-5 pt-5 border-t border-gray-200">
-          <Text strong className="text-xs text-gray-500 uppercase font-bold tracking-wider">
-            ADVANCED SETTINGS
-          </Text>
-
-          {/* Project Description */}
-          <div className="mt-4 mb-4">
-            <label className="text-xs text-gray-900 font-bold mb-2 block uppercase tracking-wide">
-              Project description
-            </label>
-            <TextArea
-              value={projectDescription}
-              onChange={(e) => setProjectDescription(e.target.value)}
-              placeholder="Project description"
-              rows={2}
-            />
+            {/* Footer */}
+            <div className="flex-shrink-0 px-10 py-4 border-t border-gray-200 flex justify-between items-center bg-white">
+              <Button onClick={handleCancelAddProject}>Cancel</Button>
+              <Button
+                type="primary"
+                onClick={handleCreateProject}
+                disabled={!projectName.trim()}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-semibold"
+              >
+                Create Project
+              </Button>
+            </div>
           </div>
 
-          {/* Project Group */}
-          <div className="mb-4">
-            <label className="text-xs text-gray-900 font-bold mb-2 block uppercase tracking-wide">
-              Project group
-            </label>
-            <Select
-              value={selectedProjectGroup}
-              onChange={setSelectedProjectGroup}
-              className="w-full"
-              options={[
-                { value: 'all-projects', label: 'All Projects' },
-                { value: '.net-a-team', label: '.NET A TEAM' },
-              ]}
-            />
-          </div>
+          {/* ── Right Panel – Illustration ── */}
+          <div
+            className="flex-1 h-full flex flex-col items-center justify-center p-12"
+            style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 55%, #dbeafe 100%)' }}
+          >
+            <svg width="300" height="200" viewBox="0 0 300 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-8">
+              {/* Build box */}
+              <rect x="10" y="65" width="75" height="52" rx="8" fill="white" stroke="#0d80d8" strokeWidth="1.5" />
+              <rect x="10" y="65" width="75" height="20" rx="8" fill="#0d80d8" />
+              <rect x="10" y="76" width="75" height="9" fill="#0d80d8" />
+              <text x="48" y="80" textAnchor="middle" fontSize="9" fill="white" fontWeight="700">BUILD</text>
+              <circle cx="28" cy="101" r="4" fill="#e2e8f0" />
+              <circle cx="42" cy="101" r="4" fill="#e2e8f0" />
+              <rect x="52" y="97" width="24" height="8" rx="2" fill="#e2e8f0" />
+              {/* Arrow 1→2 */}
+              <line x1="85" y1="91" x2="110" y2="91" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
+              <polygon points="110,87 118,91 110,95" fill="#94a3b8" />
+              {/* Test box */}
+              <rect x="118" y="65" width="75" height="52" rx="8" fill="white" stroke="#00B065" strokeWidth="1.5" />
+              <rect x="118" y="65" width="75" height="20" rx="8" fill="#00B065" />
+              <rect x="118" y="76" width="75" height="9" fill="#00B065" />
+              <text x="156" y="80" textAnchor="middle" fontSize="9" fill="white" fontWeight="700">TEST</text>
+              <circle cx="136" cy="101" r="4" fill="#bbf7d0" />
+              <circle cx="150" cy="101" r="4" fill="#bbf7d0" />
+              <rect x="160" y="97" width="24" height="8" rx="2" fill="#bbf7d0" />
+              {/* Arrow 2→3 */}
+              <line x1="193" y1="91" x2="218" y2="91" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4,3" />
+              <polygon points="218,87 226,91 218,95" fill="#94a3b8" />
+              {/* Deploy box */}
+              <rect x="226" y="65" width="64" height="52" rx="8" fill="white" stroke="#7c3aed" strokeWidth="1.5" />
+              <rect x="226" y="65" width="64" height="20" rx="8" fill="#7c3aed" />
+              <rect x="226" y="76" width="64" height="9" fill="#7c3aed" />
+              <text x="258" y="80" textAnchor="middle" fontSize="9" fill="white" fontWeight="700">DEPLOY</text>
+              <circle cx="244" cy="101" r="4" fill="#ede9fe" />
+              <rect x="254" y="97" width="26" height="8" rx="2" fill="#ede9fe" />
+              {/* Vertical connectors */}
+              <line x1="48" y1="117" x2="48" y2="145" stroke="#e2e8f0" strokeWidth="1.5" />
+              <line x1="156" y1="117" x2="156" y2="145" stroke="#e2e8f0" strokeWidth="1.5" />
+              <line x1="258" y1="117" x2="258" y2="145" stroke="#e2e8f0" strokeWidth="1.5" />
+              {/* Ground line */}
+              <line x1="10" y1="150" x2="290" y2="150" stroke="#e2e8f0" strokeWidth="1" />
+              {/* Environment labels */}
+              <text x="48" y="163" textAnchor="middle" fontSize="9" fill="#94a3b8">Development</text>
+              <text x="156" y="163" textAnchor="middle" fontSize="9" fill="#94a3b8">Staging</text>
+              <text x="258" y="163" textAnchor="middle" fontSize="9" fill="#94a3b8">Production</text>
+              {/* Decorative dots */}
+              <circle cx="150" cy="28" r="5" fill="#0d80d8" opacity="0.25" />
+              <circle cx="172" cy="18" r="3" fill="#00B065" opacity="0.3" />
+              <circle cx="192" cy="32" r="4" fill="#7c3aed" opacity="0.25" />
+              <circle cx="128" cy="22" r="4" fill="#0d80d8" opacity="0.18" />
+            </svg>
 
-          {/* Lifecycle */}
-          <div className="mb-4">
-            <label className="text-xs text-gray-900 font-bold mb-2 block uppercase tracking-wide">
-              Lifecycle
-            </label>
-            <div className="flex gap-2 items-center">
-              <Select
-                value={selectedLifecycle}
-                onChange={setSelectedLifecycle}
-                className="flex-1"
-                options={[
-                  { value: '.NET TEST PRD', label: '.NET TEST PRD' },
-                ]}
-              />
-              <Button icon={<ReloadOutlined />} />
-            </div>
-            <div className="text-xs text-gray-500 mt-1 font-normal">
-              The lifecycle defines how releases can be promoted between environments.{' '}
-              <Link onClick={() => setShowLifecycle(!showLifecycle)} className="font-medium">
-                {showLifecycle ? 'Hide' : 'Show'} Lifecycle
-              </Link>
-            </div>
-            
-            {showLifecycle && (
-              <div className="mt-3 p-3 bg-gray-50 rounded text-xs text-gray-700 font-normal">
-                Lifecycle phases will be displayed here...
-              </div>
-            )}
+            <h3 className="text-xl font-bold text-gray-700 text-center mb-3">
+              Accelerate your deployments
+            </h3>
+            <p className="text-sm text-gray-500 text-center leading-relaxed" style={{ maxWidth: 280 }}>
+              Projects contain all the settings needed to deploy your software.
+              Define your deployment process, manage variables, and release to environments on demand.
+            </p>
           </div>
         </div>
       </Modal>

@@ -53,7 +53,6 @@ const Tasks: React.FC = () => {
   const [project, setProject] = useState('all');
   const [runbook, setRunbook] = useState('all');
   const [environment, setEnvironment] = useState('all');
-  const [tenant, setTenant] = useState('all');
   const [dateField, setDateField] = useState('');
   
   // Script Console states
@@ -172,7 +171,6 @@ const Tasks: React.FC = () => {
     setProject('all');
     setRunbook('all');
     setEnvironment('all');
-    setTenant('all');
     setDateField('');
   };
 
@@ -282,7 +280,6 @@ const Tasks: React.FC = () => {
               { label: 'By project', value: project, setter: setProject, options: ['All projects'] },
               { label: 'By runbook', value: runbook, setter: setRunbook, options: ['All runbooks'] },
               { label: 'By environment', value: environment, setter: setEnvironment, options: ['All environments'] },
-              { label: 'By tenant', value: tenant, setter: setTenant, options: ['All tenants'] },
             ].map((filter, index) => (
               <div key={index} className="mb-4">
                 <label className="text-xs text-gray-500 mb-2 block">{filter.label}</label>
@@ -391,7 +388,7 @@ const Tasks: React.FC = () => {
                   </Radio>
                   <Radio value="environments">
                     <span className="text-sm">
-                      Run the script on all deployment targets in set of environments, roles, and tenants
+                      Run the script on all deployment targets in set of environments and roles
                     </span>
                   </Radio>
                   <Radio value="server">
