@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react'
-import { Button, Checkbox, Collapse, Modal, Tabs, Spin, Input, Select } from 'antd'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { Button, Checkbox, Collapse, Modal, Tabs, Spin, Input, Select, message } from 'antd'
 import { SearchOutlined, FilterOutlined, MoreOutlined, PlusOutlined, DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { getMachines, MachineDto } from 'pages/apis/machine'
+import { getEnvironments } from 'pages/apis/environment'
+import { createTargetTag, getTargetTags } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
 
 const { Panel } = Collapse
@@ -174,16 +177,16 @@ function FormField({
 }) {
   return (
     <div className="mb-5">
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
       <Input
         variant="borderless"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="px-0 rounded-none"
-        style={{ borderBottom: '1px solid #9e9e9e', borderRadius: 0 }}
+        className="px-0 rounded-none text-base"
+        style={{ borderBottom: '1px solid #9e9e9e', borderRadius: 0, fontSize: 16 }}
       />
-      {helper && <p className="text-xs text-gray-500 mt-1">{helper}</p>}
+      {helper && <p className="text-sm leading-5 text-gray-500 mt-1.5">{helper}</p>}
     </div>
   )
 }
@@ -192,28 +195,64 @@ function MultiSelectField({
   label,
   helper,
   options,
+  loading,
   value,
   onChange,
+  searchValue,
+  onSearch,
+  onCreateFromSearch,
+  createHintLabel = 'Press Enter to create',
 }: {
   label: string
   helper?: React.ReactNode
   options: { value: string; label: string }[]
+  loading?: boolean
   value: string[]
   onChange: (v: string[]) => void
+  searchValue?: string
+  onSearch?: (v: string) => void
+  onCreateFromSearch?: (v: string) => void
+  createHintLabel?: string
 }) {
+  const trimmedSearch = (searchValue ?? '').trim()
+  const hasMatchingOption = trimmedSearch.length === 0
+    ? true
+    : options.some((option) => option.label.toLowerCase().includes(trimmedSearch.toLowerCase()))
+  const canCreateFromSearch = !!onCreateFromSearch && trimmedSearch.length > 0 && !hasMatchingOption
+
   return (
     <div className="mb-5">
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
       <Select
         mode="multiple"
         className="w-full"
         variant="borderless"
+        size="large"
         value={value}
         onChange={onChange}
         options={options}
-        style={{ borderBottom: '1px solid #9e9e9e' }}
+        loading={loading}
+        searchValue={searchValue}
+        onSearch={onSearch}
+        optionFilterProp="label"
+        filterOption={(input, option) =>
+          String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+        }
+        notFoundContent={
+          canCreateFromSearch ? (
+            <div className="px-2 py-2 text-sm text-gray-600">
+              {createHintLabel} <code>"{trimmedSearch}"</code>
+            </div>
+          ) : undefined
+        }
+        onInputKeyDown={(e) => {
+          if (!canCreateFromSearch || e.key !== 'Enter') return
+          e.preventDefault()
+          onCreateFromSearch?.(trimmedSearch)
+        }}
+        style={{ borderBottom: '1px solid #9e9e9e', fontSize: 16 }}
       />
-      {helper && <p className="text-xs text-gray-500 mt-1">{helper}</p>}
+      {helper && <p className="text-sm leading-5 text-gray-500 mt-1.5">{helper}</p>}
     </div>
   )
 }
@@ -229,6 +268,7 @@ const mockEnvironmentOptions = [
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DeploymentTargets: React.FC = () => {
+  const navigate = useNavigate()
   const { space } = useSpace();
   // API data
   const [deploymentData, setDeploymentData] = useState<DeploymentData>({ healthy: [], disabled: [] })
@@ -271,16 +311,158 @@ const DeploymentTargets: React.FC = () => {
   const [agentCommsUrl, setAgentCommsUrl] = useState('')
   const [showOptional, setShowOptional] = useState(true)
   const [helpPanelVisible, setHelpPanelVisible] = useState(true)
+  const [environmentOptions, setEnvironmentOptions] = useState<{ value: string; label: string }[]>([])
+  const [loadingEnvironmentOptions, setLoadingEnvironmentOptions] = useState(false)
+  const [targetTagOptions, setTargetTagOptions] = useState<{ value: string; label: string }[]>([])
+  const [loadingTargetTagOptions, setLoadingTargetTagOptions] = useState(false)
+  const [agentTagSearchValue, setAgentTagSearchValue] = useState('')
+  const creatingTargetTagsRef = useRef<Set<string>>(new Set())
+
+  const normalizeTagValues = useCallback((values: string[]) => {
+    const existingByKey = new Map(targetTagOptions.map((opt) => [opt.label.trim().toLowerCase(), opt.label]))
+    const seen = new Set<string>()
+    const normalized: string[] = []
+
+    values.forEach((raw) => {
+      const trimmed = raw.trim()
+      if (!trimmed) return
+      const canonical = existingByKey.get(trimmed.toLowerCase()) ?? trimmed
+      const key = canonical.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      normalized.push(canonical)
+    })
+
+    return normalized
+  }, [targetTagOptions])
+
+  const upsertTargetTagOption = useCallback((tagName: string) => {
+    setTargetTagOptions((prev) => {
+      const trimmed = tagName.trim()
+      if (!trimmed) return prev
+      if (prev.some((opt) => opt.label.trim().toLowerCase() === trimmed.toLowerCase())) return prev
+
+      return [...prev, { value: trimmed, label: trimmed }]
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    })
+  }, [])
+
+  const createTargetTagIfNeeded = useCallback(async (rawName: string) => {
+    const trimmed = rawName.trim()
+    if (!trimmed) return null
+
+    const key = trimmed.toLowerCase()
+    const existing = targetTagOptions.find((opt) => opt.label.trim().toLowerCase() === key)
+    if (existing) return existing.label
+    if (creatingTargetTagsRef.current.has(key)) return null
+
+    creatingTargetTagsRef.current.add(key)
+    try {
+      const created = await createTargetTag({ name: trimmed, spaceId: space.id })
+      upsertTargetTagOption(created.name)
+      return created.name?.trim() || trimmed
+    } catch (error) {
+      console.error('Failed to create target tag', error)
+      message.error(`Failed to create target tag "${trimmed}"`)
+      return null
+    } finally {
+      creatingTargetTagsRef.current.delete(key)
+    }
+  }, [space.id, targetTagOptions, upsertTargetTagOption])
+
+  const handleAgentTagsChange = useCallback(async (values: string[]) => {
+    const normalized = normalizeTagValues(values)
+
+    const existingKeys = new Set(targetTagOptions.map((opt) => opt.label.trim().toLowerCase()))
+    const known = normalized.filter((tag) => existingKeys.has(tag.toLowerCase()))
+    const unknown = normalized.filter((tag) => !existingKeys.has(tag.toLowerCase()))
+
+    setAgentTags(known)
+
+    for (const tag of unknown) {
+      // eslint-disable-next-line no-await-in-loop
+      const createdTag = await createTargetTagIfNeeded(tag)
+      if (createdTag) {
+        setAgentTags((prev) => normalizeTagValues([...prev, createdTag]))
+      }
+    }
+  }, [createTargetTagIfNeeded, normalizeTagValues, targetTagOptions])
+
+  const handleCreateTargetTagFromSearch = useCallback(async (rawName: string) => {
+    const normalized = normalizeTagValues([rawName])
+    const tagName = normalized[0]
+    if (!tagName) return
+
+    setAgentTagSearchValue('')
+    const createdTag = await createTargetTagIfNeeded(tagName)
+    if (createdTag) {
+      setAgentTags((prev) => normalizeTagValues([...prev, createdTag]))
+    }
+  }, [createTargetTagIfNeeded, normalizeTagValues])
 
   const closeModal = () => {
     setShowAddModal(false)
     setAgentFormView(null)
   }
 
+  useEffect(() => {
+    let mounted = true
+    setLoadingEnvironmentOptions(true)
+    getEnvironments({ pageSize: 1000, spaceId: space.id })
+      .then((res) => {
+        if (!mounted) return
+        setEnvironmentOptions(
+          (res.environments ?? []).map((env) => ({
+            value: env.name,
+            label: env.name,
+          }))
+        )
+      })
+      .catch(() => {
+        if (!mounted) return
+        setEnvironmentOptions([])
+      })
+      .finally(() => {
+        if (mounted) setLoadingEnvironmentOptions(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [space.id])
+
+  useEffect(() => {
+    let mounted = true
+    setLoadingTargetTagOptions(true)
+    getTargetTags()
+      .then((res) => {
+        if (!mounted) return
+        setTargetTagOptions(
+          (res.targetTags ?? [])
+            .map((tag) => ({ value: tag.name, label: tag.name }))
+            .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+        )
+      })
+      .catch((error) => {
+        if (!mounted) return
+        console.error('Failed to load target tags', error)
+        setTargetTagOptions([])
+      })
+      .finally(() => {
+        if (mounted) setLoadingTargetTagOptions(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [space.id])
+
   // Filter options
   const filterOptions = {
     environments: ['DEV', 'TEST', 'UAT', 'PRD', 'STAGE', 'QA'],
-    tags: ['aws-eks', 'aws-eks-us', 'SJUSAKS', 'Aliyun-HK-AI', 'DotnetCore', 'protonk8s'],
+    tags: targetTagOptions.length > 0
+      ? targetTagOptions.map((opt) => opt.label)
+      : ['aws-eks', 'aws-eks-us', 'SJUSAKS', 'Aliyun-HK-AI', 'DotnetCore', 'protonk8s'],
     types: ['Kubernetes API', 'Polling Tentacle', 'Listening Tentacle', 'SSH Connection'],
     health: ['Healthy', 'Unhealthy', 'Unavailable', 'Disabled', 'Unknown'],
   }
@@ -394,45 +576,47 @@ const DeploymentTargets: React.FC = () => {
 
   return (
     <div className="bg-white min-h-screen">
-      {/* Page header */}
-      <div className="px-8 pt-6 pb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold text-gray-900 m-0">Deployment Targets</h1>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-            onClick={() => setShowAddModal(true)}
-          >
-            Add Deployment Target
-          </Button>
-        </div>
+      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
+        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+          {/* Page header */}
+          <div className="px-6 pt-5 pb-5 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-semibold text-gray-900 m-0">Deployment Targets</h1>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+                onClick={() => navigate(`/${space.slug}/deployment/targets/add`)}
+              >
+                Add Deployment Target
+              </Button>
+            </div>
 
-        {/* Search + filter toggle */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center border border-gray-300 rounded px-3 py-1.5 gap-2 bg-white" style={{ maxWidth: 320 }}>
-            <SearchOutlined className="text-gray-400 flex-shrink-0" />
-            <input
-              type="search"
-              placeholder="Search deployment targets..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="border-0 outline-none text-sm flex-1 bg-transparent"
-              style={{ minWidth: 0 }}
-            />
+            {/* Search + filter toggle */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center border border-gray-300 rounded px-3 py-1.5 gap-2 bg-white" style={{ maxWidth: 320 }}>
+                <SearchOutlined className="text-gray-400 flex-shrink-0" />
+                <input
+                  type="search"
+                  placeholder="Search deployment targets..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="border-0 outline-none text-sm flex-1 bg-transparent"
+                  style={{ minWidth: 0 }}
+                />
+              </div>
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 bg-transparent border-0 cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
+              >
+                <FilterOutlined />
+                {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 bg-transparent border-0 cursor-pointer px-2 py-1 rounded hover:bg-gray-100"
-          >
-            <FilterOutlined />
-            {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
-          </button>
-        </div>
-      </div>
 
-      {/* Body */}
-      <div className="flex">
+          {/* Body */}
+          <div className="flex">
         {/* Advanced filters sidebar */}
         {showAdvancedFilters && (
           <div
@@ -482,7 +666,7 @@ const DeploymentTargets: React.FC = () => {
         )}
 
         {/* Main content */}
-        <div className="flex-1 px-8 pb-8">
+        <div className="flex-1 p-6">
           <Spin spinning={loadingTargets}>
             <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
 
@@ -547,6 +731,8 @@ const DeploymentTargets: React.FC = () => {
             </div>
           </Spin>
         </div>
+          </div>
+        </div>
       </div>
 
       {/* Add Deployment Target Modal */}
@@ -559,7 +745,7 @@ const DeploymentTargets: React.FC = () => {
         )}
         open={showAddModal}
         onCancel={closeModal}
-        width={agentFormView ? 900 : 1000}
+        width={agentFormView ? 1080 : 1000}
         footer={null}
         styles={{ body: agentFormView ? { padding: 0 } : undefined }}
       >
@@ -652,12 +838,12 @@ const DeploymentTargets: React.FC = () => {
 
         {/* ── Kubernetes Agent form view ── */}
         {agentFormView === 'kubernetes-agent' && (
-          <div className="flex" style={{ height: 620 }}>
+          <div className="flex" style={{ height: 680 }}>
 
             {/* Left: form */}
             <div className="flex flex-col flex-1 min-w-0" style={{ borderRadius: '4px 0 0 4px' }}>
-              <div className="flex-1 overflow-y-auto px-8 pt-7 pb-4">
-                <h2 className="text-lg font-semibold text-gray-900 mb-6">Add New Kubernetes Agent</h2>
+              <div className="flex-1 overflow-y-auto px-10 pt-8 pb-5">
+                <h2 className="text-2xl font-semibold text-gray-900 mb-7">Add New Kubernetes Agent</h2>
 
                 <FormField
                   label="Name"
@@ -669,7 +855,8 @@ const DeploymentTargets: React.FC = () => {
                 <MultiSelectField
                   label="Environments"
                   helper="Select at least one environment"
-                  options={mockEnvironmentOptions}
+                  options={environmentOptions.length > 0 ? environmentOptions : mockEnvironmentOptions}
+                  loading={loadingEnvironmentOptions}
                   value={agentEnvironments}
                   onChange={setAgentEnvironments}
                 />
@@ -677,18 +864,18 @@ const DeploymentTargets: React.FC = () => {
                 <MultiSelectField
                   label="Target tags"
                   helper="Add at least one target tag"
-                  options={[
-                    { value: 'aws-eks', label: 'aws-eks' },
-                    { value: 'k8s', label: 'k8s' },
-                    { value: 'linux', label: 'linux' },
-                  ]}
+                  options={targetTagOptions}
+                  loading={loadingTargetTagOptions}
                   value={agentTags}
-                  onChange={setAgentTags}
+                  onChange={(values) => { void handleAgentTagsChange(values) }}
+                  searchValue={agentTagSearchValue}
+                  onSearch={setAgentTagSearchValue}
+                  onCreateFromSearch={(name) => { void handleCreateTargetTagFromSearch(name) }}
                 />
 
                 <button
                   onClick={() => setShowOptional(!showOptional)}
-                  className="text-sm text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0 mb-5"
+                  className="text-base text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0 mb-5"
                 >
                   {showOptional ? 'Hide optional settings' : 'Show optional settings'}
                 </button>
@@ -709,14 +896,14 @@ const DeploymentTargets: React.FC = () => {
                       onChange={setAgentStorageClass}
                     />
                     <FormField
-                      label="Octopus Deploy Server URL"
-                      helper="Provide the full URL to your Octopus Deploy instance."
+                      label="Squid Server URL"
+                      helper="Provide the full URL to your Squid instance."
                       value={agentServerUrl}
                       onChange={setAgentServerUrl}
                     />
                     <FormField
-                      label="Octopus Deploy Server Communications URL"
-                      helper="The URL of the Octopus Server that the Agent will poll for work."
+                      label="Squid Server Communications URL"
+                      helper="The URL of the Squid Server that the Agent will poll for work."
                       value={agentCommsUrl}
                       onChange={setAgentCommsUrl}
                     />
@@ -725,9 +912,9 @@ const DeploymentTargets: React.FC = () => {
               </div>
 
               {/* Footer buttons */}
-              <div className="border-t border-gray-200 px-8 py-4 flex justify-end gap-3 flex-shrink-0">
-                <Button onClick={() => setAgentFormView(null)}>Cancel</Button>
-                <Button type="primary" className="!bg-green-700 hover:!bg-green-800 !border-green-700">
+              <div className="border-t border-gray-200 px-10 py-4 flex justify-end gap-3 flex-shrink-0">
+                <Button size="large" onClick={() => setAgentFormView(null)}>Cancel</Button>
+                <Button size="large" type="primary" className="!bg-green-700 hover:!bg-green-800 !border-green-700">
                   Next
                 </Button>
               </div>
@@ -737,7 +924,7 @@ const DeploymentTargets: React.FC = () => {
             {helpPanelVisible ? (
               <div
                 className="flex flex-col border-l border-gray-200 bg-gray-50 flex-shrink-0"
-                style={{ width: 300, borderRadius: '0 4px 4px 0' }}
+                style={{ width: 340, borderRadius: '0 4px 4px 0' }}
               >
                 {/* Collapse button */}
                 <div className="flex justify-start p-3 flex-shrink-0">
@@ -773,13 +960,13 @@ const DeploymentTargets: React.FC = () => {
 
                 {/* Text */}
                 <div className="px-6 pb-6 flex-1 overflow-y-auto">
-                  <h2 className="text-base font-semibold text-gray-900 mb-3">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">
                     Connect seamlessly to Kubernetes
                   </h2>
-                  <p className="text-sm text-gray-600 mb-3">
+                  <p className="text-base leading-6 text-gray-600 mb-3">
                     Installing the Kubernetes agent in your cluster eliminates the need for firewall adjustments or extra authentication.
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-base leading-6 text-gray-600">
                     The agent automatically updates itself during regular health checks to keep things running smoothly and securely.
                   </p>
                 </div>

@@ -4,8 +4,10 @@ import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
 import VariableSetDetail from 'pages/variablesets/detail'
 import ExternalFeeds from 'pages/externalfeeds'
+import CertificatesPage from 'pages/certificates'
 import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
+import AddDeploymentTargetPage from 'pages/deploymentTargets/add'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
 import ProjectDetail from "pages/project-detail";
@@ -43,6 +45,11 @@ const routes = [
             name: "Variable Set Detail",
           },
           {
+            path: "deployment/targets/add",
+            component: AddDeploymentTargetPage,
+            name: "Add Deployment Target",
+          },
+          {
             path: "deployment/targets",
             component: DeploymentTargets,
             name: "Deployment Targets",
@@ -61,6 +68,11 @@ const routes = [
             path: "external/feeds",
             component: ExternalFeeds,
             name: "External Feeds",
+          },
+          {
+            path: "library/certificates",
+            component: CertificatesPage,
+            name: "Certificates",
           },
           {
             path: "lifecycles",

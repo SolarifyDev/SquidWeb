@@ -1,4 +1,4 @@
-import { get } from 'utils/request'
+import { get, post } from 'utils/request'
 
 export interface ExternalFeedDto {
   id: number
@@ -25,5 +25,28 @@ export interface GetExternalFeedsResponseData {
 }
 
 export function getExternalFeeds(params?: GetExternalFeedsRequest) {
-  return get<GetExternalFeedsResponseData>('/externalfeed', { params })
+  const query = {
+    pageIndex: params?.pageIndex ?? 1,
+    pageSize: params?.pageSize ?? 1000,
+  }
+
+  return get<GetExternalFeedsResponseData>('/external-feeds/list', { params: query })
+}
+
+export interface CreateExternalFeedCommand {
+  feedType: string
+  apiVersion: string
+  registryPath: string
+  feedUri: string
+  username: string
+  password: string
+  name: string
+  slug: string
+  packageAcquisitionLocationOptions: string[]
+  spaceId: number
+}
+
+export function createExternalFeed(command: CreateExternalFeedCommand) {
+  return post<{ externalFeed: ExternalFeedDto }>('/external-feeds/create', command)
+    .then((res) => res.externalFeed)
 }

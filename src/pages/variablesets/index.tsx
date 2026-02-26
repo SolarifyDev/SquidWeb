@@ -101,60 +101,66 @@ const VariableSets: React.FC = () => {
   const handleCodeBlock = () => insertMarkdown('```\n', '\n```');
 
   return (
-    <div className="p-6 bg-white min-h-screen">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <Title level={3} className="!mb-0">Variable Sets</Title>
-        <Button 
-          type="primary" 
-          onClick={handleAddVariableSet}
-          className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-        >
-          Add Variable Set
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="mb-4">
-        <Input
-          placeholder="Filter by name..."
-          prefix={<SearchOutlined className="text-gray-400" />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          className="max-w-xs"
-        />
-      </div>
-
-      {/* List */}
-      <div className="border-t border-gray-200 min-h-[120px]">
-        {loading ? (
-          <div className="flex items-center justify-center py-10">
-            <Spin tip="Loading variable sets..." />
-          </div>
-        ) : filteredSets.length === 0 ? (
-          <div className="py-6 text-center text-gray-400 text-sm">
-            No variable sets found
-          </div>
-        ) : (
-          filteredSets.map((item) => (
-            <div
-              key={item.id}
-              className="py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={() => handleItemClick(item)}
-            >
-              <div className="flex flex-col gap-1">
-                <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
-                  {item.name}
-                </Link>
-                {item.description && (
-                  <Text className="text-xs text-gray-500">
-                    {item.description}
-                  </Text>
-                )}
-              </div>
+    <div className="bg-white min-h-screen">
+      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
+        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+          {/* Header */}
+          <div className="px-6 pt-5 pb-5 border-b border-gray-200">
+            <div className="flex justify-between items-center mb-6">
+              <Title level={3} className="!mb-0">Variable Sets</Title>
+              <Button
+                type="primary"
+                onClick={handleAddVariableSet}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+              >
+                Add Variable Set
+              </Button>
             </div>
-          ))
-        )}
+
+            {/* Search */}
+            <Input
+              placeholder="Filter by name..."
+              prefix={<SearchOutlined className="text-gray-400" />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ maxWidth: 300 }}
+            />
+          </div>
+
+          {/* List */}
+          <div className="p-6">
+            <div className="border border-gray-200 rounded-md overflow-hidden min-h-[120px]">
+              {loading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Spin tip="Loading variable sets..." />
+                </div>
+              ) : filteredSets.length === 0 ? (
+                <div className="py-6 text-center text-gray-400 text-sm">
+                  No variable sets found
+                </div>
+              ) : (
+                filteredSets.map((item) => (
+                  <div
+                    key={item.id}
+                    className="px-5 py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors last:border-b-0"
+                    onClick={() => handleItemClick(item)}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
+                        {item.name}
+                      </Link>
+                      {item.description && (
+                        <Text className="text-xs text-gray-500">
+                          {item.description}
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add Variable Set Modal */}

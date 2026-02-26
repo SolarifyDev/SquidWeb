@@ -17,11 +17,38 @@ export interface GetLifecyclesResponseData {
 }
 
 export interface GetLifecyclesRequest {
+  pageIndex?: number
+  pageSize?: number
+  keyword?: string
   spaceId?: number
 }
 
 export function getLifecycles(params?: GetLifecyclesRequest) {
-  return get<GetLifecyclesResponseData>('/lifecycle', { params })
+  const query = {
+    pageIndex: params?.pageIndex ?? 1,
+    pageSize: params?.pageSize ?? 100,
+    keyword: params?.keyword,
+  }
+
+  return get<{ count: number; lifeCycles: LifecyclePhaseDto[] }>('/lifecycles/list', { params: query })
+    .then((res) => ({
+      count: res.count ?? 0,
+      lifecycles: (res.lifeCycles ?? []).map((item) => ({
+        id: item.lifecycle.id,
+        name: item.lifecycle.name,
+        slug: item.lifecycle.slug ?? '',
+        description: '',
+        spaceId: item.lifecycle.spaceId,
+        json: JSON.stringify({
+          phases: (item.phases ?? []).map((p) => ({
+            name: p.name,
+            isOptionalPhase: p.isOptionalPhase,
+          })),
+        }),
+        lastModifiedOn: null,
+        lastModifiedBy: '',
+      })),
+    }))
 }
 
 // ── Create / Update ───────────────────────────────────────────────────────────
@@ -37,6 +64,10 @@ export interface LifecycleSummaryDto {
   name: string
   description: string
   spaceId: number
+  slug?: string
+  dataVersion?: number[] | null
+  releaseRetentionPolicyId?: number
+  tentacleRetentionPolicyId?: number
   releaseRetentionPolicy: RetentionPolicyDto
   tentacleRetentionPolicy: RetentionPolicyDto
 }
@@ -64,5 +95,6 @@ export interface CreateLifecycleCommand {
 }
 
 export function createLifecycle(command: CreateLifecycleCommand) {
-  return post<LifecyclePhaseDto>('/lifecycle', command)
+  return post<{ lifecyclePhase: LifecyclePhaseDto }>('/lifecycles/create', command)
+    .then((res) => res.lifecyclePhase)
 }

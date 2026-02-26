@@ -465,6 +465,23 @@ function makeNewPhase(id: number, name = ''): NewPhase {
   };
 }
 
+function slugifyLifecycleName(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function sanitizeSlugInput(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 const Lifecycles: React.FC = () => {
@@ -657,6 +674,7 @@ const Lifecycles: React.FC = () => {
         lifecycle: {
           id: 0,
           name: newLifecycleName.trim(),
+          slug: slugifyLifecycleName(newLifecycleName.trim()) || `lifecycle-${Date.now()}`,
           description: newLifecycleDescription.trim(),
           spaceId: space.id,
           releaseRetentionPolicy: buildRetentionPolicy(releaseRetention, releaseRetentionCount, releaseRetentionUnit),
@@ -684,8 +702,12 @@ const Lifecycles: React.FC = () => {
       setShowCreatePage(false);
       resetCreateForm();
       loadLifecycles();
-    } catch {
-      message.error('Failed to create lifecycle. Please try again.');
+    } catch (error: any) {
+      const backendMsg =
+        error?.response?.data?.msg ||
+        error?.response?.data?.message ||
+        error?.message
+      message.error(backendMsg ? `Failed to create lifecycle: ${backendMsg}` : 'Failed to create lifecycle. Please try again.');
     } finally {
       setSavingLifecycle(false);
     }
@@ -723,13 +745,15 @@ const Lifecycles: React.FC = () => {
   const moreMenuItems = [{ key: '1', label: 'Audit Trail' }];
   const stickyBoxShadow = '0 1px 1px 0 rgba(0,0,0,0.12), 0 1px 8px 0 rgba(0,0,0,0.06)';
 
+  const createPreviewPhases = newPhases.filter(p => p.name.trim() || p.environments.length > 0);
+
   // ── Detail view ───────────────────────────────────────────────────────────────
 
   if (selectedLifecycle) {
     return (
       <div className="min-h-screen bg-white">
         <div ref={detailSentinelRef} style={{ height: 1 }} />
-        <div className="max-w-5xl mx-auto px-8 pt-4 pb-10">
+        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
           <div className="border border-gray-200 rounded-md">
 
             {/* Sticky header */}
@@ -969,7 +993,7 @@ const Lifecycles: React.FC = () => {
     return (
       <div className="min-h-screen bg-white">
         <div ref={createSentinelRef} style={{ height: 1 }} />
-        <div className="max-w-5xl mx-auto px-8 pt-4 pb-10">
+        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
           <div className="border border-gray-200 rounded-md">
 
             {/* Sticky header */}
@@ -1163,11 +1187,95 @@ const Lifecycles: React.FC = () => {
 
           {/* Lifecycle Preview */}
           <div className="mt-6 border border-gray-200 rounded-md overflow-hidden">
-            <div className="bg-gray-50 py-3 px-4 font-semibold text-gray-700 border-b border-gray-200">
-              Lifecycle Preview
+            <div className="bg-gray-50 py-3 px-4 font-semibold text-gray-700 border-b border-gray-200 flex items-center justify-between gap-3">
+              <span>Lifecycle Preview</span>
+              <span className="text-xs font-normal text-gray-500">
+                {createPreviewPhases.length === 0 ? 'Default conventions' : `${createPreviewPhases.length} phase${createPreviewPhases.length > 1 ? 's' : ''}`}
+              </span>
             </div>
-            <div className="bg-white p-6">
-              <div className="text-gray-500 text-sm">Uses default conventions</div>
+            <div className="bg-white p-6 space-y-4">
+              {createPreviewPhases.length === 0 ? (
+                <div className="rounded-md border border-dashed border-gray-300 bg-white px-4 py-4">
+                  <div className="text-sm font-medium text-gray-700">Uses default conventions</div>
+                  <div className="text-xs text-gray-500 mt-1 leading-relaxed">
+                    Deployments can progress through environments in their configured order unless explicit phases are added.
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-gray-200 bg-white px-4 py-3">
+                  <ul className="m-0 list-none p-0">
+                  {createPreviewPhases.map((phase, index) => {
+                    const isLast = index === createPreviewPhases.length - 1;
+                    const displayName = phase.name.trim() || `Phase ${index + 1}`;
+                    const isOptionalPhase = phase.requiredToProgress === 'optional';
+                    const progressionText =
+                      phase.requiredToProgress === 'minimum'
+                        ? `Progress after ${phase.minimumCount} environment${phase.minimumCount > 1 ? 's' : ''}`
+                        : phase.requiredToProgress === 'optional'
+                          ? 'Optional phase'
+                          : 'Progress after all environments';
+
+                    return (
+                      <li key={phase.id} className={isLast ? '' : 'pb-3'}>
+                        <div className="flex">
+                          <div className="flex flex-col items-center pt-1" style={{ width: 18 }}>
+                            <span
+                              className={[
+                                'inline-block',
+                                isOptionalPhase ? 'border border-slate-400 bg-white' : 'bg-slate-500',
+                              ].join(' ')}
+                              style={{ width: '8px', height: '8px', borderRadius: '999px' }}
+                            />
+                            {!isLast && (
+                              <div className="bg-gray-300 mt-1" style={{ width: '1px', height: '100%' }} />
+                            )}
+                          </div>
+
+                          <div className="ml-2.5 flex-1">
+                            <div className="text-sm text-gray-800">
+                              <span className="font-semibold">{displayName}</span>
+                              {isOptionalPhase && <span className="text-gray-500"> (optional)</span>}
+                              {phase.priority && (
+                                <span className="ml-2 text-[11px] rounded-full bg-orange-50 text-orange-700 border border-orange-100 px-2 py-0.5 align-middle">
+                                  Priority
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">{progressionText}</div>
+
+                            {phase.environments.length === 0 ? (
+                              <div className="mt-2 text-xs text-gray-500">
+                                Any environment (not explicitly named in another phase)
+                              </div>
+                            ) : (
+                              <ul className="mt-2 mb-0 list-none p-0 space-y-1">
+                                {phase.environments.map((env) => (
+                                  <li
+                                    key={env.id}
+                                    className="flex items-center gap-2 text-sm text-gray-700"
+                                    title={env.auto ? 'Automatically deploy to this environment' : 'Manually deploy to this environment'}
+                                  >
+                                    <span
+                                      className={[
+                                        'inline-block',
+                                        env.auto ? 'bg-squid-blue' : 'border border-slate-400 bg-white',
+                                      ].join(' ')}
+                                      style={{ width: '7px', height: '7px', borderRadius: '999px' }}
+                                    />
+                                    <span>{env.name}</span>
+                                    <span className="text-xs text-gray-400">{env.auto ? '(auto)' : ''}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1178,59 +1286,65 @@ const Lifecycles: React.FC = () => {
   // ── List view ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-8 bg-white min-h-screen">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 m-0">Lifecycles</h1>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setShowCreatePage(true)}
-          className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-        >
-          ADD LIFECYCLE
-        </Button>
-      </div>
-
-      <div className="mb-5">
-        <Input
-          placeholder="Filter by name or phase name..."
-          prefix={<SearchOutlined className="text-gray-400" />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          allowClear
-          style={{ maxWidth: 300 }}
-        />
-      </div>
-
-      <Spin spinning={loadingLifecycles}>
-        <div className="border border-gray-200 rounded-md overflow-hidden">
-          {filteredData.length === 0 && !loadingLifecycles && (
-            <div className="px-6 py-12 text-center text-gray-400 text-sm">No lifecycles found.</div>
-          )}
-          {filteredData.map((lifecycle, idx) => (
-            <div
-              key={lifecycle.id}
-              className={[
-                'px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer',
-                idx < filteredData.length - 1 ? 'border-b border-gray-200' : '',
-              ].join(' ')}
-              onClick={() => handleLifecycleClick(lifecycle)}
-            >
-              <h3 className="text-squid-blue text-base font-medium mb-1">{lifecycle.name}</h3>
-              {lifecycle.description && (
-                <p className="text-gray-500 text-sm mb-2">{lifecycle.description}</p>
-              )}
-              {lifecycle.phases.length > 0 && (
-                <div className="mt-2">
-                  {lifecycle.phases.map((phase, index) =>
-                    renderPhaseWithLine(phase, index, lifecycle.phases.length)
-                  )}
-                </div>
-              )}
+    <div className="bg-white min-h-screen">
+      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
+        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+          <div className="px-6 pt-5 pb-5 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-semibold text-gray-900 m-0">Lifecycles</h1>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setShowCreatePage(true)}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+              >
+                ADD LIFECYCLE
+              </Button>
             </div>
-          ))}
+
+            <Input
+              placeholder="Filter by name or phase name..."
+              prefix={<SearchOutlined className="text-gray-400" />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              allowClear
+              style={{ maxWidth: 300 }}
+            />
+          </div>
+
+          <div className="p-6">
+            <Spin spinning={loadingLifecycles}>
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                {filteredData.length === 0 && !loadingLifecycles && (
+                  <div className="px-6 py-12 text-center text-gray-400 text-sm">No lifecycles found.</div>
+                )}
+                {filteredData.map((lifecycle, idx) => (
+                  <div
+                    key={lifecycle.id}
+                    className={[
+                      'px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer',
+                      idx < filteredData.length - 1 ? 'border-b border-gray-200' : '',
+                    ].join(' ')}
+                    onClick={() => handleLifecycleClick(lifecycle)}
+                  >
+                    <h3 className="text-squid-blue text-base font-medium mb-1">{lifecycle.name}</h3>
+                    {lifecycle.description && (
+                      <p className="text-gray-500 text-sm mb-2">{lifecycle.description}</p>
+                    )}
+                    {lifecycle.phases.length > 0 && (
+                      <div className="mt-2">
+                        {lifecycle.phases.map((phase, index) =>
+                          renderPhaseWithLine(phase, index, lifecycle.phases.length)
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Spin>
+          </div>
         </div>
-      </Spin>
+      </div>
     </div>
   );
 };

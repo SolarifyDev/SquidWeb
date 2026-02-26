@@ -5,6 +5,8 @@ import DeploySidebar from "./DeploySidebar";
 import SpaceSwitcherDropdown from "./SpaceSwitcherDropdown";
 import { SpaceContext, SpaceInfo } from "../contexts/SpaceContext";
 import { getSpaces, SpaceDto } from "pages/apis/space";
+import SignInPage from "pages/signin";
+import { clearAuthSession, getAuthUser, isAuthenticated as hasAuthSession } from "utils/auth";
 
 interface RouteConfig {
   path: string;
@@ -142,10 +144,17 @@ const ChevronDownIcon = ({ className }: { className?: string }) => (
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const isAuthenticated = hasAuthSession();
+  const isSignInRoute = location.pathname.startsWith("/users/sign-in");
   const [isProjectHovered, setIsProjectHovered] = useState(false);
   const [showSpaceSwitcher, setShowSpaceSwitcher] = useState(false);
   const spaceSwitcherRef = useRef<HTMLDivElement>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [spaces, setSpaces] = useState<SpaceDto[]>([]);
+  const authUser = getAuthUser();
+  const userDisplayName = authUser?.displayName || authUser?.userName || "User";
+  const userInitial = userDisplayName.trim().charAt(0).toUpperCase() || "U";
 
   // Derive current space from URL: /Spaces-1/... → slug = "Spaces-1"
   const rawSegment = location.pathname.split('/')[1] ?? '';
@@ -159,24 +168,34 @@ function App() {
   };
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     getSpaces().then(setSpaces).catch(() => {});
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (spaceSwitcherRef.current && !spaceSwitcherRef.current.contains(e.target as Node)) {
         setShowSpaceSwitcher(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
     };
-    if (showSpaceSwitcher) {
+    if (showSpaceSwitcher || showUserMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showSpaceSwitcher]);
+  }, [showSpaceSwitcher, showUserMenu]);
 
   const handleSelectSpace = (space: SpaceDto) => {
     navigate(`/${space.slug}/projects`);
     setShowSpaceSwitcher(false);
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setShowUserMenu(false);
+    navigate("/users/sign-in", { replace: true });
   };
 
   const isDeployActive =
@@ -189,6 +208,22 @@ function App() {
   const isProjectDetailPage = location.pathname.includes("/project-detail");
   const showSidebarInline = isDeploySection && !isProjectDetailPage;
   const showSidebarOverlay = isDeploySection && isProjectDetailPage && isProjectHovered;
+
+  if (!isAuthenticated) {
+    const redirectTarget = `${location.pathname}${location.search}${location.hash}`;
+    const to = `/users/sign-in?redirect=${encodeURIComponent(redirectTarget)}`;
+
+    return (
+      <Routes>
+        <Route path="/users/sign-in" element={<SignInPage />} />
+        <Route path="*" element={<Navigate to={to} replace />} />
+      </Routes>
+    );
+  }
+
+  if (isSignInRoute) {
+    return <Navigate to={`/${spaceSlug}/projects`} replace />;
+  }
 
   return (
     <SpaceContext.Provider value={{ space: currentSpace }}>
@@ -350,11 +385,53 @@ function App() {
               )}
             </Link>
 
-            <div
-              className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-blue-100 hover:border-squid-blue transition-all mb-1"
-              title="User account"
-            >
-              <span className="text-xs font-bold text-slate-600 select-none">U</span>
+            <div className="relative mb-1" ref={userMenuRef}>
+              <button
+                type="button"
+                aria-label="User account"
+                aria-haspopup="menu"
+                aria-expanded={showUserMenu}
+                onClick={() => setShowUserMenu((v) => !v)}
+                className={[
+                  "w-9 h-9 rounded-full bg-white border shadow-sm flex items-center justify-center cursor-pointer transition-all",
+                  showUserMenu
+                    ? "border-squid-blue ring-2 ring-blue-100"
+                    : "border-slate-200 hover:ring-2 hover:ring-blue-100 hover:border-squid-blue",
+                ].join(" ")}
+                title={userDisplayName}
+              >
+                <span className="text-xs font-bold text-slate-600 select-none">{userInitial}</span>
+              </button>
+
+              {showUserMenu && (
+                <div
+                  role="menu"
+                  aria-label="User account"
+                  className="absolute left-full bottom-0 ml-3 w-64 rounded-xl border border-slate-200 bg-white shadow-[0_14px_30px_rgba(15,23,42,0.14)] overflow-hidden z-30"
+                >
+                  <div className="px-3 py-3 flex items-center gap-3 bg-white">
+                    <div className="h-10 w-10 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-sm font-semibold text-slate-700 flex-shrink-0">
+                      {userInitial}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-800 truncate">{userDisplayName}</div>
+                      {authUser?.userName && authUser.userName !== userDisplayName && (
+                        <div className="text-xs text-slate-500 truncate">{authUser.userName}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-slate-200" />
+
+                  <button
+                    role="menuitem"
+                    onClick={handleLogout}
+                    className="w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors border-0 bg-transparent cursor-pointer"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

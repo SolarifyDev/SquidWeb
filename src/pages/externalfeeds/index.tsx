@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, Tag } from 'antd';
+import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, Tag, message } from 'antd';
 import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
-import { getExternalFeeds, ExternalFeedDto } from 'pages/apis/externalFeed';
+import { getExternalFeeds, createExternalFeed, ExternalFeedDto, CreateExternalFeedCommand } from 'pages/apis/externalFeed';
 import { useSpace } from 'contexts/SpaceContext';
 
 const { Password } = Input;
@@ -37,6 +37,13 @@ const feedTypeOptions = [
   { value: 'AWS ECR Feed',               label: 'AWS ECR Feed' },
 ];
 
+const toFeedSlug = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'external-feed';
+
 // ── Feed type icon ────────────────────────────────────────────────────────────
 
 function FeedTypeIcon({ feedType }: { feedType: string }) {
@@ -54,8 +61,9 @@ function FeedTypeIcon({ feedType }: { feedType: string }) {
 // ── Create / Edit form ────────────────────────────────────────────────────────
 
 interface FeedFormProps {
+  spaceId: number;
   onBack: () => void;
-  onSave: () => void;
+  onSave: (command: CreateExternalFeedCommand) => Promise<void>;
 }
 
 interface FormPanelProps {
@@ -97,7 +105,7 @@ function FormPanel({ title, description, isOpen, onToggle, hasBorder = true, chi
   );
 }
 
-function FeedForm({ onBack, onSave }: FeedFormProps) {
+function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
   const [activeKeys, setActiveKeys] = useState<string[]>(['feedtype', 'name', 'url', 'retry', 'credentials', 'extended']);
@@ -109,6 +117,7 @@ function FeedForm({ onBack, onSave }: FeedFormProps) {
   const [feedUsername, setFeedUsername] = useState('');
   const [feedPassword, setFeedPassword] = useState('');
   const [useExtendedAPI, setUseExtendedAPI] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const allKeys = ['feedtype', 'name', 'url', 'retry', 'credentials', 'extended'];
   const allExpanded = activeKeys.length === allKeys.length;
@@ -128,11 +137,40 @@ function FeedForm({ onBack, onSave }: FeedFormProps) {
     return () => observer.disconnect();
   }, []);
 
+  const handleSave = async () => {
+    const name = feedName.trim();
+    if (!name) {
+      message.warning('Please enter a feed name');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave({
+        feedType,
+        apiVersion: useExtendedAPI ? 'Extended' : '',
+        registryPath: '',
+        feedUri: feedUrl.trim(),
+        username: feedUsername.trim(),
+        password: feedPassword,
+        name,
+        slug: toFeedSlug(name),
+        packageAcquisitionLocationOptions: [],
+        spaceId,
+      });
+    } catch (error) {
+      console.error('Failed to create external feed', error);
+      message.error(error instanceof Error ? error.message : 'Failed to create external feed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <div ref={sentinelRef} style={{ height: 1 }} />
 
-      <div className="max-w-5xl mx-auto px-8 pt-4 pb-10">
+      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
         {/* Form card — no overflow-hidden so sticky header works */}
         <div className="border border-gray-200 rounded-md">
 
@@ -150,12 +188,16 @@ function FeedForm({ onBack, onSave }: FeedFormProps) {
             <div className="flex items-center justify-between mb-3">
               <h1 className="text-2xl font-semibold text-gray-900 m-0">Create Feed</h1>
               <div className="flex items-center gap-2">
-                <Button onClick={onBack}>Cancel</Button>
-                <Button onClick={onSave}>Save and test</Button>
+                <Button onClick={onBack} disabled={saving}>Cancel</Button>
+                <Button onClick={() => void handleSave()} loading={saving} disabled={saving}>
+                  Save and test
+                </Button>
                 <Button
                   type="primary"
                   className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-                  onClick={onSave}
+                  onClick={() => void handleSave()}
+                  loading={saving}
+                  disabled={saving}
                 >
                   Save
                 </Button>
@@ -260,116 +302,136 @@ const ExternalFeeds: React.FC = () => {
   const [feeds, setFeeds] = useState<ExternalFeedDto[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const loadFeeds = () => {
     setLoading(true);
     getExternalFeeds({ spaceId: space.id })
       .then((res) => setFeeds(res.externalFeeds))
-      .catch(() => {})
+      .catch((error) => {
+        console.error('Failed to load external feeds', error);
+        message.error(error instanceof Error ? error.message : 'Failed to load external feeds');
+      })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => {
+    if (!space?.id) return;
+    loadFeeds();
+  }, [space?.id]);
 
   const filtered = feeds.filter((f) =>
     f.name.toLowerCase().includes(searchText.toLowerCase())
   );
 
+  const handleCreateFeed = async (command: CreateExternalFeedCommand) => {
+    await createExternalFeed(command);
+    message.success('External feed created');
+    setShowCreate(false);
+    loadFeeds();
+  };
+
   if (showCreate) {
-    return <FeedForm onBack={() => setShowCreate(false)} onSave={() => setShowCreate(false)} />;
+    return (
+      <FeedForm
+        spaceId={space.id}
+        onBack={() => setShowCreate(false)}
+        onSave={handleCreateFeed}
+      />
+    );
   }
 
   return (
-    <div className="p-8 bg-white min-h-screen">
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 m-0">External Feeds</h1>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          className="!bg-green-700 hover:!bg-green-800 !border-green-700"
-          onClick={() => setShowCreate(true)}
-        >
-          ADD FEED
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="mb-5">
-        <Input
-          placeholder="Filter by name..."
-          prefix={<SearchOutlined className="text-gray-400" />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          allowClear
-          style={{ maxWidth: 300 }}
-        />
-      </div>
-
-      {/* Feed list */}
-      <Spin spinning={loading}>
-        <div className="border border-gray-200 rounded-md overflow-hidden">
-          {filtered.length === 0 && !loading && (
-            <div className="px-6 py-12 text-center text-gray-400 text-sm">
-              No external feeds found.
-            </div>
-          )}
-          {filtered.map((feed, idx) => {
-            const meta = getFeedMeta(feed.feedType);
-            return (
-              <div
-                key={feed.id}
-                className={[
-                  'flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors',
-                  idx < filtered.length - 1 ? 'border-b border-gray-200' : '',
-                ].join(' ')}
+    <div className="bg-white min-h-screen">
+      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
+        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+          <div className="px-6 pt-5 pb-5 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-semibold text-gray-900 m-0">External Feeds</h1>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+                onClick={() => setShowCreate(true)}
               >
-                {/* Feed type icon */}
-                <FeedTypeIcon feedType={feed.feedType} />
+                ADD FEED
+              </Button>
+            </div>
 
-                {/* Name + type */}
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-gray-900 text-sm">{feed.name}</div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <Tag className="text-xs m-0" color="default">{meta.label}</Tag>
+            <Input
+              placeholder="Filter by name..."
+              prefix={<SearchOutlined className="text-gray-400" />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              allowClear
+              style={{ maxWidth: 300 }}
+            />
+          </div>
+
+          <div className="p-6">
+            <Spin spinning={loading}>
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                {filtered.length === 0 && !loading && (
+                  <div className="px-6 py-12 text-center text-gray-400 text-sm">
+                    No external feeds found.
                   </div>
-                </div>
-
-                {/* URL */}
-                <div className="flex-1 min-w-0 hidden md:block">
-                  {feed.feedUri ? (
-                    <a
-                      href={feed.feedUri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-squid-blue hover:underline truncate block"
-                      title={feed.feedUri}
+                )}
+                {filtered.map((feed, idx) => {
+                  const meta = getFeedMeta(feed.feedType);
+                  return (
+                    <div
+                      key={feed.id}
+                      className={[
+                        'flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors',
+                        idx < filtered.length - 1 ? 'border-b border-gray-200' : '',
+                      ].join(' ')}
                     >
-                      {feed.feedUri}
-                    </a>
-                  ) : (
-                    <span className="text-sm text-gray-400">—</span>
-                  )}
-                </div>
+                      <FeedTypeIcon feedType={feed.feedType} />
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <Button
-                    size="small"
-                    icon={<EditOutlined />}
-                    onClick={() => setShowCreate(true)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() => setDeleteTarget(feed)}
-                  />
-                </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-gray-900 text-sm">{feed.name}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Tag className="text-xs m-0" color="default">{meta.label}</Tag>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-w-0 hidden md:block">
+                        {feed.feedUri ? (
+                          <a
+                            href={feed.feedUri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-squid-blue hover:underline truncate block"
+                            title={feed.feedUri}
+                          >
+                            {feed.feedUri}
+                          </a>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <Button
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => setShowCreate(true)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => setDeleteTarget(feed)}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </Spin>
+          </div>
         </div>
-      </Spin>
+      </div>
 
       {/* Delete confirmation */}
       <Modal

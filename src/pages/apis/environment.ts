@@ -1,4 +1,4 @@
-import { get } from 'utils/request'
+import { get, post } from 'utils/request'
 
 export interface EnvironmentDto {
   id: number
@@ -25,5 +25,26 @@ export interface GetEnvironmentsResponseData {
 }
 
 export function getEnvironments(params?: GetEnvironmentsRequest) {
-  return get<GetEnvironmentsResponseData>('/environment', { params })
+  const query = {
+    pageIndex: params?.pageIndex ?? 1,
+    pageSize: params?.pageSize ?? 1000,
+    ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
+  }
+
+  return get<GetEnvironmentsResponseData>('/environments/list', { params: query })
+}
+
+export interface CreateEnvironmentCommand {
+  spaceId: number
+  slug: string
+  name: string
+  description: string
+  sortOrder: number
+  useGuidedFailure: boolean
+  allowDynamicInfrastructure: boolean
+}
+
+export function createEnvironment(command: CreateEnvironmentCommand) {
+  return post<{ environment: EnvironmentDto }>('/environments/create', command)
+    .then((res) => res.environment)
 }

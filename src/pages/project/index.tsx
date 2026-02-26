@@ -89,7 +89,8 @@ const Project: React.FC = () => {
   const [lifecycleOptions, setLifecycleOptions] = useState<{ value: string; label: string; phases: { name: string; type?: string }[] }[]>([]);
   const [loadingLifecycles, setLoadingLifecycles] = useState(false);
   const [storageLocation, setStorageLocation] = useState('squid');
-  const [deployTarget, setDeployTarget] = useState('');
+  const [deployTarget, setDeployTarget] = useState('kubernetes');
+  const [manageWith, setManageWith] = useState('helm');
   const [selectedProjectGroup, setSelectedProjectGroup] = useState('all-projects');
   const [projectGroupsData, setProjectGroupsData] = useState<ProjectGroup[]>([]);
   const [totalProjects, setTotalProjects] = useState(0);
@@ -97,6 +98,16 @@ const Project: React.FC = () => {
 
   const navigate = useNavigate();
   const { space } = useSpace();
+
+  useEffect(() => {
+    const valid =
+      deployTarget === 'kubernetes'
+        ? ['helm', 'kustomize', 'yaml', 'other']
+        : ['process', 'script', 'other'];
+    if (!valid.includes(manageWith)) {
+      setManageWith(valid[0]);
+    }
+  }, [deployTarget, manageWith]);
 
   // 加载 Lifecycle 列表（当 Add Project 弹窗打开时）
   useEffect(() => {
@@ -436,6 +447,29 @@ const Project: React.FC = () => {
     }
   `;
 
+  const deployTargetOptions = [
+    { value: 'kubernetes', label: 'Kubernetes', icon: '☸', tone: '#326ce5' },
+    { value: 'azure', label: 'Azure', icon: '☁', tone: '#0284c7' },
+    { value: 'aws', label: 'AWS', icon: '◌', tone: '#d97706' },
+    { value: 'linux', label: 'Linux', icon: '◍', tone: '#16a34a' },
+    { value: 'windows', label: 'Windows', icon: '▣', tone: '#2563eb' },
+    { value: 'other', label: 'Other', icon: '•', tone: '#6b7280' },
+  ] as const;
+
+  const manageWithOptions =
+    deployTarget === 'kubernetes'
+      ? [
+          { value: 'helm', label: 'Helm' },
+          { value: 'kustomize', label: 'Kustomize' },
+          { value: 'yaml', label: 'YAML files' },
+          { value: 'other', label: 'Other' },
+        ]
+      : [
+          { value: 'process', label: 'Deployment process steps' },
+          { value: 'script', label: 'Script-based process' },
+          { value: 'other', label: 'Other' },
+        ];
+
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden">
       <style>{tableStyles}</style>
@@ -688,291 +722,382 @@ const Project: React.FC = () => {
         style={{ top: 0, margin: 0, maxWidth: '100vw', padding: 0 }}
         wrapClassName="fullscreen-add-project-modal"
       >
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-          {/* ── Left Panel ── */}
-          <div style={{ width: '62%', display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
-
-            {/* Top bar: close + brand */}
-            <div className="flex items-center justify-between px-10 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex h-[100vh] overflow-hidden bg-[#f4f6f8]">
+          <div className="w-full lg:w-[70%] min-w-0 bg-white border-r border-gray-200 flex flex-col h-full">
+            <div className="flex items-center justify-between px-8 py-4 border-b border-gray-200 bg-white flex-shrink-0">
               <button
                 onClick={handleCancelAddProject}
-                className="text-gray-400 hover:text-gray-600 transition-colors leading-none"
+                className="w-9 h-9 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                aria-label="Close"
               >
-                <CloseOutlined style={{ fontSize: 18 }} />
+                <CloseOutlined style={{ fontSize: 16 }} />
               </button>
-              <span className="text-gray-500 font-semibold text-sm tracking-wide">Squid</span>
+              <div className="text-xs font-semibold tracking-[0.18em] text-gray-400 uppercase">Project Wizard</div>
             </div>
 
-            {/* Breadcrumb + step indicator */}
-            <div className="px-10 pt-8 pb-2 flex-shrink-0">
-              <button
-                onClick={handleCancelAddProject}
-                className="flex items-center gap-1 text-squid-blue text-sm hover:opacity-75 mb-8 transition-opacity"
-              >
-                <LeftOutlined style={{ fontSize: 11 }} />
-                <span>Projects</span>
-              </button>
-
-              {/* Step indicator */}
-              <div className="flex items-center mb-8">
-                {/* Step 1 – active */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <div
-                    className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ background: '#00B065' }}
-                  >
-                    <div className="w-1.5 h-1.5 rounded-full bg-white" />
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">Project</span>
-                </div>
-
-                <div className="mx-3 h-px bg-gray-200" style={{ width: 40 }} />
-
-                {/* Step 2 – inactive */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
-                  <span className="text-sm text-gray-400 whitespace-nowrap">Deployment Process</span>
-                </div>
-
-                <div className="mx-3 h-px bg-gray-200" style={{ width: 40 }} />
-
-                {/* Step 3 – inactive */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
-                  <span className="text-sm text-gray-400 whitespace-nowrap">Release and Deploy</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Scrollable form */}
-            <div className="flex-1 overflow-y-auto px-10 pb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-8">Add New Project</h2>
-
-              {/* Project name + icon */}
-              <div className="flex items-center gap-4 mb-10">
-                <div className="w-10 h-10 rounded bg-squid-blue flex items-center justify-center text-white flex-shrink-0">
-                  <ProjectOutlined style={{ fontSize: 16 }} />
-                </div>
-                <div
-                  className="flex-1 pb-1 transition-colors"
-                  style={{ borderBottom: '2px solid #d1d5db' }}
-                  onFocus={(e) => (e.currentTarget.style.borderBottomColor = '#0d80d8')}
-                  onBlur={(e) => (e.currentTarget.style.borderBottomColor = '#d1d5db')}
+            <div className="px-8 pt-6 pb-4 flex-shrink-0 border-b border-gray-100 bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <button
+                  onClick={handleCancelAddProject}
+                  className="flex items-center gap-2 text-squid-blue text-sm hover:opacity-80 transition-opacity"
                 >
-                  <input
-                    autoFocus
-                    placeholder="New project name"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    className="w-full text-lg outline-none border-0 bg-transparent py-1 text-gray-900 placeholder-gray-400 font-medium"
-                  />
-                </div>
-              </div>
+                  <span className="w-7 h-7 rounded-full border border-blue-200 bg-blue-50 flex items-center justify-center">
+                    <LeftOutlined style={{ fontSize: 11 }} />
+                  </span>
+                  <span>Projects</span>
+                </button>
 
-              {/* Storage Location */}
-              <div className="mb-8">
-                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Storage Location</div>
-                <Radio.Group value={storageLocation} onChange={(e) => setStorageLocation(e.target.value)}>
-                  <div className="flex flex-col gap-4">
-                    <Radio value="squid">
-                      <div className="ml-1">
-                        <div className="text-sm font-semibold text-gray-900">Squid</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          Store project and deployment process in the Squid database.
-                        </div>
-                      </div>
-                    </Radio>
-                    <Radio value="git">
-                      <div className="ml-1">
-                        <div className="text-sm font-semibold text-gray-900">Git Repository</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          Store deployment process in a Git repository using Configuration as Code.
-                        </div>
-                      </div>
-                    </Radio>
-                  </div>
-                </Radio.Group>
-              </div>
-
-              {/* Deploy To */}
-              <div className="mb-8">
-                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Deploy To</div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center gap-3">
                   {[
-                    { value: 'kubernetes', label: 'Kubernetes', emoji: '⚓' },
-                    { value: 'azure', label: 'Azure Cloud', emoji: '☁' },
-                    { value: 'aws', label: 'AWS', emoji: '🟡' },
-                    { value: 'linux', label: 'Linux/Unix', emoji: '🐧' },
-                    { value: 'windows', label: 'Windows', emoji: '🪟' },
-                    { value: 'other', label: 'Other', emoji: '⚡' },
-                  ].map(({ value, label, emoji }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setDeployTarget(value)}
-                      className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
-                        deployTarget === value
-                          ? 'border-squid-blue bg-blue-50 shadow-sm'
-                          : 'border-gray-200 hover:border-gray-300 bg-white'
-                      }`}
-                    >
-                      <span className="text-2xl leading-none">{emoji}</span>
-                      <span
-                        className={`text-sm font-medium ${deployTarget === value ? 'text-squid-blue' : 'text-gray-700'}`}
-                      >
-                        {label}
-                      </span>
-                    </button>
+                    { label: 'Project', active: true },
+                    { label: 'Deployment Process', active: false },
+                    { label: 'Release and Deploy', active: false },
+                  ].map((step, idx) => (
+                    <React.Fragment key={step.label}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full ${
+                            step.active ? 'w-5 h-5 bg-green-600' : 'w-3 h-3 bg-gray-300'
+                          }`}
+                        >
+                          {step.active && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </span>
+                        <span className={`text-sm ${step.active ? 'text-gray-900 font-semibold' : 'text-gray-400'}`}>
+                          {step.label}
+                        </span>
+                      </div>
+                      {idx < 2 && <div className="w-8 h-px bg-gray-200" />}
+                    </React.Fragment>
                   ))}
                 </div>
               </div>
-
-              {/* Advanced Settings separator */}
-              <div className="flex items-center gap-3 mb-6">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
-                  Advanced Settings
-                </span>
-                <div className="flex-1 h-px bg-gray-200" />
-              </div>
-
-              {/* Description */}
-              <div className="mb-6">
-                <div className="text-xs text-gray-500 mb-1">Description</div>
-                <div className="border-b border-gray-300 pb-1 focus-within:border-squid-blue transition-colors">
-                  <textarea
-                    placeholder="Describe your project (optional)"
-                    value={projectDescription}
-                    onChange={(e) => setProjectDescription(e.target.value)}
-                    rows={2}
-                    className="w-full outline-none border-0 bg-transparent resize-none text-sm text-gray-900 placeholder-gray-400 py-1"
-                  />
-                </div>
-              </div>
-
-              {/* Project Group */}
-              <div className="mb-6">
-                <div className="text-xs text-gray-500 mb-1">Project Group</div>
-                <div className="border-b border-gray-300 focus-within:border-squid-blue transition-colors">
-                  <Select
-                    className="w-full"
-                    value={selectedProjectGroup}
-                    onChange={setSelectedProjectGroup}
-                    bordered={false}
-                    options={[{ value: 'all-projects', label: 'All Projects' }]}
-                    style={{ paddingLeft: 0 }}
-                    dropdownStyle={{ zIndex: 10001 }}
-                  />
-                </div>
-              </div>
-
-              {/* Lifecycle */}
-              <div className="mb-6">
-                <div className="text-xs text-gray-500 mb-1">Lifecycle</div>
-                <div className="flex items-center gap-2 border-b border-gray-300 focus-within:border-squid-blue transition-colors">
-                  <Select
-                    className="flex-1"
-                    loading={loadingLifecycles}
-                    value={selectedLifecycle}
-                    onChange={setSelectedLifecycle}
-                    placeholder="Select a lifecycle"
-                    bordered={false}
-                    options={lifecycleOptions.map((o) => ({ value: o.value, label: o.label }))}
-                    style={{ paddingLeft: 0 }}
-                    dropdownStyle={{ zIndex: 10001 }}
-                  />
-                  <button
-                    type="button"
-                    title="Refresh lifecycles"
-                    className="text-squid-blue hover:text-blue-700 p-1 transition-colors flex-shrink-0"
-                    onClick={() => {
-                      setLoadingLifecycles(true);
-                      getLifecycles()
-                        .then((res) => {
-                          const options = res.lifecycles.map((lc: LifecycleDto) => {
-                            let phases: { name: string; type?: string }[] = [];
-                            if (lc.json) {
-                              try {
-                                const parsed = JSON.parse(lc.json);
-                                if (Array.isArray(parsed.phases)) {
-                                  phases = parsed.phases.map((p: any) => ({
-                                    name: p.name || p.Name || '',
-                                    type: p.isOptionalPhase ? 'default' : 'active',
-                                  }));
-                                }
-                              } catch {}
-                            }
-                            return { value: String(lc.id), label: lc.name, phases };
-                          });
-                          setLifecycleOptions(options);
-                        })
-                        .catch(() => {})
-                        .finally(() => setLoadingLifecycles(false));
-                    }}
-                  >
-                    <ReloadOutlined />
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Lifecycles determine which environments the project can be deployed to and in what order.{' '}
-                  <button
-                    type="button"
-                    className="text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0"
-                    onClick={() => setShowLifecyclePreview((v) => !v)}
-                  >
-                    {showLifecyclePreview ? 'Hide' : 'Show'} lifecycle
-                  </button>
-                </p>
-                {showLifecyclePreview && (() => {
-                  const sel = lifecycleOptions.find((o) => o.value === selectedLifecycle);
-                  return (
-                    <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
-                      {sel && sel.phases.length > 0 ? (
-                        <div className="space-y-1.5">
-                          {sel.phases.map((phase, i) => (
-                            <div key={i} className="flex items-center gap-2 text-sm">
-                              {phase.type === 'active' ? (
-                                <ThunderboltFilled className="text-orange-500 text-xs" />
-                              ) : (
-                                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-gray-400" />
-                              )}
-                              <span className={phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'}>
-                                {phase.name}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-500">Uses default conventions</span>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Bottom spacing */}
-              <div className="h-4" />
             </div>
 
-            {/* Footer */}
-            <div className="flex-shrink-0 px-10 py-4 border-t border-gray-200 flex justify-between items-center bg-white">
-              <Button onClick={handleCancelAddProject}>Cancel</Button>
-              <Button
-                type="primary"
-                onClick={handleCreateProject}
-                disabled={!projectName.trim()}
-                className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-semibold"
-              >
-                Create Project
-              </Button>
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              <div className="max-w-[920px] mx-auto">
+                <div className="border border-gray-200 rounded-xl bg-white shadow-[0_8px_24px_rgba(17,24,39,0.04)] overflow-hidden">
+                  <div className="px-6 py-5 border-b border-gray-200">
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-xl bg-gray-900 text-white flex items-center justify-center">
+                          <ProjectOutlined style={{ fontSize: 20 }} />
+                        </div>
+                        <div className="absolute -right-2 -bottom-2 w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center border-2 border-white">
+                          <RightOutlined style={{ fontSize: 12 }} />
+                        </div>
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-semibold text-gray-900 m-0">Add New Project</h2>
+                        <p className="mt-1 mb-0 text-sm text-gray-500">
+                          Configure how this project is stored, deployed, and promoted.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 space-y-7">
+                    <div>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-squid-blue flex items-center justify-center text-white flex-shrink-0">
+                          <ProjectOutlined style={{ fontSize: 16 }} />
+                        </div>
+                        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-600 flex-shrink-0">
+                          <PictureOutlined style={{ fontSize: 16 }} />
+                        </div>
+                      </div>
+                      <label className="block text-xs font-semibold uppercase tracking-[0.16em] text-gray-400 mb-2">
+                        Project name
+                      </label>
+                      <div className="border-b-2 border-gray-300 focus-within:border-squid-blue transition-colors">
+                        <input
+                          autoFocus
+                          placeholder="Project name"
+                          value={projectName}
+                          onChange={(e) => setProjectName(e.target.value)}
+                          className="w-full text-lg outline-none border-0 bg-transparent py-2 text-gray-900 placeholder-gray-400 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-sm text-gray-700 mb-3">
+                        Store project process, settings, and non-sensitive variables in
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[
+                          {
+                            value: 'squid',
+                            label: 'Squid',
+                            description: 'Store project and deployment process in the Squid database.',
+                          },
+                          {
+                            value: 'git',
+                            label: 'Git Repository',
+                            description: 'Use configuration as code and keep deployment process in source control.',
+                          },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setStorageLocation(option.value)}
+                            className={`p-4 rounded-xl border text-left transition-all ${
+                              storageLocation === option.value
+                                ? 'border-squid-blue bg-blue-50 shadow-sm'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`mt-0.5 inline-flex w-5 h-5 rounded-full border-2 items-center justify-center ${
+                                  storageLocation === option.value ? 'border-squid-blue' : 'border-gray-300'
+                                }`}
+                              >
+                                {storageLocation === option.value && (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-squid-blue" />
+                                )}
+                              </span>
+                              <div>
+                                <div className="text-sm font-semibold text-gray-900">{option.label}</div>
+                                <div className="text-xs text-gray-500 mt-1 leading-relaxed">{option.description}</div>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-sm text-gray-700 mb-3">Deploy to</div>
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        {deployTargetOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setDeployTarget(option.value)}
+                            className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                              deployTarget === option.value
+                                ? 'border-squid-blue bg-blue-50'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                          >
+                            <span
+                              className="inline-flex w-8 h-8 rounded-lg items-center justify-center text-sm font-semibold"
+                              style={{
+                                background: deployTarget === option.value ? `${option.tone}22` : '#f3f4f6',
+                                color: deployTarget === option.value ? option.tone : '#6b7280',
+                              }}
+                            >
+                              {option.icon}
+                            </span>
+                            <span className={`text-sm font-medium ${deployTarget === option.value ? 'text-squid-blue' : 'text-gray-700'}`}>
+                              {option.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-sm text-gray-700 mb-3">Manage with</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {manageWithOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setManageWith(option.value)}
+                            className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                              manageWith === option.value
+                                ? 'border-squid-blue bg-blue-50'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
+                            }`}
+                          >
+                            <span
+                              className={`inline-flex w-5 h-5 rounded-full border-2 items-center justify-center ${
+                                manageWith === option.value ? 'border-squid-blue' : 'border-gray-300'
+                              }`}
+                            >
+                              {manageWith === option.value && <span className="w-2.5 h-2.5 rounded-full bg-squid-blue" />}
+                            </span>
+                            <span className={`text-sm ${manageWith === option.value ? 'text-squid-blue font-medium' : 'text-gray-700'}`}>
+                              {option.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-1">
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400 whitespace-nowrap">
+                          Advanced Settings
+                        </span>
+                        <div className="flex-1 h-px bg-gray-200" />
+                      </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-6">
+                        <div className="xl:col-span-2">
+                          <div className="rounded-xl border border-gray-200 bg-white p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-1">
+                                  Project description
+                                </label>
+                                <div className="text-xs text-gray-500">
+                                  Optional. Add context so your team can quickly understand what this project deploys.
+                                </div>
+                              </div>
+                              <span className="text-xs text-gray-400">{projectDescription.trim().length} chars</span>
+                            </div>
+                            <textarea
+                              placeholder="Describe the service, component, or database managed by this project"
+                              value={projectDescription}
+                              onChange={(e) => setProjectDescription(e.target.value)}
+                              rows={3}
+                              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 outline-none resize-y min-h-[92px] text-sm text-gray-900 placeholder-gray-400 focus:border-squid-blue focus:bg-white transition-colors"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Project group</label>
+                          <div className="border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                            <Select
+                              className="w-full"
+                              value={selectedProjectGroup}
+                              onChange={setSelectedProjectGroup}
+                              bordered={false}
+                              options={[{ value: 'all-projects', label: 'All Projects' }]}
+                              style={{ paddingLeft: 0 }}
+                              dropdownStyle={{ zIndex: 10001 }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Lifecycle</label>
+                          <div className="flex items-center gap-2 border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                            <Select
+                              className="flex-1"
+                              loading={loadingLifecycles}
+                              value={selectedLifecycle}
+                              onChange={setSelectedLifecycle}
+                              placeholder="Select a lifecycle"
+                              bordered={false}
+                              options={lifecycleOptions.map((o) => ({ value: o.value, label: o.label }))}
+                              style={{ paddingLeft: 0 }}
+                              dropdownStyle={{ zIndex: 10001 }}
+                            />
+                            <button
+                              type="button"
+                              title="Refresh lifecycles"
+                              className="text-squid-blue hover:text-blue-700 p-1 transition-colors flex-shrink-0"
+                              onClick={() => {
+                                setLoadingLifecycles(true);
+                                getLifecycles()
+                                  .then((res) => {
+                                    const options = res.lifecycles.map((lc: LifecycleDto) => {
+                                      let phases: { name: string; type?: string }[] = [];
+                                      if (lc.json) {
+                                        try {
+                                          const parsed = JSON.parse(lc.json);
+                                          if (Array.isArray(parsed.phases)) {
+                                            phases = parsed.phases.map((p: any) => ({
+                                              name: p.name || p.Name || '',
+                                              type: p.isOptionalPhase ? 'default' : 'active',
+                                            }));
+                                          }
+                                        } catch {}
+                                      }
+                                      return { value: String(lc.id), label: lc.name, phases };
+                                    });
+                                    setLifecycleOptions(options);
+                                  })
+                                  .catch(() => {})
+                                  .finally(() => setLoadingLifecycles(false));
+                              }}
+                            >
+                              <ReloadOutlined />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="xl:col-span-2 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="text-xs text-gray-500 leading-relaxed">
+                              The lifecycle defines how releases can be promoted between environments.
+                              <button
+                                type="button"
+                                className="ml-1 text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0"
+                              >
+                                Create or modify lifecycles
+                              </button>
+                            </div>
+                            <Button type="text" size="small" onClick={() => setShowLifecyclePreview((v) => !v)}>
+                              {showLifecyclePreview ? 'Hide Lifecycle' : 'Show Lifecycle'}
+                            </Button>
+                          </div>
+
+                          {showLifecyclePreview && (() => {
+                            const sel = lifecycleOptions.find((o) => o.value === selectedLifecycle);
+                            return (
+                              <div className="mt-3 border border-gray-200 rounded-lg p-3 bg-white">
+                                {sel && sel.phases.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {sel.phases.map((phase, i) => (
+                                      <div key={i} className="flex items-center gap-2 text-sm">
+                                        {phase.type === 'active' ? (
+                                          <ThunderboltFilled className="text-orange-500 text-xs" />
+                                        ) : (
+                                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-gray-400" />
+                                        )}
+                                        <span className={phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'}>
+                                          {phase.name}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-500">Uses default conventions</span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="px-6 py-4 border-t border-gray-200 bg-white flex items-center justify-between">
+                    <Button onClick={handleCancelAddProject}>Cancel</Button>
+                    <Button
+                      type="primary"
+                      onClick={handleCreateProject}
+                      disabled={!projectName.trim()}
+                      className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-semibold"
+                    >
+                      Create Project
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* ── Right Panel – Illustration ── */}
-          <div
-            className="flex-1 h-full flex flex-col items-center justify-center p-12"
-            style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 55%, #dbeafe 100%)' }}
-          >
-            <svg width="300" height="200" viewBox="0 0 300 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-8">
+          <div className="hidden lg:flex flex-1 h-full flex-col p-8 xl:p-10 bg-[#f4f6f8]">
+            <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm mb-6">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400 mb-3">
+                What is a project?
+              </div>
+              <div className="text-sm text-gray-700 leading-relaxed">
+                A project represents a software component, service, or database that you want to deploy and manage.
+                Each project contains its own deployment process, variables, and release history.
+              </div>
+            </div>
+
+            <div className="flex-1 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-x-10 top-8 h-24 rounded-full bg-blue-50 blur-2xl opacity-70" />
+              <div className="relative z-10 w-full flex flex-col items-center">
+                <svg width="300" height="200" viewBox="0 0 300 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-8">
               {/* Build box */}
               <rect x="10" y="65" width="75" height="52" rx="8" fill="white" stroke="#0d80d8" strokeWidth="1.5" />
               <rect x="10" y="65" width="75" height="20" rx="8" fill="#0d80d8" />
@@ -1017,15 +1142,30 @@ const Project: React.FC = () => {
               <circle cx="172" cy="18" r="3" fill="#00B065" opacity="0.3" />
               <circle cx="192" cy="32" r="4" fill="#7c3aed" opacity="0.25" />
               <circle cx="128" cy="22" r="4" fill="#0d80d8" opacity="0.18" />
-            </svg>
+                </svg>
 
-            <h3 className="text-xl font-bold text-gray-700 text-center mb-3">
-              Accelerate your deployments
-            </h3>
-            <p className="text-sm text-gray-500 text-center leading-relaxed" style={{ maxWidth: 280 }}>
-              Projects contain all the settings needed to deploy your software.
-              Define your deployment process, manage variables, and release to environments on demand.
-            </p>
+                <h3 className="text-xl font-semibold text-gray-800 text-center mb-3">
+                  Accelerate your deployments
+                </h3>
+                <p className="text-sm text-gray-500 text-center leading-relaxed max-w-[320px]">
+                  Start with the project definition, then choose how releases move through your environments.
+                  You can refine the process, variables, and lifecycle after creation.
+                </p>
+
+                <div className="mt-6 grid grid-cols-1 gap-2 w-full max-w-[320px]">
+                  {['Project settings', 'Deployment process', 'Release and deploy'].map((item, idx) => (
+                    <div key={item} className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 bg-gray-50/60">
+                      <span className={`inline-flex w-5 h-5 rounded-full items-center justify-center text-xs font-semibold ${
+                        idx === 0 ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className={`text-sm ${idx === 0 ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Modal>
