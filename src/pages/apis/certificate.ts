@@ -31,6 +31,7 @@ export interface CertificateDto {
 export interface GetCertificatesRequest {
   pageIndex?: number
   pageSize?: number
+  spaceId?: number
 }
 
 export interface GetCertificatesResponseData {
@@ -42,6 +43,7 @@ export function getCertificates(params?: GetCertificatesRequest) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 1000,
+    ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
   return get<GetCertificatesResponseData>('/certificates/list', { params: query })

@@ -11,13 +11,34 @@ const { Panel } = Collapse
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Matches Squid.Message KubernetesApiEndpointDto (PascalCase from System.Text.Json)
+interface KubernetesApiEndpoint {
+  CommunicationStyle: string
+  ClusterUrl: string
+  Namespace: string
+  SkipTlsVerification: string
+  ClusterCertificatePath?: string
+  ProxyId?: string
+  DefaultWorkerPoolId?: string
+  ContainerOptions?: string
+}
+
+// Matches Squid.Message KubernetesAgentEndpointDto (PascalCase from System.Text.Json)
+interface KubernetesAgentEndpoint {
+  CommunicationStyle: string  // "KubernetesAgent"
+  SubscriptionId: string
+  Thumbprint: string
+  Namespace: string
+}
+
+type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint
+
 interface DeploymentTarget {
   id: number
   name: string
-  type: string
-  url: string
-  environments: number
-  environmentList?: string[]
+  communicationStyle: string
+  summary: string
+  environmentNames: string[]
   tags: string[]
   status?: string
 }
@@ -27,16 +48,44 @@ interface DeploymentData {
   disabled: DeploymentTarget[]
 }
 
-function mapMachineToTarget(m: MachineDto): DeploymentTarget {
+function parseEndpointJson(json: string): MachineEndpoint | null {
+  try {
+    return JSON.parse(json) as MachineEndpoint
+  } catch {
+    return null
+  }
+}
+
+function communicationStyleLabel(style: string): string {
+  const map: Record<string, string> = {
+    KubernetesApi: 'Kubernetes API',
+    KubernetesAgent: 'Kubernetes Agent',
+    TentaclePassive: 'Listening Tentacle',
+    TentacleActive: 'Polling Tentacle',
+    Ssh: 'SSH Connection',
+  }
+  return map[style] || style
+}
+
+function endpointSummary(ep: MachineEndpoint | null): string {
+  if (!ep) return ''
+  if (ep.CommunicationStyle === 'KubernetesApi') return (ep as KubernetesApiEndpoint).ClusterUrl || ''
+  if (ep.CommunicationStyle === 'KubernetesAgent') return (ep as KubernetesAgentEndpoint).Thumbprint || ''
+  return ''
+}
+
+function mapMachineToTarget(m: MachineDto, envMap: Map<string, string>): DeploymentTarget {
   const envIds = m.environmentIds ? m.environmentIds.split(',').filter(Boolean) : []
+  const envNames = envIds.map((id) => envMap.get(id) ?? id)
   const rolesList = m.roles ? m.roles.split(',').map((r) => r.trim()).filter(Boolean) : []
+  const ep = parseEndpointJson(m.endpoint || '{}')
+  const style = ep?.CommunicationStyle || 'Unknown'
   return {
     id: m.id,
     name: m.name,
-    type: m.endpoint || 'Unknown',
-    url: m.uri,
-    environments: envIds.length,
-    environmentList: envIds,
+    communicationStyle: communicationStyleLabel(style),
+    summary: endpointSummary(ep),
+    environmentNames: envNames,
     tags: rolesList,
     status: m.isDisabled ? 'Disabled' : 'Healthy',
   }
@@ -146,17 +195,6 @@ function MachineChip({ icon, label, bgColor, textColor }: { icon?: React.ReactNo
       )}
       <span className="px-2 text-xs text-gray-700">{label}</span>
     </div>
-  )
-}
-
-// ── Deployment Targets header icon ────────────────────────────────────────────
-
-function DeploymentTargetsSvg() {
-  return (
-    <svg viewBox="0 0 200 200" width="20" height="20" fill="#111A23" style={{ flexShrink: 0 }}>
-      <path d="M119.19 70.52h6.54a27 27 0 0 0-18-18V59a3.87 3.87 0 0 1-3.84 3.84h-7.73A3.87 3.87 0 0 1 92.32 59v-6.53a27 27 0 0 0-18 18h6.54a3.86 3.86 0 0 1 3.83 3.84V82a3.86 3.86 0 0 1-3.83 3.84h-6.59a27 27 0 0 0 18 18.05v-6.5a3.87 3.87 0 0 1 3.84-3.84h7.68a3.87 3.87 0 0 1 3.84 3.84v6.54a27 27 0 0 0 18-18.05h-6.54a3.86 3.86 0 0 1-3.73-3.88v-7.64a3.86 3.86 0 0 1 3.83-3.84z" />
-      <path d="M170.17 16.15H29.83A3.82 3.82 0 0 0 26 20v116.71a3.82 3.82 0 0 0 3.83 3.82h65.34v15.74a14.92 14.92 0 0 0-9.3 9.3H42a4.83 4.83 0 1 0 0 9.66h43.87a14.92 14.92 0 0 0 28.26 0H158a4.83 4.83 0 1 0 0-9.66h-43.87a14.92 14.92 0 0 0-9.3-9.3v-15.74h65.34a3.82 3.82 0 0 0 3.83-3.82V20a3.82 3.82 0 0 0-3.83-3.85zM146.07 82a3.87 3.87 0 0 1-3.84 3.84h-8.58a34.59 34.59 0 0 1-26 26v8.58a3.87 3.87 0 0 1-3.84 3.84h-7.65a3.87 3.87 0 0 1-3.84-3.84v-8.58a34.59 34.59 0 0 1-26-26h-8.55A3.87 3.87 0 0 1 53.93 82v-7.64a3.87 3.87 0 0 1 3.84-3.84h8.58a34.59 34.59 0 0 1 26-26V36a3.87 3.87 0 0 1 3.84-3.84h7.68a3.87 3.87 0 0 1 3.81 3.84v8.58a34.59 34.59 0 0 1 26 26h8.58a3.87 3.87 0 0 1 3.84 3.84z" />
-    </svg>
   )
 }
 
@@ -276,12 +314,19 @@ const DeploymentTargets: React.FC = () => {
 
   useEffect(() => {
     setLoadingTargets(true)
-    getMachines({ pageSize: 1000, spaceId: space.id })
-      .then((res) => {
+    Promise.all([
+      getMachines({ pageSize: 1000, spaceId: space.id }),
+      getEnvironments({ pageSize: 1000, spaceId: space.id }),
+    ])
+      .then(([machinesRes, envsRes]) => {
+        const envMap = new Map<string, string>()
+        ;(envsRes.environments ?? []).forEach((env) => {
+          envMap.set(String(env.id), env.name)
+        })
         const healthy: DeploymentTarget[] = []
         const disabled: DeploymentTarget[] = []
-        res.machines.forEach((m) => {
-          const target = mapMachineToTarget(m)
+        machinesRes.machines.forEach((m) => {
+          const target = mapMachineToTarget(m, envMap)
           if (m.isDisabled) disabled.push(target)
           else healthy.push(target)
         })
@@ -289,7 +334,7 @@ const DeploymentTargets: React.FC = () => {
       })
       .catch(() => {})
       .finally(() => setLoadingTargets(false))
-  }, [])
+  }, [space.id])
 
   // UI state
   const [searchText, setSearchText] = useState('')
@@ -494,11 +539,11 @@ const DeploymentTargets: React.FC = () => {
   // Filtered lists
   const filteredHealthy = deploymentData.healthy.filter((t) =>
     t.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    t.type.toLowerCase().includes(searchText.toLowerCase())
+    t.communicationStyle.toLowerCase().includes(searchText.toLowerCase())
   )
   const filteredDisabled = deploymentData.disabled.filter((t) =>
     t.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    t.type.toLowerCase().includes(searchText.toLowerCase())
+    t.communicationStyle.toLowerCase().includes(searchText.toLowerCase())
   )
   const displayHealthy = disabledOnly ? [] : filteredHealthy
   const displayDisabled = filteredDisabled
@@ -518,53 +563,69 @@ const DeploymentTargets: React.FC = () => {
   // ── Machine row ─────────────────────────────────────────────────────────────
 
   const renderMachineRow = (target: DeploymentTarget, isDisabled: boolean, isLast: boolean) => {
-    const isExpanded = expandedTargets.has(target.id)
-    const visibleTags = isExpanded ? target.tags : target.tags.slice(0, 2)
-    const hasMore = target.tags.length > 2
+    // collapsed = show summary ("N environments" + first 2 tags)
+    // expanded = show all individual chips (default when total <= 4)
+    const isSummary = expandedTargets.has(target.id)
+    const totalChips = target.environmentNames.length + target.tags.length
+    const canToggle = totalChips > 4
+
+    const envChips = isSummary && target.environmentNames.length > 1
+      ? [
+          <MachineChip
+            key="env-summary"
+            icon={<EnvChipIcon />}
+            label={`${target.environmentNames.length} environments`}
+          />,
+        ]
+      : target.environmentNames.map((env) => (
+          <MachineChip key={`env-${env}`} icon={<EnvChipIcon />} label={env} />
+        ))
+
+    const tagChips = isSummary
+      ? target.tags.slice(0, 2)
+      : target.tags
 
     return (
       <li
         key={target.id}
-        className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors ${isLast ? '' : 'border-b border-gray-100'}`}
+        className={`grid items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${isLast ? '' : 'border-b border-gray-100'}`}
+        style={{ gridTemplateColumns: '40px minmax(180px, 280px) auto 1fr' }}
+        onClick={() => navigate(`/${space.slug}/deployment/targets/${target.id}/settings`)}
       >
-        {/* Machine type icon */}
-        <MachineTypeIcon machineType={target.type} isDisabled={isDisabled} />
+        {/* Col 1: Machine type icon */}
+        <MachineTypeIcon machineType={target.communicationStyle} isDisabled={isDisabled} />
 
-        {/* Name / type / URL */}
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm text-gray-900 leading-snug">{target.name}</div>
-          <div className="text-xs text-gray-500 mt-0.5">{target.type}</div>
-          {target.url && (
-            <div className="text-xs text-gray-400 mt-0.5 truncate">{target.url}</div>
+        {/* Col 2: Name / type / summary */}
+        <div className="min-w-0">
+          <div className="font-semibold text-sm text-gray-900 leading-snug truncate">{target.name}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{target.communicationStyle}</div>
+          {target.summary && (
+            <div className="text-xs text-gray-400 mt-0.5 truncate">{target.summary}</div>
           )}
         </div>
 
-        {/* Health icon */}
-        <div className="flex-shrink-0">
+        {/* Col 3: Health status */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 ml-4">
           {isDisabled ? <DisabledIcon size={16} /> : <HealthyIcon size={16} />}
+          <span className={`text-xs font-medium ${isDisabled ? 'text-gray-400' : 'text-green-600'}`}>
+            {isDisabled ? 'Disabled' : 'Healthy'}
+          </span>
         </div>
 
-        {/* Chips */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap" style={{ maxWidth: 380 }}>
-          {target.environments > 0 && (
-            <MachineChip
-              icon={<EnvChipIcon />}
-              label={target.environments === 1 && target.environmentList?.[0]
-                ? target.environmentList[0]
-                : `${target.environments} environments`}
-            />
-          )}
+        {/* Col 4: Chips — environments + tags */}
+        <div className="flex items-center gap-1.5 flex-wrap ml-6">
+          {envChips}
 
-          {visibleTags.map((tag, idx) => (
-            <MachineChip key={idx} icon={<RoleChipIcon />} label={tag} />
+          {tagChips.map((tag) => (
+            <MachineChip key={`tag-${tag}`} icon={<RoleChipIcon />} label={tag} />
           ))}
 
-          {hasMore && (
+          {canToggle && (
             <button
-              onClick={() => toggleExpand(target.id)}
-              className="text-xs text-gray-600 hover:underline bg-transparent border-0 cursor-pointer px-1 whitespace-nowrap"
+              onClick={(e) => { e.stopPropagation(); toggleExpand(target.id) }}
+              className="text-xs text-blue-600 hover:underline bg-transparent border-0 cursor-pointer px-1 whitespace-nowrap"
             >
-              {isExpanded ? 'Show summary' : 'Show all'}
+              {isSummary ? 'Show all' : 'Show summary'}
             </button>
           )}
         </div>
@@ -668,58 +729,36 @@ const DeploymentTargets: React.FC = () => {
         {/* Main content */}
         <div className="flex-1 p-6">
           <Spin spinning={loadingTargets}>
-            <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
-
-              {/* Card header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                <div className="flex items-center gap-2">
-                  <DeploymentTargetsSvg />
-                  <span className="text-sm font-semibold text-gray-800">Deployment targets</span>
-                  <span className="text-sm text-gray-500">({total})</span>
-                </div>
-                <div className="flex items-center gap-0.5">
-                  <button className="inline-flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded bg-transparent border-0 cursor-pointer transition-colors">
-                    <HealthyIcon size={14} />
-                    {displayHealthy.length} healthy
-                  </button>
-                  <button className="inline-flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded bg-transparent border-0 cursor-pointer transition-colors">
-                    <DisabledIcon size={14} />
-                    {displayDisabled.length} disabled
-                  </button>
-                  <Button size="small" type="text" icon={<MoreOutlined />} />
-                </div>
-              </div>
-
               {/* Healthy section */}
               {displayHealthy.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100">
-                    <HealthyIcon size={14} />
-                    <span className="text-xs font-medium text-gray-700">Healthy</span>
-                    <span className="text-xs text-gray-500">({displayHealthy.length})</span>
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 px-1 py-2 mb-1">
+                    <HealthyIcon size={16} />
+                    <span className="text-sm font-semibold text-gray-800">Healthy</span>
+                    <span className="text-sm text-gray-500">({displayHealthy.length})</span>
                   </div>
-                  <ul className="list-none m-0 p-0">
+                  <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
                     {displayHealthy.map((t, i) =>
-                      renderMachineRow(t, false, i === displayHealthy.length - 1 && displayDisabled.length === 0)
+                      renderMachineRow(t, false, i === displayHealthy.length - 1)
                     )}
                   </ul>
-                </>
+                </div>
               )}
 
               {/* Disabled section */}
               {displayDisabled.length > 0 && (
-                <>
-                  <div className={`flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 ${displayHealthy.length > 0 ? 'border-t border-gray-200' : ''}`}>
-                    <DisabledIcon size={14} />
-                    <span className="text-xs font-medium text-gray-700">Disabled</span>
-                    <span className="text-xs text-gray-500">({displayDisabled.length})</span>
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 px-1 py-2 mb-1">
+                    <DisabledIcon size={16} />
+                    <span className="text-sm font-semibold text-gray-800">Disabled</span>
+                    <span className="text-sm text-gray-500">({displayDisabled.length})</span>
                   </div>
-                  <ul className="list-none m-0 p-0">
+                  <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
                     {displayDisabled.map((t, i) =>
                       renderMachineRow(t, true, i === displayDisabled.length - 1)
                     )}
                   </ul>
-                </>
+                </div>
               )}
 
               {/* Empty state */}
@@ -728,7 +767,6 @@ const DeploymentTargets: React.FC = () => {
                   No deployment targets found.
                 </div>
               )}
-            </div>
           </Spin>
         </div>
           </div>

@@ -8,8 +8,10 @@ import CertificatesPage from 'pages/certificates'
 import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
 import AddDeploymentTargetPage from 'pages/deploymentTargets/add'
+import DeploymentTargetDetailPage from 'pages/deploymentTargets/detail'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
+import Accounts from 'pages/accounts'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
@@ -50,6 +52,11 @@ const routes = [
             name: "Add Deployment Target",
           },
           {
+            path: "deployment/targets/:targetId/:tab?",
+            component: DeploymentTargetDetailPage,
+            name: "Deployment Target Detail",
+          },
+          {
             path: "deployment/targets",
             component: DeploymentTargets,
             name: "Deployment Targets",
@@ -63,6 +70,11 @@ const routes = [
             path: "machine/policies",
             component: MachinePolicies,
             name: "Machine Policies",
+          },
+          {
+            path: "infrastructure/accounts",
+            component: Accounts,
+            name: "Accounts",
           },
           {
             path: "external/feeds",

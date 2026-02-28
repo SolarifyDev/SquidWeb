@@ -1,26 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Input,
   Dropdown,
   Space,
-  Table,
-  Badge,
   Typography,
   Tooltip,
   Menu,
   Modal,
   Radio,
   Select,
-  Spin
+  Spin,
+  message,
 } from 'antd';
-import type { MenuProps, TableColumnsType } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
   DownOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
+  ClockCircleFilled,
+  LoadingOutlined,
+  WarningFilled,
   MinusCircleOutlined,
   LeftOutlined,
   RightOutlined,
@@ -38,32 +40,33 @@ import {
 } from '@ant-design/icons';
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle';
 
-const { Title, Text, Link } = Typography;
+const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-interface DeploymentInfo {
-  version: string;
-  timestamp: string;
-  status: 'success' | 'failed' | 'none';
-}
-
-interface ProjectData {
+interface DashboardRow {
   key: string;
+  projectId: number;
   name: string;
-  dev: DeploymentInfo | null;
-  test: DeploymentInfo | null;
-  uat: DeploymentInfo | null;
-  prd: DeploymentInfo | null;
+  deployments: Record<number, import('pages/apis/project').ProjectDashboardItem | undefined>;
 }
 
-interface ProjectGroup {
+interface DashboardGroupView {
+  id: number;
   name: string;
   count: number;
-  projects: ProjectData[];
+  environments: import('pages/apis/project').ProjectDashboardEnvironment[];
+  rows: DashboardRow[];
 }
 
 import { useNavigate } from "react-router-dom";
-import { getProjects, ProjectDto } from "pages/apis/project";
+import {
+  createProject,
+  getProjectSummaries,
+  ProjectDashboardEnvironment,
+  ProjectDashboardItem,
+  ProjectGroupSummary,
+} from "pages/apis/project";
+import { createProjectGroup, getProjectGroups, ProjectGroupDto } from 'pages/apis/projectGroup';
 import { useSpace } from "contexts/SpaceContext";
 
 const Project: React.FC = () => {
@@ -91,8 +94,14 @@ const Project: React.FC = () => {
   const [storageLocation, setStorageLocation] = useState('squid');
   const [deployTarget, setDeployTarget] = useState('kubernetes');
   const [manageWith, setManageWith] = useState('helm');
-  const [selectedProjectGroup, setSelectedProjectGroup] = useState('all-projects');
-  const [projectGroupsData, setProjectGroupsData] = useState<ProjectGroup[]>([]);
+  const [selectedProjectGroupId, setSelectedProjectGroupId] = useState<number | undefined>(undefined);
+  const [projectGroupItems, setProjectGroupItems] = useState<ProjectGroupDto[]>([]);
+  const [loadingProjectGroups, setLoadingProjectGroups] = useState(false);
+  const [creatingProjectGroup, setCreatingProjectGroup] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [summaryGroups, setSummaryGroups] = useState<ProjectGroupSummary[]>([]);
+  const [summaryEnvironments, setSummaryEnvironments] = useState<ProjectDashboardEnvironment[]>([]);
+  const [summaryItems, setSummaryItems] = useState<ProjectDashboardItem[]>([]);
   const [totalProjects, setTotalProjects] = useState(0);
   const [loadingProjects, setLoadingProjects] = useState(false);
 
@@ -109,77 +118,156 @@ const Project: React.FC = () => {
     }
   }, [deployTarget, manageWith]);
 
+  const mapLifecycleOptions = (lifecycles: LifecycleDto[]) => {
+    return lifecycles.map((lc: LifecycleDto) => {
+      let phases: { name: string; type?: string }[] = [];
+      if (lc.json) {
+        try {
+          const parsed = JSON.parse(lc.json);
+          if (Array.isArray(parsed.phases)) {
+            phases = parsed.phases.map((p: any) => ({
+              name: p.name || p.Name || '',
+              type: p.isOptionalPhase ? 'default' : 'active',
+            }));
+          }
+        } catch {
+          phases = [];
+        }
+      }
+      return { value: String(lc.id), label: lc.name, phases };
+    });
+  };
+
+  const loadLifecycles = async () => {
+    setLoadingLifecycles(true);
+    try {
+      const res = await getLifecycles({ pageIndex: 1, pageSize: 200 });
+      const options = mapLifecycleOptions(res.lifecycles ?? []);
+      setLifecycleOptions(options);
+      if (!selectedLifecycle && options.length > 0) {
+        setSelectedLifecycle(options[0].value);
+      }
+    } catch (error) {
+      console.error('Failed to load lifecycles', error);
+      setLifecycleOptions([]);
+    } finally {
+      setLoadingLifecycles(false);
+    }
+  };
+
   // 加载 Lifecycle 列表（当 Add Project 弹窗打开时）
   useEffect(() => {
     if (!showAddProjectModal) return;
-    setLoadingLifecycles(true);
-    getLifecycles()
-      .then((res) => {
-        const options = res.lifecycles.map((lc: LifecycleDto) => {
-          let phases: { name: string; type?: string }[] = [];
-          if (lc.json) {
-            try {
-              const parsed = JSON.parse(lc.json);
-              if (Array.isArray(parsed.phases)) {
-                phases = parsed.phases.map((p: any) => ({
-                  name: p.name || p.Name || '',
-                  type: p.isOptionalPhase ? 'default' : 'active',
-                }));
-              }
-            } catch {}
-          }
-          return { value: String(lc.id), label: lc.name, phases };
-        });
-        setLifecycleOptions(options);
-        if (options.length > 0 && !selectedLifecycle) {
-          setSelectedLifecycle(options[0].value);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingLifecycles(false));
-  }, [showAddProjectModal]);
+    void loadLifecycles();
+  }, [showAddProjectModal, space.id]);
 
-  // 从 API 加载项目列表
+  // 加载 Project Group 列表
   useEffect(() => {
     let cancelled = false;
-    const fetchProjects = async () => {
+    const loadProjectGroupData = async () => {
+      setLoadingProjectGroups(true);
       try {
-        setLoadingProjects(true);
-        const res = await getProjects({
-          pageIndex: currentPage,
-          pageSize,
-          keyword: searchText || undefined,
-          spaceId: space.id,
-        });
+        const res = await getProjectGroups({ pageIndex: 1, pageSize: 1000 });
         if (cancelled) return;
-
-        const projects: ProjectData[] = (res.projects ?? []).map((p: ProjectDto) => ({
-          key: String(p.id),
-          name: p.name,
-          dev: null,
-          test: null,
-          uat: null,
-          prd: null,
-        }));
-
-        setProjectGroupsData([
-          {
-            name: 'All Projects',
-            count: res.count,
-            projects,
-          },
-        ]);
-        setTotalProjects(res.count);
+        const items = res.projectGroups ?? [];
+        setProjectGroupItems(items);
+        setSelectedProjectGroupId((prev) => {
+          if (prev && items.some((group) => group.id === prev)) return prev;
+          return items[0]?.id;
+        });
       } catch (error) {
-        console.error('Failed to load projects', error);
+        if (!cancelled) {
+          console.error('Failed to load project groups', error);
+          setProjectGroupItems([]);
+        }
       } finally {
-        if (!cancelled) setLoadingProjects(false);
+        if (!cancelled) setLoadingProjectGroups(false);
       }
     };
 
-    fetchProjects();
-    return () => { cancelled = true; };
-  }, [currentPage, pageSize, searchText]);
+    void loadProjectGroupData();
+    return () => {
+      cancelled = true;
+    };
+  }, [space.id]);
+
+  useEffect(() => {
+    if (!showAddProjectModal) return;
+    if (selectedProjectGroupId && projectGroupItems.some((group) => group.id === selectedProjectGroupId)) return;
+    if (projectGroupItems.length > 0) {
+      setSelectedProjectGroupId(projectGroupItems[0].id);
+    }
+  }, [showAddProjectModal, selectedProjectGroupId, projectGroupItems]);
+
+  const loadProjectSummaries = async () => {
+    setLoadingProjects(true);
+    try {
+      const res = await getProjectSummaries();
+      setSummaryGroups(res.groups ?? []);
+      setSummaryEnvironments(res.environments ?? []);
+      setSummaryItems(res.items ?? []);
+      const projectCount = (res.groups ?? []).reduce((sum, group) => sum + (group.projects?.length ?? 0), 0);
+      setTotalProjects(projectCount);
+      setCurrentPage(1);
+    } catch (error) {
+      console.error('Failed to load project summaries', error);
+      setSummaryGroups([]);
+      setSummaryEnvironments([]);
+      setSummaryItems([]);
+      setTotalProjects(0);
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadProjectSummaries();
+  }, [space.id]);
+
+  const itemMap = useMemo(
+    () => new Map(summaryItems.map((item) => [`${item.projectId}-${item.environmentId}`, item])),
+    [summaryItems],
+  );
+
+  const keyword = searchText.trim().toLowerCase();
+  const projectGroupsData = useMemo<DashboardGroupView[]>(() => {
+    const groups = summaryGroups ?? [];
+
+    return groups
+      .map((group) => {
+        const groupEnvs = summaryEnvironments.filter((env) => group.environmentIds.includes(env.id));
+
+        const rows = (group.projects ?? [])
+          .filter((project) => {
+            if (!keyword) return true;
+            return (
+              project.name.toLowerCase().includes(keyword) ||
+              group.name.toLowerCase().includes(keyword)
+            );
+          })
+          .map((project) => ({
+            key: String(project.id),
+            projectId: project.id,
+            name: project.name,
+            deployments: groupEnvs.reduce<Record<number, ProjectDashboardItem | undefined>>((acc, env) => {
+              acc[env.id] = itemMap.get(`${project.id}-${env.id}`);
+              return acc;
+            }, {}),
+          }));
+
+        return {
+          id: group.id,
+          name: group.name,
+          count: rows.length,
+          environments: groupEnvs,
+          rows,
+        };
+      })
+      .filter((group) => {
+        if (!keyword) return true;
+        return group.count > 0 || group.name.toLowerCase().includes(keyword);
+      });
+  }, [summaryGroups, summaryEnvironments, itemMap, keyword]);
 
   const importExportItems: MenuProps['items'] = [
     {
@@ -245,11 +333,11 @@ const Project: React.FC = () => {
     </div>
   );
 
-  const startIndex = (currentPage - 1) * pageSize + 1;
-  const endIndex = Math.min(currentPage * pageSize, totalProjects);
+  const startIndex = totalProjects > 0 ? 1 : 0;
+  const endIndex = totalProjects;
 
   const handleSaveFilters = () => {
-    console.log('Filters saved:', { projectGroups, projects, environments });
+    void loadProjectSummaries();
     setShowFiltersModal(false);
   };
 
@@ -257,13 +345,39 @@ const Project: React.FC = () => {
     setShowFiltersModal(false);
   };
 
-  const handleSaveProjectGroup = () => {
-    console.log('Project Group Name:', projectGroupName);
-    console.log('Project Group Description:', projectGroupDesc);
-    // 这里添加保存逻辑
-    setShowAddProjectGroup(false);
-    setProjectGroupName('');
-    setProjectGroupDesc('');
+  const handleSaveProjectGroup = async () => {
+    const name = projectGroupName.trim();
+    if (!name) {
+      message.warning('Please enter a project group name');
+      return;
+    }
+
+    setCreatingProjectGroup(true);
+    try {
+      const created = await createProjectGroup({
+        projectGroup: {
+          id: 0,
+          name,
+          description: projectGroupDesc.trim(),
+          spaceId: space.id,
+          slug: '',
+        },
+      });
+
+      const groupsRes = await getProjectGroups({ pageIndex: 1, pageSize: 1000 });
+      setProjectGroupItems(groupsRes.projectGroups ?? []);
+      setSelectedProjectGroupId(created.id);
+
+      message.success('Project group created');
+      setShowAddProjectGroup(false);
+      setProjectGroupName('');
+      setProjectGroupDesc('');
+    } catch (error) {
+      console.error('Failed to create project group', error);
+      message.error('Failed to create project group');
+    } finally {
+      setCreatingProjectGroup(false);
+    }
   };
 
   const resetAddProjectForm = () => {
@@ -273,15 +387,68 @@ const Project: React.FC = () => {
     setShowLifecyclePreview(false);
     setLifecycleOptions([]);
     setStorageLocation('squid');
-    setDeployTarget('');
-    setSelectedProjectGroup('all-projects');
+    setDeployTarget('kubernetes');
+    setManageWith('helm');
+    setSelectedProjectGroupId(undefined);
   };
 
-  const handleCreateProject = () => {
-    if (!projectName.trim()) return;
-    console.log('Creating project:', { projectName, projectDescription, selectedLifecycle, storageLocation, deployTarget, selectedProjectGroup });
-    setShowAddProjectModal(false);
-    resetAddProjectForm();
+  const handleCreateProject = async () => {
+    const name = projectName.trim();
+    const lifecycleId = Number(selectedLifecycle);
+    const projectGroupId = selectedProjectGroupId;
+
+    if (!name) {
+      message.warning('Please enter a project name');
+      return;
+    }
+    if (!Number.isFinite(lifecycleId) || lifecycleId <= 0) {
+      message.warning('Please select a lifecycle');
+      return;
+    }
+    if (!projectGroupId || projectGroupId <= 0) {
+      message.warning('Please select a project group');
+      return;
+    }
+
+    setCreatingProject(true);
+    try {
+      await createProject({
+        project: {
+          id: 0,
+          name,
+          slug: '',
+          isDisabled: false,
+          variableSetId: 0,
+          deploymentProcessId: 0,
+          projectGroupId,
+          lifecycleId,
+          autoCreateRelease: false,
+          json: JSON.stringify({
+            description: projectDescription.trim(),
+            storageLocation,
+            deployTarget,
+            manageWith,
+          }),
+          includedLibraryVariableSetIds: '',
+          discreteChannelRelease: false,
+          clonedFromProjectId: null,
+          spaceId: space.id,
+          lastModified: new Date().toISOString(),
+          allowIgnoreChannelRules: false,
+        },
+      });
+
+      await loadProjectSummaries();
+
+      message.success('Project created');
+      setShowAddProjectModal(false);
+      resetAddProjectForm();
+    } catch (error) {
+      console.error('Failed to create project', error);
+      message.error('Failed to create project');
+    } finally {
+      setCreatingProject(false);
+    }
   };
 
   const handleCancelAddProject = () => {
@@ -289,34 +456,99 @@ const Project: React.FC = () => {
     resetAddProjectForm();
   };
 
-  const renderDeploymentCell = (deployment: DeploymentInfo | null) => {
-    if (!deployment) {
+  const formatCompletedTime = (value: string | null) => {
+    if (!value) return 'In progress';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getStateMeta = (item: ProjectDashboardItem) => {
+    if (item.state === 'Success') {
+      if (item.hasWarningsOrErrors) {
+        return {
+          icon: <WarningFilled className="text-amber-500 text-lg" />,
+          tone: 'text-amber-600',
+          label: 'Success (with warnings)',
+        };
+      }
+      return {
+        icon: <CheckCircleFilled className="text-green-500 text-lg" />,
+        tone: 'text-green-600',
+        label: 'Success',
+      };
+    }
+    if (item.state === 'Failed' || item.state === 'TimedOut') {
+      return {
+        icon: <CloseCircleFilled className="text-red-500 text-lg" />,
+        tone: 'text-red-600',
+        label: item.state,
+      };
+    }
+    if (item.state === 'Executing') {
+      return {
+        icon: <LoadingOutlined className="text-blue-500 text-lg" spin />,
+        tone: 'text-blue-600',
+        label: 'Executing',
+      };
+    }
+    if (item.state === 'Cancelling') {
+      return {
+        icon: <ClockCircleFilled className="text-amber-500 text-lg" />,
+        tone: 'text-amber-600',
+        label: 'Cancelling',
+      };
+    }
+    if (item.state === 'Pending') {
+      return {
+        icon: <ClockCircleFilled className="text-gray-400 text-lg" />,
+        tone: 'text-gray-500',
+        label: 'Pending',
+      };
+    }
+    if (item.state === 'Cancelled') {
+      return {
+        icon: <MinusCircleOutlined className="text-gray-400 text-lg" />,
+        tone: 'text-gray-500',
+        label: 'Cancelled',
+      };
+    }
+    return {
+      icon: <MinusCircleOutlined className="text-gray-300 text-lg" />,
+      tone: 'text-gray-500',
+      label: item.state || 'Pending',
+    };
+  };
+
+  const renderDeploymentCell = (item?: ProjectDashboardItem) => {
+    if (!item) {
       return (
         <div className="flex items-center text-gray-400">
           <MinusCircleOutlined className="text-gray-300 mr-2 text-lg flex-shrink-0" />
-          <Text type="secondary" className="text-xs font-medium">No Data</Text>
+          <Text type="secondary" className="text-xs font-medium">No data</Text>
         </div>
       );
     }
 
-    const icon = deployment.status === 'success' 
-      ? <CheckCircleFilled className="text-green-500 text-lg" />
-      : deployment.status === 'failed'
-      ? <CloseCircleFilled className="text-red-500 text-lg" />
-      : <MinusCircleOutlined className="text-gray-300 text-lg" />;
+    const meta = getStateMeta(item);
 
     return (
       <div className="flex items-center min-w-0">
         <div className="flex items-start gap-2 min-w-0">
-          <span className="mt-0.5 flex-shrink-0">{icon}</span>
+          <span className="mt-0.5 flex-shrink-0">{meta.icon}</span>
           <div className="flex flex-col gap-0.5 min-w-0">
-            <Tooltip title={deployment.version}>
-              <Text strong className="text-xs text-gray-900 block truncate font-semibold">
-                {deployment.version}
+            <Tooltip title={`${meta.label} · ${item.releaseVersion}`}>
+              <Text strong className={`text-xs block truncate font-semibold ${meta.tone}`}>
+                {item.releaseVersion}
               </Text>
             </Tooltip>
-            <Text type="secondary" className="text-xs text-gray-500 font-normal whitespace-nowrap">
-              {deployment.timestamp}
+            <Text type="secondary" className="text-xs text-gray-500 font-normal whitespace-nowrap" title={item.completedTime ?? ''}>
+              {formatCompletedTime(item.completedTime)}
             </Text>
           </div>
         </div>
@@ -324,103 +556,55 @@ const Project: React.FC = () => {
     );
   };
 
-  const columns: TableColumnsType<ProjectData> = [
-    {
-      title: '',
-      dataIndex: 'name',
-      key: 'name',
-      width: 200,
-      fixed: 'left',
-      ellipsis: true,
-      render: (name: string) => (
-        <Space
-          className="min-w-0 cursor-pointer"
-          onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(name)}/project-detail`)}
+  const renderGroupTable = (group: DashboardGroupView) => {
+    const envCount = group.environments.length;
+    const gridCols = envCount > 0
+      ? `260px ${Array(envCount).fill('160px').join(' ')}`
+      : '260px';
+
+    return (
+      <div className="overflow-x-auto">
+        {/* Header row */}
+        <div
+          className="grid border-b border-slate-100 bg-slate-50"
+          style={{ gridTemplateColumns: gridCols }}
         >
-          <ProjectOutlined className="text-gray-400 text-base flex-shrink-0" />
-          <Text className="text-xs text-squid-blue font-medium truncate hover:underline">{name}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: 'DEV',
-      dataIndex: 'dev',
-      key: 'dev',
-      width: 220,
-      ellipsis: true,
-      render: renderDeploymentCell,
-    },
-    {
-      title: 'TEST',
-      dataIndex: 'test',
-      key: 'test',
-      width: 220,
-      ellipsis: true,
-      render: renderDeploymentCell,
-    },
-    {
-      title: 'UAT',
-      dataIndex: 'uat',
-      key: 'uat',
-      width: 220,
-      ellipsis: true,
-      render: renderDeploymentCell,
-    },
-    {
-      title: 'PRD',
-      dataIndex: 'prd',
-      key: 'prd',
-      width: 220,
-      ellipsis: true,
-      render: renderDeploymentCell,
-    },
-  ];
+          <div className="px-4 py-2.5" />
+          {group.environments.map((env) => (
+            <div key={env.id} className="px-3 py-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                {env.name}
+              </span>
+            </div>
+          ))}
+        </div>
 
-  // 自定义表格样式
-  const tableStyles = `
-    .project-table .ant-table {
-      border: none;
-    }
-    .project-table .ant-table-thead > tr > th {
-      background-color: #fafafa;
-      color: #666;
-      font-weight: 700;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1px solid #f0f0f0;
-      padding: 12px 16px;
-    }
-    .project-table .ant-table-tbody > tr > td {
-      border-bottom: 1px solid #f0f0f0;
-      padding: 14px 16px;
-    }
-    .project-table .ant-table-tbody > tr:hover > td {
-      background-color: #fafafa;
-    }
-    .project-table .ant-table-container {
-      overflow-x: auto;
-    }
-    .project-table .ant-table-cell {
-      white-space: nowrap;
-    }
-    
-    /* 响应式优化 */
-    @media (max-width: 1400px) {
-      .project-table .ant-table-thead > tr > th,
-      .project-table .ant-table-tbody > tr > td {
-        padding: 10px 12px;
-      }
-    }
-    
-    @media (max-width: 1200px) {
-      .project-table .ant-table-thead > tr > th,
-      .project-table .ant-table-tbody > tr > td {
-        padding: 8px 10px;
-      }
-    }
+        {/* Data rows */}
+        {group.rows.map((row, i) => (
+          <div
+            key={row.key}
+            className={`grid items-center hover:bg-slate-50 transition-colors cursor-pointer ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
+            style={{ gridTemplateColumns: gridCols }}
+            onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}/project-detail`)}
+          >
+            <div className="px-4 py-3 flex items-center gap-2 min-w-0">
+              <ProjectOutlined className="text-gray-400 text-base flex-shrink-0" />
+              <Tooltip title={row.name}>
+                <Text className="text-sm text-squid-blue font-medium truncate hover:underline">{row.name}</Text>
+              </Tooltip>
+            </div>
+            {group.environments.map((env) => (
+              <div key={env.id} className="px-3 py-3">
+                {renderDeploymentCell(row.deployments[env.id])}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
-    /* Fullscreen Add Project Modal */
+  const modalStyles = `
     .fullscreen-add-project-modal .ant-modal-wrap {
       overflow: hidden;
     }
@@ -472,102 +656,99 @@ const Project: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-white overflow-hidden">
-      <style>{tableStyles}</style>
-      
-      {/* Fixed Header - 不滚动 */}
-      <div className="flex-shrink-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b border-gray-200 bg-white">
-        {/* Title and Actions */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-          <Title level={3} className="!m-0 !text-xl sm:!text-2xl !font-bold">Projects</Title>
-          <Space size="small" wrap>
-            <Dropdown menu={{ items: importExportItems }} placement="bottomRight">
-              <Button className="text-sm font-medium">
-                Import/Export <DownOutlined />
-              </Button>
-            </Dropdown>
-            <Button 
-              onClick={() => setShowAddProjectGroup(true)}
-              className="px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50 font-medium"
-            >
-              Add Project Group
-            </Button>
-            <Button 
-              type="primary" 
-              className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
-              onClick={() => setShowAddProjectModal(true)}
-            >
-              Add Project
-            </Button>
-          </Space>
-        </div>
+      <style>{modalStyles}</style>
+      <div className="flex-shrink-0 bg-white">
+        <div className="px-4 sm:px-6 py-4 sm:py-5">
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <Title level={3} className="!m-0 !text-xl sm:!text-2xl !font-bold !text-slate-900">Projects</Title>
+              </div>
+            </div>
 
-        {/* Filters */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
-          <Space size={12} wrap className="w-full lg:w-auto">
-            <Input
-              placeholder="Find projects or project groups"
-              prefix={<SearchOutlined className="text-gray-400" />}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="w-full sm:w-80"
-              size="middle"
-            />
-            <Link onClick={() => setShowFiltersModal(true)} className="text-sm font-medium whitespace-nowrap">
-              <FilterOutlined /> Advanced filters
-            </Link>
-          </Space>
-          <Space size={8} wrap className="w-full lg:w-auto justify-end">
-            <Dropdown overlay={pageSizeMenu} trigger={['click']}>
-              <Text className="cursor-pointer select-none text-sm text-blue-600 font-semibold whitespace-nowrap">
-                {startIndex} - {endIndex} of {totalProjects} Projects
-              </Text>
-            </Dropdown>
-            <Button 
-              icon={<LeftOutlined />} 
-              size="small"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(currentPage - 1)}
-            />
-            <Button 
-              icon={<RightOutlined />} 
-              size="small"
-              disabled={endIndex >= totalProjects}
-              onClick={() => setCurrentPage(currentPage + 1)}
-            />
-          </Space>
+            <Space size="small" wrap>
+              <Dropdown menu={{ items: importExportItems }} placement="bottomRight">
+                <Button className="text-sm font-medium">
+                  Import/Export <DownOutlined />
+                </Button>
+              </Dropdown>
+              <Button
+                onClick={() => setShowAddProjectGroup(true)}
+                className="px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50 font-medium"
+              >
+                Add Project Group
+              </Button>
+              <Button
+                type="primary"
+                className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
+                onClick={() => setShowAddProjectModal(true)}
+              >
+                Add Project
+              </Button>
+            </Space>
+          </div>
+
+          <div className="mt-7 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+            <Space size={10} wrap className="w-full xl:w-auto">
+              <Input
+                placeholder="Find projects or project groups"
+                prefix={<SearchOutlined className="text-gray-400" />}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="w-full sm:w-[360px]"
+                size="large"
+              />
+              <Button type="text" className="!px-0 !text-sm !font-medium" onClick={() => setShowFiltersModal(true)}>
+                <FilterOutlined /> Advanced filters
+              </Button>
+            </Space>
+
+            <Space size={8} wrap className="w-full xl:w-auto justify-between xl:justify-end">
+              <Dropdown overlay={pageSizeMenu} trigger={['click']}>
+                <Button className="text-sm font-semibold text-squid-blue">
+                  {startIndex} - {endIndex} of {totalProjects} Projects · Page {currentPage} · {pageSize}/page
+                </Button>
+              </Dropdown>
+              <Button icon={<LeftOutlined />} size="small" disabled />
+              <Button icon={<RightOutlined />} size="small" disabled />
+            </Space>
+          </div>
         </div>
       </div>
 
-      {/* Scrollable Content Area - 只有这部分滚动 */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="px-4 sm:px-6 py-4">
+        <div className="px-4 sm:px-6 py-5 space-y-4">
           {loadingProjects ? (
             <div className="flex items-center justify-center py-20">
               <Spin tip="Loading projects..." />
             </div>
           ) : projectGroupsData.length === 0 ? (
-            <div className="py-20 text-center text-gray-400">No projects found</div>
+            <div className="py-16">
+              <div className="max-w-lg mx-auto rounded-2xl border border-dashed border-slate-300 bg-white text-center px-6 py-10">
+                <ProjectOutlined className="text-2xl text-slate-300 mb-3" />
+                <div className="text-slate-500 font-medium">No projects found</div>
+                <div className="text-xs text-slate-400 mt-1">Try adjusting search or filters.</div>
+              </div>
+            </div>
           ) : (
             projectGroupsData.map((group) => (
-              <div key={group.name} className="mb-6">
-                <div className="py-2 border-b-2 border-gray-200 mb-0">
-                  <Space>
-                    <Text strong className="text-sm font-bold">{group.name}</Text>
-                    <Badge
-                      count={group.count}
-                      className="[&_.ant-badge-count]:bg-gray-300 [&_.ant-badge-count]:text-gray-700 [&_.ant-badge-count]:text-xs [&_.ant-badge-count]:font-semibold"
-                    />
-                  </Space>
+              <div key={group.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
+                <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-slate-200 bg-slate-50/80">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Text strong className="text-sm sm:text-base !text-slate-900 truncate">{group.name}</Text>
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[11px] font-semibold leading-none flex-shrink-0">
+                      {group.count}
+                    </span>
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <Table
-                    columns={columns}
-                    dataSource={group.projects}
-                    pagination={false}
-                    className="project-table"
-                    scroll={{ x: 1000 }}
-                  />
-                </div>
+
+                {group.environments.length === 0 && (
+                  <div className="px-4 sm:px-5 pt-4 text-sm text-slate-500">
+                    No environments configured for this group.
+                  </div>
+                )}
+
+                {renderGroupTable(group)}
               </div>
             ))
           )}
@@ -644,12 +825,16 @@ const Project: React.FC = () => {
       <Modal
         title={<span className="text-xl font-bold">Add New Project Group</span>}
         open={showAddProjectGroup}
-        onCancel={() => setShowAddProjectGroup(false)}
+        onCancel={() => {
+          if (creatingProjectGroup) return;
+          setShowAddProjectGroup(false);
+        }}
         width={600}
         footer={[
           <Button 
             key="cancel" 
             onClick={() => setShowAddProjectGroup(false)}
+            disabled={creatingProjectGroup}
             className="border-blue-600 text-blue-600 hover:bg-blue-50"
           >
             Cancel
@@ -658,6 +843,8 @@ const Project: React.FC = () => {
             key="save" 
             type="primary"
             onClick={handleSaveProjectGroup}
+            loading={creatingProjectGroup}
+            disabled={!projectGroupName.trim() || creatingProjectGroup}
             className="!bg-green-700 hover:!bg-green-800 !border-green-700 text-sm font-semibold"
           >
             Save
@@ -671,6 +858,7 @@ const Project: React.FC = () => {
             placeholder="New project group name"
             value={projectGroupName}
             onChange={(e) => setProjectGroupName(e.target.value)}
+            disabled={creatingProjectGroup}
             size="large"
             className="text-base"
           />
@@ -683,6 +871,7 @@ const Project: React.FC = () => {
               placeholder="Project group description"
               value={projectGroupDesc}
               onChange={(e) => setProjectGroupDesc(e.target.value)}
+              disabled={creatingProjectGroup}
               rows={6}
               bordered={false}
               className="resize-none"
@@ -963,10 +1152,15 @@ const Project: React.FC = () => {
                           <div className="border-b border-gray-300 focus-within:border-squid-blue transition-colors">
                             <Select
                               className="w-full"
-                              value={selectedProjectGroup}
-                              onChange={setSelectedProjectGroup}
+                              loading={loadingProjectGroups}
+                              value={selectedProjectGroupId}
+                              onChange={setSelectedProjectGroupId}
                               bordered={false}
-                              options={[{ value: 'all-projects', label: 'All Projects' }]}
+                              placeholder="Select a project group"
+                              options={projectGroupItems.map((group) => ({
+                                value: group.id,
+                                label: group.name,
+                              }))}
                               style={{ paddingLeft: 0 }}
                               dropdownStyle={{ zIndex: 10001 }}
                             />
@@ -991,30 +1185,7 @@ const Project: React.FC = () => {
                               type="button"
                               title="Refresh lifecycles"
                               className="text-squid-blue hover:text-blue-700 p-1 transition-colors flex-shrink-0"
-                              onClick={() => {
-                                setLoadingLifecycles(true);
-                                getLifecycles()
-                                  .then((res) => {
-                                    const options = res.lifecycles.map((lc: LifecycleDto) => {
-                                      let phases: { name: string; type?: string }[] = [];
-                                      if (lc.json) {
-                                        try {
-                                          const parsed = JSON.parse(lc.json);
-                                          if (Array.isArray(parsed.phases)) {
-                                            phases = parsed.phases.map((p: any) => ({
-                                              name: p.name || p.Name || '',
-                                              type: p.isOptionalPhase ? 'default' : 'active',
-                                            }));
-                                          }
-                                        } catch {}
-                                      }
-                                      return { value: String(lc.id), label: lc.name, phases };
-                                    });
-                                    setLifecycleOptions(options);
-                                  })
-                                  .catch(() => {})
-                                  .finally(() => setLoadingLifecycles(false));
-                              }}
+                              onClick={() => { void loadLifecycles(); }}
                             >
                               <ReloadOutlined />
                             </button>
@@ -1068,11 +1239,12 @@ const Project: React.FC = () => {
                   </div>
 
                   <div className="px-6 py-4 border-t border-gray-200 bg-white flex items-center justify-between">
-                    <Button onClick={handleCancelAddProject}>Cancel</Button>
+                    <Button onClick={handleCancelAddProject} disabled={creatingProject}>Cancel</Button>
                     <Button
                       type="primary"
                       onClick={handleCreateProject}
-                      disabled={!projectName.trim()}
+                      loading={creatingProject}
+                      disabled={!projectName.trim() || creatingProject}
                       className="!bg-green-700 hover:!bg-green-800 !border-green-700 font-semibold"
                     >
                       Create Project

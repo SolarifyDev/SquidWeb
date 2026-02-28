@@ -4,8 +4,17 @@ import { CheckCircleFilled, CopyOutlined, DoubleLeftOutlined, DoubleRightOutline
 import { useNavigate } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
+import { getCertificates } from 'pages/apis/certificate'
 import { createTargetTag, getTargetTags } from 'pages/apis/targetTag'
-import { generateKubernetesAgentInstallScript, getConnectionStatus, registerKubernetesApi, type GenerateKubernetesAgentInstallScriptData } from 'pages/apis/machine'
+import {
+  EndpointResourceType,
+  generateKubernetesAgentInstallScript,
+  getConnectionStatus,
+  registerKubernetesApi,
+  type GenerateKubernetesAgentInstallScriptData,
+  type EndpointResourceReference,
+} from 'pages/apis/machine'
+import { createDeploymentAccount, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
 
 const deploymentTypes = [
   { key: 'Kubernetes', label: 'Kubernetes' },
@@ -152,6 +161,7 @@ function SelectField({
   value,
   onChange,
   placeholder,
+  loading,
 }: {
   label: string
   helper?: React.ReactNode
@@ -159,6 +169,7 @@ function SelectField({
   value?: string
   onChange: (v: string) => void
   placeholder?: string
+  loading?: boolean
 }) {
   return (
     <div className="mb-5">
@@ -171,6 +182,7 @@ function SelectField({
         onChange={onChange}
         options={options}
         placeholder={placeholder}
+        loading={loading}
         style={{ borderBottom: '1px solid #9e9e9e', fontSize: 16 }}
       />
       {helper && <p className="text-sm leading-5 text-gray-500 mt-1.5">{helper}</p>}
@@ -249,14 +261,18 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiEnvironments, setApiEnvironments] = useState<number[]>([])
   const [apiTargetTags, setApiTargetTags] = useState<string[]>([])
   const [apiAuthType, setApiAuthType] = useState<string | undefined>(undefined)
+  const [apiSelectedAccountId, setApiSelectedAccountId] = useState<string | undefined>(undefined)
+  const [apiSelectedClientCertificateId, setApiSelectedClientCertificateId] = useState<string | undefined>(undefined)
   const [apiToken, setApiToken] = useState('')
   const [apiUsername, setApiUsername] = useState('')
   const [apiPassword, setApiPassword] = useState('')
-  const [apiClientCertData, setApiClientCertData] = useState('')
-  const [apiClientCertKeyData, setApiClientCertKeyData] = useState('')
   const [apiSaving, setApiSaving] = useState(false)
   const [apiClusterUrl, setApiClusterUrl] = useState('')
   const [apiClusterCertificate, setApiClusterCertificate] = useState<string | undefined>(undefined)
+  const [deploymentAccountOptions, setDeploymentAccountOptions] = useState<{ value: string; label: string; accountType: number }[]>([])
+  const [loadingDeploymentAccounts, setLoadingDeploymentAccounts] = useState(false)
+  const [certificateOptions, setCertificateOptions] = useState<{ value: string; label: string; hasPrivateKey: boolean }[]>([])
+  const [loadingCertificateOptions, setLoadingCertificateOptions] = useState(false)
   const [apiSkipTlsVerification, setApiSkipTlsVerification] = useState(false)
   const [apiDefaultNamespace, setApiDefaultNamespace] = useState('')
   const [apiHealthCheckMode, setApiHealthCheckMode] = useState<'worker' | 'container'>('worker')
@@ -280,6 +296,11 @@ const AddDeploymentTargetPage: React.FC = () => {
     containerOptions: true,
     tenantedDeployments: true,
   })
+
+  const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 3).map(({ value, label }) => ({ value, label }))
+  const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 1).map(({ value, label }) => ({ value, label }))
+  const clientCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
+  const clusterCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
@@ -444,6 +465,25 @@ const AddDeploymentTargetPage: React.FC = () => {
     })
   }
 
+  const loadCertificates = useCallback(async () => {
+    setLoadingCertificateOptions(true)
+    try {
+      const res = await getCertificates({ pageSize: 1000, spaceId: space.id })
+      setCertificateOptions(
+        (res.certificates ?? []).map((cert) => ({
+          value: String(cert.id),
+          label: cert.name,
+          hasPrivateKey: !!cert.hasPrivateKey,
+        }))
+      )
+    } catch (error) {
+      console.error('Failed to load certificates', error)
+      setCertificateOptions([])
+    } finally {
+      setLoadingCertificateOptions(false)
+    }
+  }, [space.id])
+
   const handleSaveKubernetesApi = async () => {
     if (!apiDisplayName.trim()) { message.warning('Please enter a display name'); return }
     if (apiEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
@@ -451,25 +491,54 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (!apiClusterUrl.trim()) { message.warning('Please enter the Kubernetes cluster URL'); return }
     if (!apiAuthType) { message.warning('Please select an authentication type'); return }
 
-    const authTypeMap: Record<string, number> = { token: 3, usernamepassword: 1, certificate: 8 }
-
     setApiSaving(true)
     try {
+      const resourceReferences: EndpointResourceReference[] = []
+
+      if (apiAuthType === 'token' || apiAuthType === 'usernamepassword') {
+        const accountId = Number(apiSelectedAccountId)
+        if (!Number.isFinite(accountId) || accountId <= 0) {
+          message.warning('Please select an account')
+          return
+        }
+        resourceReferences.push({
+          type: EndpointResourceType.AuthenticationAccount,
+          resourceId: accountId,
+        })
+      } else if (apiAuthType === 'certificate') {
+        const clientCertificateId = Number(apiSelectedClientCertificateId)
+        if (!Number.isFinite(clientCertificateId) || clientCertificateId <= 0) {
+          message.warning('Please select a certificate')
+          return
+        }
+        resourceReferences.push({
+          type: EndpointResourceType.ClientCertificate,
+          resourceId: clientCertificateId,
+        })
+      }
+
+      const clusterCertificateId = Number(apiClusterCertificate)
+      if (Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
+        resourceReferences.push({
+          type: EndpointResourceType.ClusterCertificate,
+          resourceId: clusterCertificateId,
+        })
+      }
+
+      if (resourceReferences.length === 0) {
+        message.warning('Please select at least one authentication or certificate resource')
+        return
+      }
+
       await registerKubernetesApi({
         machineName: apiDisplayName.trim(),
         spaceId: space.id,
         roles: apiTargetTags.join(','),
         environmentIds: apiEnvironments.join(','),
         clusterUrl: apiClusterUrl.trim(),
-        clusterCertificate: apiClusterCertificate ?? '',
         namespace: apiDefaultNamespace.trim() || 'default',
         skipTlsVerification: apiSkipTlsVerification,
-        accountType: authTypeMap[apiAuthType] ?? 3,
-        token: apiAuthType === 'token' ? apiToken : undefined,
-        username: apiAuthType === 'usernamepassword' ? apiUsername : undefined,
-        password: apiAuthType === 'usernamepassword' ? apiPassword : undefined,
-        clientCertificateData: apiAuthType === 'certificate' ? apiClientCertData : undefined,
-        clientCertificateKeyData: apiAuthType === 'certificate' ? apiClientCertKeyData : undefined,
+        resourceReferences,
       })
 
       message.success('Kubernetes API target registered successfully')
@@ -533,6 +602,48 @@ const AddDeploymentTargetPage: React.FC = () => {
       mounted = false
     }
   }, [space.id])
+
+  useEffect(() => {
+    let mounted = true
+    setLoadingDeploymentAccounts(true)
+    getDeploymentAccounts({ pageSize: 1000, spaceId: space.id })
+      .then((res) => {
+        if (!mounted) return
+        setDeploymentAccountOptions(
+          (res.deploymentAccounts ?? []).map((account) => ({
+            value: String(account.id),
+            label: account.name,
+            accountType: account.accountType,
+          }))
+        )
+      })
+      .catch((error) => {
+        if (!mounted) return
+        console.error('Failed to load deployment accounts', error)
+        setDeploymentAccountOptions([])
+      })
+      .finally(() => {
+        if (mounted) setLoadingDeploymentAccounts(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [space.id])
+
+  useEffect(() => {
+    void loadCertificates()
+  }, [loadCertificates])
+
+  useEffect(() => {
+    setApiSelectedAccountId(undefined)
+    setApiSelectedClientCertificateId(undefined)
+  }, [apiAuthType])
+
+  useEffect(() => {
+    if (apiAuthType !== 'certificate') return
+    void loadCertificates()
+  }, [apiAuthType, loadCertificates])
 
   return (
     <div className="bg-white min-h-screen">
@@ -994,51 +1105,43 @@ const AddDeploymentTargetPage: React.FC = () => {
                 />
 
                 {apiAuthType === 'token' && (
-                  <FormField
-                    label="Token"
-                    placeholder="Bearer token"
-                    value={apiToken}
-                    onChange={setApiToken}
-                  />
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select a token account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={tokenAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Token credentials.</NoteBlock>
+                  </>
                 )}
 
                 {apiAuthType === 'usernamepassword' && (
                   <>
-                    <FormField
-                      label="Username"
-                      value={apiUsername}
-                      onChange={setApiUsername}
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select a username/password account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={usernamePasswordAccountOptions}
+                      loading={loadingDeploymentAccounts}
                     />
-                    <FormField
-                      label="Password"
-                      value={apiPassword}
-                      onChange={setApiPassword}
-                    />
+                    <NoteBlock>Select a deployment account with Username / Password credentials.</NoteBlock>
                   </>
                 )}
 
                 {apiAuthType === 'certificate' && (
                   <>
-                    <div className="mb-5">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Client Certificate Data</label>
-                      <Input.TextArea
-                        rows={4}
-                        placeholder="Base64-encoded certificate data"
-                        value={apiClientCertData}
-                        onChange={(e) => setApiClientCertData(e.target.value)}
-                        style={{ borderBottom: '1px solid #9e9e9e', borderRadius: 0 }}
-                      />
-                    </div>
-                    <div className="mb-5">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Client Certificate Key Data</label>
-                      <Input.TextArea
-                        rows={4}
-                        placeholder="Base64-encoded certificate key data"
-                        value={apiClientCertKeyData}
-                        onChange={(e) => setApiClientCertKeyData(e.target.value)}
-                        style={{ borderBottom: '1px solid #9e9e9e', borderRadius: 0 }}
-                      />
-                    </div>
+                    <SelectField
+                      label="Select certificate"
+                      placeholder="Select a client certificate"
+                      value={apiSelectedClientCertificateId}
+                      onChange={setApiSelectedClientCertificateId}
+                      options={clientCertificateOptions}
+                      loading={loadingCertificateOptions}
+                    />
                   </>
                 )}
               </ExpandableFormCard>
@@ -1066,15 +1169,18 @@ const AddDeploymentTargetPage: React.FC = () => {
                         placeholder="Select certificate"
                         value={apiClusterCertificate}
                         onChange={setApiClusterCertificate}
-                        options={[
-                          { value: 'ca-cert-1', label: 'Cluster CA (Example)' },
-                          { value: 'ca-cert-2', label: 'Shared Kubernetes CA' },
-                        ]}
+                        options={clusterCertificateOptions}
+                        loading={loadingCertificateOptions}
                       />
                     </div>
                     <div className="flex items-center gap-1 pb-5">
                       <Button icon={<SearchOutlined />} aria-label="Search certificate" />
-                      <Button icon={<ReloadOutlined />} aria-label="Refresh certificates" />
+                      <Button
+                        icon={<ReloadOutlined />}
+                        aria-label="Refresh certificates"
+                        loading={loadingCertificateOptions}
+                        onClick={() => { void loadCertificates() }}
+                      />
                       <Button icon={<PlusOutlined />} aria-label="Add certificate" />
                     </div>
                   </div>

@@ -15,7 +15,17 @@ import {
   CodeOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { getLifecycles, createLifecycle, CreateLifecycleCommand, LifecycleDto } from 'pages/apis/lifecycle';
+import {
+  getLifecycles,
+  createLifecycle,
+  updateLifecycle,
+  CreateLifecycleCommand,
+  UpdateLifecycleCommand,
+  LifecycleDto,
+  LifecyclePhaseDto,
+  RetentionPolicyUnit,
+} from 'pages/apis/lifecycle';
+import { getEnvironments } from 'pages/apis/environment';
 import { useSpace } from 'contexts/SpaceContext';
 
 interface Phase {
@@ -27,9 +37,11 @@ interface Lifecycle {
   id: number;
   name: string;
   slug: string;
-  description: string;
+  description: string | null;
   retentionPolicy: string;
   phases: Phase[];
+  apiPhases: LifecyclePhaseDto[];
+  apiLifecycle: LifecycleDto['lifecycle'] | null;
   projectCount?: number;
 }
 
@@ -93,7 +105,8 @@ function MarkdownToolbar() {
 // ── Phase card ────────────────────────────────────────────────────────────────
 
 interface PhaseEnvironment {
-  id: string;
+  id: number;
+  key: string;
   name: string;
   auto: boolean;
 }
@@ -115,25 +128,19 @@ interface NewPhase {
   environments: PhaseEnvironment[];
 }
 
-const mockEnvironmentOptions = [
-  { value: 'Development', label: 'Development' },
-  { value: 'Staging', label: 'Staging' },
-  { value: 'Production', label: 'Production' },
-  { value: 'Testing', label: 'Testing' },
-  { value: 'UAT', label: 'UAT' },
-];
-
 interface PhaseCardProps {
   phase: NewPhase;
   index: number;
+  environmentOptions: { value: number; label: string }[];
+  allowDelete?: boolean;
   onToggle: () => void;
   onUpdate: (updates: Partial<NewPhase>) => void;
   onDelete: () => void;
 }
 
-function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProps) {
+function PhaseCard({ phase, index, environmentOptions, allowDelete = true, onToggle, onUpdate, onDelete }: PhaseCardProps) {
   const [envModalOpen, setEnvModalOpen] = useState(false);
-  const [selectedEnv, setSelectedEnv] = useState<string | undefined>(undefined);
+  const [selectedEnv, setSelectedEnv] = useState<number | undefined>(undefined);
   const [deployMode, setDeployMode] = useState<'auto' | 'manual'>('manual');
 
   const openEnvModal = (e: React.MouseEvent) => {
@@ -144,23 +151,30 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
   };
 
   const handleAddEnvironment = () => {
-    if (!selectedEnv) return;
+    if (selectedEnv === undefined) return;
+    const env = environmentOptions.find((o) => o.value === selectedEnv);
+    if (!env) return;
+    const exists = phase.environments.some((e) => e.id === selectedEnv && e.auto === (deployMode === 'auto'));
+    if (exists) {
+      setEnvModalOpen(false);
+      return;
+    }
     onUpdate({
       environments: [
         ...phase.environments,
-        { id: `${selectedEnv}-${Date.now()}`, name: selectedEnv, auto: deployMode === 'auto' },
+        { id: selectedEnv, key: `${selectedEnv}-${Date.now()}`, name: env.label, auto: deployMode === 'auto' },
       ],
     });
     setEnvModalOpen(false);
   };
 
-  const removeEnvironment = (id: string) => {
-    onUpdate({ environments: phase.environments.filter(e => e.id !== id) });
+  const removeEnvironment = (key: string) => {
+    onUpdate({ environments: phase.environments.filter((e) => e.key !== key) });
   };
 
-  const menuItems = [
+  const menuItems = allowDelete ? [
     { key: 'delete', label: 'Delete phase', danger: true, onClick: onDelete },
-  ];
+  ] : [];
 
   return (
     <>
@@ -174,14 +188,16 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <Dropdown menu={{ items: menuItems }} placement="bottomRight">
-            <Button
-              icon={<MoreOutlined />}
-              type="text"
-              size="small"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </Dropdown>
+          {allowDelete && (
+            <Dropdown menu={{ items: menuItems }} placement="bottomRight">
+              <Button
+                icon={<MoreOutlined />}
+                type="text"
+                size="small"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </Dropdown>
+          )}
           <button
             onClick={onToggle}
             className="p-1.5 rounded hover:bg-gray-100 border-0 bg-transparent cursor-pointer"
@@ -221,7 +237,7 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
               <div className="mb-3 space-y-1.5">
                 {phase.environments.map(env => (
                   <div
-                    key={env.id}
+                    key={env.key}
                     className="flex items-center justify-between px-3 py-2 border border-gray-200 rounded bg-gray-50"
                   >
                     <div className="flex items-center gap-2">
@@ -232,7 +248,7 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
                       </span>
                     </div>
                     <button
-                      onClick={() => removeEnvironment(env.id)}
+                      onClick={() => removeEnvironment(env.key)}
                       className="text-gray-400 hover:text-red-500 border-0 bg-transparent cursor-pointer p-0.5"
                     >
                       <CloseOutlined style={{ fontSize: 11 }} />
@@ -317,7 +333,9 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
                         style={{ width: 110 }}
                         options={[
                           { value: 'Days', label: 'Days' },
-                          { value: 'Releases', label: 'Releases' },
+                          { value: 'Weeks', label: 'Weeks' },
+                          { value: 'Months', label: 'Months' },
+                          { value: 'Years', label: 'Years' },
                         ]}
                       />
                     </div>
@@ -347,7 +365,9 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
                         style={{ width: 110 }}
                         options={[
                           { value: 'Days', label: 'Days' },
-                          { value: 'Items', label: 'Items' },
+                          { value: 'Weeks', label: 'Weeks' },
+                          { value: 'Months', label: 'Months' },
+                          { value: 'Years', label: 'Years' },
                         ]}
                       />
                     </div>
@@ -424,7 +444,7 @@ function PhaseCard({ phase, index, onToggle, onUpdate, onDelete }: PhaseCardProp
             onChange={setSelectedEnv}
             className="w-full"
             placeholder="Select an environment"
-            options={mockEnvironmentOptions}
+            options={environmentOptions}
           />
         </div>
         <Radio.Group
@@ -465,20 +485,72 @@ function makeNewPhase(id: number, name = ''): NewPhase {
   };
 }
 
+function toRetentionUnit(unit?: RetentionPolicyUnit | string | null): string {
+  if (unit === 1 || unit === 'Weeks') return 'Weeks';
+  if (unit === 2 || unit === 'Months') return 'Months';
+  if (unit === 3 || unit === 'Years') return 'Years';
+  return 'Days';
+}
+
+function toRetentionUnitValue(unit?: string | null): RetentionPolicyUnit {
+  if (unit === 'Weeks') return 1;
+  if (unit === 'Months') return 2;
+  if (unit === 'Years') return 3;
+  return 0;
+}
+
+function mapPhaseFromApi(
+  phase: LifecyclePhaseDto,
+  environmentNameById: Map<number, string>,
+  fallbackId: number,
+): NewPhase {
+  const autoEnvironments: PhaseEnvironment[] = (phase.automaticDeploymentTargetIds ?? []).map((envId, index) => ({
+    id: envId,
+    key: `a-${phase.id || fallbackId}-${envId}-${index}`,
+    name: environmentNameById.get(envId) ?? `Environment #${envId}`,
+    auto: true,
+  }));
+  const manualEnvironments: PhaseEnvironment[] = (phase.optionalDeploymentTargetIds ?? []).map((envId, index) => ({
+    id: envId,
+    key: `m-${phase.id || fallbackId}-${envId}-${index}`,
+    name: environmentNameById.get(envId) ?? `Environment #${envId}`,
+    auto: false,
+  }));
+
+  return {
+    id: phase.id || fallbackId,
+    name: phase.name ?? '',
+    isExpanded: true,
+    requiredToProgress: phase.isOptionalPhase
+      ? 'optional'
+      : (phase.minimumEnvironmentsBeforePromotion ?? 0) > 0
+        ? 'minimum'
+        : 'all',
+    minimumCount: phase.minimumEnvironmentsBeforePromotion ?? 1,
+    retentionOverridden:
+      phase.releaseRetentionKeepForever !== null && phase.releaseRetentionKeepForever !== undefined ||
+      phase.releaseRetentionQuantity !== null && phase.releaseRetentionQuantity !== undefined ||
+      phase.releaseRetentionUnit !== null && phase.releaseRetentionUnit !== undefined ||
+      phase.tentacleRetentionKeepForever !== null && phase.tentacleRetentionKeepForever !== undefined ||
+      phase.tentacleRetentionQuantity !== null && phase.tentacleRetentionQuantity !== undefined ||
+      phase.tentacleRetentionUnit !== null && phase.tentacleRetentionUnit !== undefined,
+    phaseReleaseRetention: phase.releaseRetentionKeepForever ? 'keepAll' : 'keepLimited',
+    phaseReleaseRetentionCount: phase.releaseRetentionQuantity ?? 30,
+    phaseReleaseRetentionUnit: toRetentionUnit(phase.releaseRetentionUnit),
+    phaseFileRetention: phase.tentacleRetentionKeepForever ? 'keepAll' : 'keepLimited',
+    phaseFileRetentionCount: phase.tentacleRetentionQuantity ?? 30,
+    phaseFileRetentionUnit: toRetentionUnit(phase.tentacleRetentionUnit),
+    priority: !!phase.isPriorityPhase,
+    environments: [...autoEnvironments, ...manualEnvironments],
+  };
+}
+
 function slugifyLifecycleName(value: string): string {
   return value
     .toLowerCase()
     .trim()
     .replace(/['"]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function sanitizeSlugInput(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
 
@@ -529,6 +601,8 @@ const Lifecycles: React.FC = () => {
   // Detail view panel state
   const detailAllKeys = ['name', 'description', 'retentionPolicy', 'phases'];
   const [detailActiveKeys, setDetailActiveKeys] = useState<string[]>([]);
+  const [detailName, setDetailName] = useState('');
+  const [detailDescription, setDetailDescription] = useState('');
   const [detailReleaseRetention, setDetailReleaseRetention] = useState('keepAllReleases');
   const [detailReleaseRetentionCount, setDetailReleaseRetentionCount] = useState(30);
   const [detailReleaseRetentionUnit, setDetailReleaseRetentionUnit] = useState('Days');
@@ -583,46 +657,64 @@ const Lifecycles: React.FC = () => {
   const [lifecyclesData, setLifecyclesData] = useState<Lifecycle[]>([]);
   const [loadingLifecycles, setLoadingLifecycles] = useState(false);
   const [savingLifecycle, setSavingLifecycle] = useState(false);
+  const [updatingLifecycle, setUpdatingLifecycle] = useState(false);
+  const [environmentOptions, setEnvironmentOptions] = useState<{ value: number; label: string }[]>([]);
+  const environmentNameById = useMemo(
+    () => new Map(environmentOptions.map((opt) => [opt.value, opt.label])),
+    [environmentOptions],
+  );
 
-  const loadLifecycles = () => {
+  const loadEnvironments = async () => {
+    try {
+      const res = await getEnvironments({ pageIndex: 1, pageSize: 1000 });
+      const options = (res.environments ?? [])
+        .map((env) => ({ value: env.id, label: env.name }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      setEnvironmentOptions(options);
+    } catch {
+      setEnvironmentOptions([]);
+    }
+  };
+
+  const loadLifecycles = async () => {
     setLoadingLifecycles(true);
-    getLifecycles({ spaceId: space.id })
-      .then((res) => {
-        const mapped: Lifecycle[] = res.lifecycles.map((lc: LifecycleDto) => {
-          let phases: Phase[] = [];
-          if (lc.json) {
-            try {
-              const parsed = JSON.parse(lc.json);
-              if (Array.isArray(parsed.phases)) {
-                phases = parsed.phases.map((p: any) => ({
-                  name: p.name || p.Name || '',
-                  type: p.isOptionalPhase ? 'default' : 'active',
-                }));
-              }
-            } catch {}
-          }
+    try {
+      const res = await getLifecycles();
+      const mapped: Lifecycle[] = res.lifecycles.map((lc: LifecycleDto) => {
+        const phases: Phase[] = (lc.phases ?? []).map((phase) => ({
+          name: phase.name || '',
+          type: phase.isOptionalPhase ? 'default' : 'active',
+        }));
           return {
             id: lc.id,
             name: lc.name,
             slug: lc.slug,
-            description: lc.description || 'No lifecycle description provided',
+            description: lc.description ?? null,
             retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
             phases,
+            apiPhases: lc.phases ?? [],
+            apiLifecycle: lc.lifecycle ?? null,
           };
-        });
-        setLifecyclesData(mapped);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingLifecycles(false));
+      });
+      setLifecyclesData(mapped);
+      return mapped;
+    } catch {
+      return [];
+    } finally {
+      setLoadingLifecycles(false);
+    }
   };
 
-  useEffect(() => { loadLifecycles(); }, []);
+  useEffect(() => {
+    void loadEnvironments();
+    void loadLifecycles();
+  }, [space.id]);
 
   const filteredData = useMemo(() => {
     return lifecyclesData.filter(
       (item) =>
         item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchText.toLowerCase())
+        (item.description ?? '').toLowerCase().includes(searchText.toLowerCase())
     );
   }, [searchText, lifecyclesData]);
 
@@ -650,17 +742,116 @@ const Lifecycles: React.FC = () => {
   const handleLifecycleClick = (lifecycle: Lifecycle) => {
     setSelectedLifecycle(lifecycle);
     setActiveTab('details');
-    setDetailActiveKeys([]);
-    setDetailPhases(lifecycle.phases.map((p, i) => makeNewPhase(i, p.name)));
+    setDetailActiveKeys(detailAllKeys);
+    setDetailName(lifecycle.name);
+    setDetailDescription(lifecycle.description ?? '');
+
+    const releaseKeepForever = lifecycle.apiLifecycle?.releaseRetentionKeepForever ?? true;
+    const releaseQuantity = lifecycle.apiLifecycle?.releaseRetentionQuantity ?? 30;
+    const releaseUnit = lifecycle.apiLifecycle?.releaseRetentionUnit ?? 0;
+    setDetailReleaseRetention(releaseKeepForever ? 'keepAllReleases' : 'keepLimitedReleases');
+    setDetailReleaseRetentionCount(releaseQuantity || 30);
+    setDetailReleaseRetentionUnit(toRetentionUnit(releaseUnit));
+
+    const tentacleKeepForever = lifecycle.apiLifecycle?.tentacleRetentionKeepForever ?? true;
+    const tentacleQuantity = lifecycle.apiLifecycle?.tentacleRetentionQuantity ?? 30;
+    const tentacleUnit = lifecycle.apiLifecycle?.tentacleRetentionUnit ?? 0;
+    setDetailFileRetention(tentacleKeepForever ? 'keepAllFiles' : 'keepLimitedFiles');
+    setDetailFileRetentionCount(tentacleQuantity || 30);
+    setDetailFileRetentionUnit(toRetentionUnit(tentacleUnit));
+
+    setDetailPhases((lifecycle.apiPhases ?? []).map((phase, index) => mapPhaseFromApi(phase, environmentNameById, Date.now() + index)));
   };
 
-  const buildRetentionPolicy = (mode: string, count: number, unit: string) => {
-    const validUnits = ['Days', 'Weeks', 'Mouths', 'Years'];
+  const buildRetention = (mode: string, count: number, unit: string) => {
     return {
-      shouldKeepForever: mode === 'keepAll',
-      quantityToKeep: mode === 'keepAll' ? 0 : count,
-      unit: validUnits.includes(unit) ? unit : 'Days',
+      keepForever: mode === 'keepAll',
+      quantity: mode === 'keepAll' ? 0 : count,
+      unit: mode === 'keepAll' ? 0 : toRetentionUnitValue(unit),
     };
+  };
+
+  const buildDetailRetention = (mode: string, count: number, unit: string) => {
+    return {
+      keepForever: mode === 'keepAllReleases' || mode === 'keepAllFiles',
+      quantity: mode === 'keepAllReleases' || mode === 'keepAllFiles' ? 0 : count,
+      unit: mode === 'keepAllReleases' || mode === 'keepAllFiles' ? 0 : toRetentionUnitValue(unit),
+    };
+  };
+
+  const handleSaveDetailLifecycle = async () => {
+    if (!selectedLifecycle) return;
+    const lifecycleName = detailName.trim();
+    if (!lifecycleName) {
+      message.error('Please enter a lifecycle name.');
+      return;
+    }
+
+    const baseLifecycle = selectedLifecycle.apiLifecycle;
+    if (!baseLifecycle) {
+      message.error('Lifecycle payload is missing. Please refresh and try again.');
+      return;
+    }
+
+    const detailRelease = buildDetailRetention(detailReleaseRetention, detailReleaseRetentionCount, detailReleaseRetentionUnit);
+    const detailFile = buildDetailRetention(detailFileRetention, detailFileRetentionCount, detailFileRetentionUnit);
+
+    const updateCommand: UpdateLifecycleCommand = {
+      lifecyclePhase: {
+        lifecycle: {
+          ...baseLifecycle,
+          id: selectedLifecycle.id,
+          name: lifecycleName,
+          description: detailDescription.trim() ? detailDescription.trim() : null,
+          releaseRetentionUnit: detailRelease.unit,
+          releaseRetentionQuantity: detailRelease.quantity,
+          releaseRetentionKeepForever: detailRelease.keepForever,
+          tentacleRetentionUnit: detailFile.unit,
+          tentacleRetentionQuantity: detailFile.quantity,
+          tentacleRetentionKeepForever: detailFile.keepForever,
+        },
+        phases: detailPhases.map((p, index) => ({
+          id: p.id,
+          lifecycleId: selectedLifecycle.id,
+          name: p.name,
+          sortOrder: index + 1,
+          automaticDeploymentTargetIds: p.environments.filter((e) => e.auto).map((e) => e.id),
+          optionalDeploymentTargetIds: p.environments.filter((e) => !e.auto).map((e) => e.id),
+          minimumEnvironmentsBeforePromotion: p.requiredToProgress === 'minimum' ? p.minimumCount : 0,
+          isOptionalPhase: p.requiredToProgress === 'optional',
+          isPriorityPhase: p.priority,
+          releaseRetentionKeepForever: p.retentionOverridden ? p.phaseReleaseRetention !== 'keepLimited' : null,
+          releaseRetentionQuantity: p.retentionOverridden && p.phaseReleaseRetention === 'keepLimited' ? p.phaseReleaseRetentionCount : null,
+          releaseRetentionUnit: p.retentionOverridden && p.phaseReleaseRetention === 'keepLimited'
+            ? toRetentionUnitValue(p.phaseReleaseRetentionUnit)
+            : null,
+          tentacleRetentionKeepForever: p.retentionOverridden ? p.phaseFileRetention !== 'keepLimited' : null,
+          tentacleRetentionQuantity: p.retentionOverridden && p.phaseFileRetention === 'keepLimited' ? p.phaseFileRetentionCount : null,
+          tentacleRetentionUnit: p.retentionOverridden && p.phaseFileRetention === 'keepLimited'
+            ? toRetentionUnitValue(p.phaseFileRetentionUnit)
+            : null,
+        })),
+      },
+    };
+
+    setUpdatingLifecycle(true);
+    try {
+      await updateLifecycle(updateCommand);
+      const refreshed = await loadLifecycles();
+      const updatedLifecycle = refreshed.find((item) => item.id === selectedLifecycle.id);
+      if (updatedLifecycle) {
+        handleLifecycleClick(updatedLifecycle);
+      }
+      message.success('Lifecycle updated successfully.');
+    } catch (error: any) {
+      const backendMsg =
+        error?.response?.data?.msg ||
+        error?.response?.data?.message ||
+        error?.message;
+      message.error(backendMsg ? `Failed to update lifecycle: ${backendMsg}` : 'Failed to update lifecycle. Please try again.');
+    } finally {
+      setUpdatingLifecycle(false);
+    }
   };
 
   const handleSaveNewLifecycle = async () => {
@@ -675,22 +866,35 @@ const Lifecycles: React.FC = () => {
           id: 0,
           name: newLifecycleName.trim(),
           slug: slugifyLifecycleName(newLifecycleName.trim()) || `lifecycle-${Date.now()}`,
-          description: newLifecycleDescription.trim(),
+          description: newLifecycleDescription.trim() ? newLifecycleDescription.trim() : null,
           spaceId: space.id,
-          releaseRetentionPolicy: buildRetentionPolicy(releaseRetention, releaseRetentionCount, releaseRetentionUnit),
-          tentacleRetentionPolicy: buildRetentionPolicy(fileRetention, fileRetentionCount, fileRetentionUnit),
+          releaseRetentionUnit: buildRetention(releaseRetention, releaseRetentionCount, releaseRetentionUnit).unit,
+          releaseRetentionQuantity: buildRetention(releaseRetention, releaseRetentionCount, releaseRetentionUnit).quantity,
+          releaseRetentionKeepForever: buildRetention(releaseRetention, releaseRetentionCount, releaseRetentionUnit).keepForever,
+          tentacleRetentionUnit: buildRetention(fileRetention, fileRetentionCount, fileRetentionUnit).unit,
+          tentacleRetentionQuantity: buildRetention(fileRetention, fileRetentionCount, fileRetentionUnit).quantity,
+          tentacleRetentionKeepForever: buildRetention(fileRetention, fileRetentionCount, fileRetentionUnit).keepForever,
         },
-        phases: newPhases.map((p) => ({
+        phases: newPhases.map((p, index) => ({
           id: 0,
           lifecycleId: 0,
           name: p.name,
-          automaticDeploymentTargets: p.environments.filter(e => e.auto).map(e => e.name),
-          optionalDeploymentTargets: p.environments.filter(e => !e.auto).map(e => e.name),
+          sortOrder: index + 1,
+          automaticDeploymentTargetIds: p.environments.filter((e) => e.auto).map((e) => e.id),
+          optionalDeploymentTargetIds: p.environments.filter((e) => !e.auto).map((e) => e.id),
           minimumEnvironmentsBeforePromotion: p.requiredToProgress === 'minimum' ? p.minimumCount : 0,
           isOptionalPhase: p.requiredToProgress === 'optional',
           isPriorityPhase: p.priority,
-          releaseRetentionPolicyId: 0,
-          tentacleRetentionPolicyId: 0,
+          releaseRetentionKeepForever: p.retentionOverridden ? p.phaseReleaseRetention !== 'keepLimited' : null,
+          releaseRetentionQuantity: p.retentionOverridden && p.phaseReleaseRetention === 'keepLimited' ? p.phaseReleaseRetentionCount : null,
+          releaseRetentionUnit: p.retentionOverridden && p.phaseReleaseRetention === 'keepLimited'
+            ? toRetentionUnitValue(p.phaseReleaseRetentionUnit)
+            : null,
+          tentacleRetentionKeepForever: p.retentionOverridden ? p.phaseFileRetention !== 'keepLimited' : null,
+          tentacleRetentionQuantity: p.retentionOverridden && p.phaseFileRetention === 'keepLimited' ? p.phaseFileRetentionCount : null,
+          tentacleRetentionUnit: p.retentionOverridden && p.phaseFileRetention === 'keepLimited'
+            ? toRetentionUnitValue(p.phaseFileRetentionUnit)
+            : null,
         })),
       },
     };
@@ -768,9 +972,19 @@ const Lifecycles: React.FC = () => {
                 Lifecycles
               </button>
               <div className="flex items-center justify-between mb-3">
-                <h1 className="text-2xl font-semibold text-gray-900 m-0">{selectedLifecycle.name}</h1>
+                <h1 className="text-2xl font-semibold text-gray-900 m-0">{detailName || selectedLifecycle.name}</h1>
                 <div className="flex items-center gap-2">
-                  <Button disabled>LifecycleEdit permission required</Button>
+                  <Button onClick={() => handleLifecycleClick(selectedLifecycle)} disabled={updatingLifecycle}>
+                    Reset
+                  </Button>
+                  <Button
+                    type="primary"
+                    className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+                    onClick={handleSaveDetailLifecycle}
+                    loading={updatingLifecycle}
+                  >
+                    Save
+                  </Button>
                   <Dropdown menu={{ items: moreMenuItems }} placement="bottomRight">
                     <Button icon={<MoreOutlined />} />
                   </Dropdown>
@@ -819,12 +1033,12 @@ const Lifecycles: React.FC = () => {
                   isOpen={detailActiveKeys.includes('name')}
                   onToggle={() => toggleDetailPanel('name')}
                 >
-                  <Input defaultValue={selectedLifecycle.name} />
+                  <Input value={detailName} onChange={(e) => setDetailName(e.target.value)} />
                 </FormPanel>
 
                 <FormPanel
                   title="Description"
-                  description={detailActiveKeys.includes('description') ? 'Enter a description for your lifecycle.' : selectedLifecycle.description}
+                  description={detailActiveKeys.includes('description') ? 'Enter a description for your lifecycle.' : (selectedLifecycle.description ?? '')}
                   isOpen={detailActiveKeys.includes('description')}
                   onToggle={() => toggleDetailPanel('description')}
                 >
@@ -832,7 +1046,8 @@ const Lifecycles: React.FC = () => {
                   <Input.TextArea
                     placeholder="Lifecycle description"
                     rows={4}
-                    defaultValue={selectedLifecycle.description}
+                    value={detailDescription}
+                    onChange={(e) => setDetailDescription(e.target.value)}
                     className="rounded-t-none border-t-0 mb-2"
                   />
                   <div className="flex gap-4 text-sm">
@@ -872,7 +1087,9 @@ const Lifecycles: React.FC = () => {
                             style={{ width: 110 }}
                             options={[
                               { value: 'Days', label: 'Days' },
-                              { value: 'Releases', label: 'Releases' },
+                              { value: 'Weeks', label: 'Weeks' },
+                              { value: 'Months', label: 'Months' },
+                              { value: 'Years', label: 'Years' },
                             ]}
                           />
                         </div>
@@ -902,7 +1119,9 @@ const Lifecycles: React.FC = () => {
                             style={{ width: 110 }}
                             options={[
                               { value: 'Days', label: 'Days' },
-                              { value: 'Items', label: 'Items' },
+                              { value: 'Weeks', label: 'Weeks' },
+                              { value: 'Months', label: 'Months' },
+                              { value: 'Years', label: 'Years' },
                             ]}
                           />
                         </div>
@@ -942,6 +1161,8 @@ const Lifecycles: React.FC = () => {
                             key={phase.id}
                             phase={phase}
                             index={index}
+                            environmentOptions={environmentOptions}
+                            allowDelete={false}
                             onToggle={() => toggleDetailPhase(phase.id)}
                             onUpdate={(updates) => updateDetailPhase(phase.id, updates)}
                             onDelete={() => deleteDetailPhase(phase.id)}
@@ -1102,7 +1323,9 @@ const Lifecycles: React.FC = () => {
                         style={{ width: 110 }}
                         options={[
                           { value: 'Days', label: 'Days' },
-                          { value: 'Releases', label: 'Releases' },
+                          { value: 'Weeks', label: 'Weeks' },
+                          { value: 'Months', label: 'Months' },
+                          { value: 'Years', label: 'Years' },
                         ]}
                       />
                     </div>
@@ -1134,7 +1357,9 @@ const Lifecycles: React.FC = () => {
                         style={{ width: 110 }}
                         options={[
                           { value: 'Days', label: 'Days' },
-                          { value: 'Items', label: 'Items' },
+                          { value: 'Weeks', label: 'Weeks' },
+                          { value: 'Months', label: 'Months' },
+                          { value: 'Years', label: 'Years' },
                         ]}
                       />
                     </div>
@@ -1168,6 +1393,7 @@ const Lifecycles: React.FC = () => {
                   key={phase.id}
                   phase={phase}
                   index={index}
+                  environmentOptions={environmentOptions}
                   onToggle={() => toggleNewPhase(phase.id)}
                   onUpdate={(updates) => updateNewPhase(phase.id, updates)}
                   onDelete={() => deleteNewPhase(phase.id)}
@@ -1251,7 +1477,7 @@ const Lifecycles: React.FC = () => {
                               <ul className="mt-2 mb-0 list-none p-0 space-y-1">
                                 {phase.environments.map((env) => (
                                   <li
-                                    key={env.id}
+                                    key={env.key}
                                     className="flex items-center gap-2 text-sm text-gray-700"
                                     title={env.auto ? 'Automatically deploy to this environment' : 'Manually deploy to this environment'}
                                   >

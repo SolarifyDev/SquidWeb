@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Input, Modal, Typography, Tooltip, Spin } from 'antd';
+import { Button, Input, Modal, Typography, Tooltip, Spin, message } from 'antd';
 import {
   SearchOutlined,
   BoldOutlined,
@@ -12,12 +12,37 @@ import {
   CodeOutlined,
   FontSizeOutlined
 } from '@ant-design/icons';
-import { loadVariableSets, VariableSetItem } from 'pages/apis/variableSet';
+import {
+  CreateVariableSet,
+  GetVariableSet,
+  loadVariableSets,
+  VariableSetItem,
+  VariableSetOwnerType,
+} from 'pages/apis/variableSet';
 import { useSpace } from 'contexts/SpaceContext';
 
 const { Title, Text, Link } = Typography;
 const { TextArea } = Input;
 
+function parseVariableSetId(rawId: unknown): number | null {
+  if (typeof rawId === 'number' && Number.isFinite(rawId)) {
+    return rawId;
+  }
+
+  const text = String(rawId ?? '').trim();
+  if (!text) return null;
+
+  const direct = Number(text);
+  if (Number.isFinite(direct)) {
+    return direct;
+  }
+
+  const tailMatch = text.match(/(\d+)$/);
+  if (!tailMatch) return null;
+
+  const parsed = Number(tailMatch[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 const VariableSets: React.FC = () => {
   const navigate = useNavigate();
@@ -30,15 +55,16 @@ const VariableSets: React.FC = () => {
   const textAreaRef = useRef<any>(null);
   const [variableSets, setVariableSets] = useState<VariableSetItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const fetchVariableSets = async () => {
+    const items = await loadVariableSets(setLoading, space.id);
+    setVariableSets(items);
+  };
 
   useEffect(() => {
-    const fetchVariableSets = async () => {
-      var items = await loadVariableSets(setLoading, space.id);
-      setVariableSets(items);
-    };
-
     fetchVariableSets();
-  }, []);
+  }, [space.id]);
 
   const filteredSets = variableSets.filter((set) =>
     set.name.toLowerCase().includes(searchText.toLowerCase())
@@ -48,10 +74,32 @@ const VariableSets: React.FC = () => {
     setShowAddModal(true);
   };
 
-  const handleSaveVariableSet = () => {
-    console.log('Saving:', { name: newSetName, description: newSetDescription });
-    // 实现保存逻辑
-    handleCancelModal();
+  const handleSaveVariableSet = async () => {
+    if (!newSetName.trim()) {
+      message.warning('Please enter a variable set name');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await CreateVariableSet({
+        ownerId: Math.floor(Date.now() / 1000),
+        ownerType: VariableSetOwnerType.LibraryVariableSet,
+        spaceId: space.id,
+        Name: newSetName.trim(),
+        Description: newSetDescription.trim(),
+        variables: [],
+      });
+
+      message.success('Variable set created');
+      handleCancelModal();
+      await fetchVariableSets();
+    } catch (error) {
+      console.error('Failed to create variable set', error);
+      message.error('Failed to create variable set');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancelModal = () => {
@@ -62,7 +110,20 @@ const VariableSets: React.FC = () => {
   };
 
   const handleItemClick = (item: VariableSetItem) => {
-    navigate(`/${space.slug}/variable/${item.id}`);
+    const parsedId = parseVariableSetId((item as unknown as { id?: unknown }).id);
+    if (parsedId == null) {
+      message.error('Invalid variable set id');
+      return;
+    }
+
+    GetVariableSet(parsedId)
+      .then(() => {
+        navigate(`/${space.slug}/variable/${parsedId}`);
+      })
+      .catch((error) => {
+        console.error('Failed to load variable set detail', error);
+        message.error('Failed to load variable set detail');
+      });
   };
 
   // Markdown formatting functions
@@ -145,12 +206,12 @@ const VariableSets: React.FC = () => {
                     className="px-5 py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors last:border-b-0"
                     onClick={() => handleItemClick(item)}
                   >
-                    <div className="flex flex-col gap-1">
-                      <Link className="text-blue-500 hover:text-blue-600 font-medium text-sm">
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <h3 className="m-0 text-base font-semibold text-gray-900 truncate">
                         {item.name}
-                      </Link>
+                      </h3>
                       {item.description && (
-                        <Text className="text-xs text-gray-500">
+                        <Text className="text-xs text-gray-500 line-clamp-2">
                           {item.description}
                         </Text>
                       )}
@@ -181,6 +242,7 @@ const VariableSets: React.FC = () => {
             type="primary" 
             onClick={handleSaveVariableSet}
             disabled={!newSetName.trim()}
+            loading={saving}
             className="!bg-green-600 hover:!bg-green-700 !border-green-600 hover:!border-green-700 disabled:!bg-gray-300 disabled:!border-gray-300"
           >
             Save

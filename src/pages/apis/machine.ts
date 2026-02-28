@@ -34,6 +34,7 @@ export function getMachines(params?: GetMachinesRequest) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 1000,
+    ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
   return get<GetMachinesResponseData>('/machines/list', { params: query })
@@ -68,15 +69,20 @@ export interface RegisterKubernetesApiCommand {
   roles: string
   environmentIds: string
   clusterUrl: string
-  clusterCertificate?: string
   namespace: string
   skipTlsVerification: boolean
-  accountType: number
-  token?: string
-  username?: string
-  password?: string
-  clientCertificateData?: string
-  clientCertificateKeyData?: string
+  resourceReferences: EndpointResourceReference[]
+}
+
+export interface EndpointResourceReference {
+  type: EndpointResourceType
+  resourceId: number
+}
+
+export enum EndpointResourceType {
+  AuthenticationAccount = 1,
+  ClientCertificate = 2,
+  ClusterCertificate = 3,
 }
 
 export interface RegisterMachineResponseData {
