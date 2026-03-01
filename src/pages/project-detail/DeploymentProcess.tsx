@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Spin } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
@@ -9,6 +9,7 @@ import {
   getDeploymentSteps,
   DeploymentStepDto,
 } from 'pages/apis/deploymentProcess'
+import { KubernetesContainersEditor, type KubernetesContainersEditorHandle } from './step-editors/kubernetes-containers/KubernetesContainersEditor'
 
 // ── API base for image URLs ────────────────────────────────────────────────────
 
@@ -331,7 +332,7 @@ function CheckIcon() {
 
 // ── Add Step Panel ─────────────────────────────────────────────────────────────
 
-function AddStepPanel({ spaceId }: { spaceId: string }) {
+function AddStepPanel({ spaceId, onTemplateSelected }: { spaceId: string; onTemplateSelected?: (actionType: string) => void }) {
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('featured')
 
@@ -442,7 +443,10 @@ function AddStepPanel({ spaceId }: { spaceId: string }) {
                   </div>
                   {/* Add Step button pinned to bottom */}
                   <div className="px-4 pb-5">
-                    <button className="w-full px-3 py-1.5 rounded border border-slate-300 text-sm font-medium text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <button
+                      onClick={() => onTemplateSelected?.(tpl.actionType)}
+                      className="w-full px-3 py-1.5 rounded border border-slate-300 text-sm font-medium text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                    >
                       Add Step
                     </button>
                   </div>
@@ -517,12 +521,34 @@ function StepDetailPanel({ step, spaceId }: { step: DeploymentStepDto; spaceId: 
   )
 }
 
+// ── Step logo with fallback ────────────────────────────────────────────────────
+
+function StepLogoImg({ actionType, spaceId, name }: { actionType: string; spaceId: string; name: string }) {
+  const [failed, setFailed] = React.useState(false)
+
+  if (failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-slate-400">
+        <KubernetesSvg />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={stepLogoUrl(spaceId, actionType)}
+      alt={name}
+      className="w-full h-full object-contain"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 // ── Editor sidebar step item ───────────────────────────────────────────────────
 
 function StepItem({
   step,
   index,
-  total,
   selected,
   spaceId,
   onClick,
@@ -542,63 +568,69 @@ function StepItem({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
-      className={`group relative flex items-stretch cursor-pointer select-none outline-none transition-colors ${
-        selected
-          ? 'bg-blue-50 border-l-2 border-l-blue-600'
-          : 'hover:bg-slate-50 border-l-2 border-l-transparent'
+      className={`flex items-stretch cursor-pointer select-none outline-none transition-colors border-l-[3px] ${
+        selected ? 'bg-blue-50 border-l-blue-600' : 'border-l-transparent hover:bg-slate-50'
       }`}
-      style={{ minHeight: 52 }}
     >
-      <div className="relative flex-shrink-0" style={{ width: 3 }}>
-        <div
-          className="absolute left-1/2 -translate-x-1/2 bg-slate-200"
-          style={{
-            width: 2,
-            top: index === 0 ? '50%' : 0,
-            bottom: index === total - 1 ? '50%' : 0,
-          }}
-        />
-        <div
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300"
-          style={{ width: 7, height: 7 }}
-        />
-      </div>
-
-      <div className="flex-shrink-0 flex items-center py-3 px-2" style={{ opacity: step.isDisabled ? 0.35 : 1 }}>
-        <div className="rounded overflow-hidden bg-slate-100" style={{ width: 32, height: 32 }}>
-          {firstAction && (
-            <img
-              src={stepLogoUrl(spaceId, firstAction.actionType)}
-              alt={step.name}
-              className="w-full h-full object-contain"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-            />
-          )}
+      <div className="flex-shrink-0 flex items-start pt-2.5 pb-2.5 pl-2 pr-2" style={{ opacity: step.isDisabled ? 0.4 : 1 }}>
+        <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
+          {firstAction && <StepLogoImg actionType={firstAction.actionType} spaceId={spaceId} name={step.name} />}
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 flex items-center py-3 pr-2 gap-1">
-        <span className="text-xs text-slate-400 font-medium flex-shrink-0">{index + 1}.</span>
-        <span
-          className={`text-sm truncate leading-snug ${
-            step.isDisabled
-              ? 'text-slate-400'
-              : selected
-              ? 'text-blue-700 font-medium'
-              : 'text-slate-700'
-          }`}
-          title={step.name}
-        >
+      <div className="flex-1 min-w-0 flex items-start pt-2.5 pb-2.5 pr-1 gap-1" style={{ opacity: step.isDisabled ? 0.5 : 1 }}>
+        <span className="text-xs font-semibold flex-shrink-0 leading-[1.6] text-slate-800">{index + 1}.</span>
+        <span className={`text-sm leading-snug break-words min-w-0 ${selected ? 'text-blue-700 font-medium' : 'text-slate-700'}`}>
           {step.name}
         </span>
       </div>
 
       <button
-        className="flex-shrink-0 self-center p-1.5 rounded mr-1 opacity-0 group-hover:opacity-100 hover:bg-slate-200 transition-opacity"
+        className="flex-shrink-0 self-start mt-2 p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
         onClick={(e) => e.stopPropagation()}
         aria-label="Step options"
       >
-        <MoreOutlined style={{ fontSize: 16, color: '#64748b' }} />
+        <MoreOutlined style={{ fontSize: 15, color: '#64748b' }} />
+      </button>
+    </div>
+  )
+}
+
+// ── Draft step item (new step being created, not yet saved) ───────────────────
+
+function DraftStepItem({
+  index,
+  actionType,
+  stepName,
+  spaceId,
+}: {
+  index: number
+  total: number
+  actionType: string
+  stepName: string
+  spaceId: string
+}) {
+  const displayName = stepName.trim() || 'Configure and apply Kubernetes resources'
+
+  return (
+    <div className="flex items-stretch border-l-[3px] border-l-blue-600 bg-blue-50">
+      <div className="flex-shrink-0 flex items-start pt-2.5 pb-2.5 pl-2 pr-2">
+        <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
+          <StepLogoImg actionType={actionType} spaceId={spaceId} name={displayName} />
+        </div>
+      </div>
+
+      <div className="flex-1 min-w-0 flex items-start pt-2.5 pb-2.5 pr-1 gap-1">
+        <span className="text-xs font-semibold flex-shrink-0 leading-[1.6] text-slate-800">{index + 1}.</span>
+        <span className="text-sm leading-snug break-words min-w-0 text-slate-700">{displayName}</span>
+      </div>
+
+      <button
+        className="flex-shrink-0 self-start mt-2 p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Step options"
+      >
+        <MoreOutlined style={{ fontSize: 15, color: '#64748b' }} />
       </button>
     </div>
   )
@@ -854,6 +886,10 @@ const Process: React.FC = () => {
   const [envMap, setEnvMap] = useState<Record<number, string>>({})
   const [sidebarFilter, setSidebarFilter] = useState('')
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null)
+  const [editingTemplate, setEditingTemplate] = useState<{ actionType: string; step: DeploymentStepDto | null } | null>(null)
+  const [draftStepName, setDraftStepName] = useState('')
+  const [processId, setProcessId] = useState<number>(0)
+  const editorRef = useRef<KubernetesContainersEditorHandle>(null)
 
   useEffect(() => {
     if (!projectName) return
@@ -866,6 +902,7 @@ const Process: React.FC = () => {
           (p) => p.slug === projectName || p.name === projectName
         )
         if (!project) return
+        setProcessId(project.deploymentProcessId)
 
         const [stepsRes, lifecyclesRes, progressionRes] = await Promise.all([
           getDeploymentSteps({ processId: project.deploymentProcessId, pageSize: 500 }),
@@ -941,15 +978,20 @@ const Process: React.FC = () => {
             </a>
             <button
               title="Add Step"
-              onClick={() => setMode('overview')}
+              onClick={() => { setSelectedStepId(null); setEditingTemplate(null) }}
               className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue bg-squid-blue text-white hover:bg-blue-700 hover:border-blue-700 transition-colors"
             >
               Add Step
             </button>
             <button
               title="Save"
-              disabled
-              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+              disabled={!editingTemplate}
+              onClick={() => editorRef.current?.save()}
+              className={`inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border transition-colors ${
+                editingTemplate
+                  ? 'border-green-600 bg-green-600 text-white hover:bg-green-700 hover:border-green-700'
+                  : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+              }`}
             >
               Save
             </button>
@@ -987,32 +1029,72 @@ const Process: React.FC = () => {
               <div className="flex items-center justify-center py-10">
                 <Spin />
               </div>
-            ) : filteredSteps.length > 0 ? (
-              filteredSteps.map((step, i) => (
-                <StepItem
-                  key={step.id}
-                  step={step}
-                  index={i}
-                  total={filteredSteps.length}
-                  selected={selectedStepId === step.id}
-                  spaceId={spaceId}
-                  onClick={() => setSelectedStepId((prev) => (prev === step.id ? null : step.id))}
-                />
-              ))
             ) : (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">
-                {sidebarFilter ? 'No steps match filter' : 'No steps yet'}
-              </div>
+              <>
+                {filteredSteps.map((step, i) => (
+                  <StepItem
+                    key={step.id}
+                    step={step}
+                    index={i}
+                    total={0}
+                    selected={selectedStepId === step.id}
+                    spaceId={spaceId}
+                    onClick={() => setSelectedStepId((prev) => (prev === step.id ? null : step.id))}
+                  />
+                ))}
+                {editingTemplate && !editingTemplate.step && (
+                  <DraftStepItem
+                    index={filteredSteps.length}
+                    total={0}
+                    actionType={editingTemplate.actionType}
+                    stepName={draftStepName}
+                    spaceId={spaceId}
+                  />
+                )}
+                {filteredSteps.length === 0 && !(editingTemplate && !editingTemplate.step) && (
+                  <div className="px-4 py-8 text-center text-sm text-slate-400">
+                    {sidebarFilter ? 'No steps match filter' : 'No steps yet'}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
         {/* Right panel */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          {selectedStep ? (
+          {editingTemplate?.actionType === 'Squid.KubernetesDeployContainers' ? (
+            <KubernetesContainersEditor
+              ref={editorRef}
+              step={editingTemplate.step}
+              processId={processId}
+              spaceId={spaceId}
+              stepIndex={editingTemplate.step ? steps.findIndex((s) => s.id === editingTemplate.step!.id) : steps.length}
+              onSave={(savedStep) => {
+                setSteps((prev) => {
+                  const exists = prev.some((s) => s.id === savedStep.id)
+                  const next = exists
+                    ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
+                    : [...prev, savedStep]
+                  return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                })
+                setEditingTemplate(null)
+                setDraftStepName('')
+                setSelectedStepId(savedStep.id)
+              }}
+              onStepNameChange={(name) => setDraftStepName(name)}
+            />
+          ) : selectedStep ? (
             <StepDetailPanel step={selectedStep} spaceId={spaceId} />
           ) : (
-            <AddStepPanel spaceId={spaceId} />
+            <AddStepPanel
+              spaceId={spaceId}
+              onTemplateSelected={(actionType) => {
+                setSelectedStepId(null)
+                setDraftStepName('')
+                setEditingTemplate({ actionType, step: null })
+              }}
+            />
           )}
         </div>
       </div>

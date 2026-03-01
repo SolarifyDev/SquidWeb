@@ -53,12 +53,10 @@ const navSections: NavItemDef[][] = [
   ],
   [
     { label: "Project Variables", path: "variables" },
-    { label: "Tenant Variables", path: "variables/tenant" },
     { label: "Variable Sets", path: "variables/library" },
     { label: "All Variables", path: "variables/all" },
     { label: "Variable Preview", path: "variables/preview" },
   ],
-  [{ label: "Tenants", path: "tenants" }],
   [{ label: "Tasks", path: "tasks" }],
   [{ label: "Insights", path: "insights" }],
   [

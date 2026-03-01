@@ -15,6 +15,7 @@ import Accounts from 'pages/accounts'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
+import ProjectVariables from "pages/project-detail/ProjectVariables";
 
 const routes = [
   {
@@ -109,6 +110,11 @@ const routes = [
                 path: "process",
                 component: Process,
                 name: "Process",
+              },
+              {
+                path: "variables",
+                component: ProjectVariables,
+                name: "ProjectVariables",
               },
             ],
           },

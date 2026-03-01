@@ -92,6 +92,13 @@ export function setStepProperty(
   }
 }
 
+export function getActionProperty(
+  action: DeploymentActionDto,
+  name: string,
+): string | undefined {
+  return action.properties.find((p) => p.propertyName === name)?.propertyValue
+}
+
 export function getTargetRoles(step: DeploymentStepDto): string[] {
   const value = getStepProperty(step, 'Squid.Action.TargetRoles')
   return value
