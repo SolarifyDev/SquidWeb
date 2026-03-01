@@ -80,6 +80,7 @@ function parseContainer(c: Record<string, unknown>): ContainerSpec {
     Image: str(c.image),
     PackageId: '',
     CreateFeedSecrets: 'False',
+    IsInitContainer: 'False',
     Ports: ports,
     Resources: {
       requests: { cpu: str(req.cpu), memory: str(req.memory) },
@@ -144,14 +145,30 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     : []
 
   const podSc = (tmplSpec.securityContext ?? {}) as Record<string, unknown>
+  const seLinux = (podSc.seLinuxOptions ?? {}) as Record<string, unknown>
   const sysctls = Array.isArray(podSc.sysctls)
     ? (podSc.sysctls as Record<string, unknown>[]).map((s) => ({ name: str(s.name), value: str(s.value) }))
     : []
+  const supplementalGroups = Array.isArray(podSc.supplementalGroups)
+    ? (podSc.supplementalGroups as unknown[]).map((g) => str(g)).filter((v) => v.trim()).join(', ')
+    : ''
 
   const dnsConfig = (tmplSpec.dnsConfig ?? {}) as Record<string, unknown>
+  const dnsNameservers = Array.isArray(dnsConfig.nameservers)
+    ? (dnsConfig.nameservers as unknown[]).map((item) => str(item)).filter((v) => v.trim()).join('\n')
+    : ''
+  const dnsSearches = Array.isArray(dnsConfig.searches)
+    ? (dnsConfig.searches as unknown[]).map((item) => str(item)).filter((v) => v.trim()).join('\n')
+    : ''
   const dnsConfigOptions = Array.isArray(dnsConfig.options)
     ? (dnsConfig.options as Record<string, unknown>[]).map((o) => ({ name: str(o.name), value: str(o.value) }))
     : []
+  const podReadinessGates = Array.isArray(tmplSpec.readinessGates)
+    ? (tmplSpec.readinessGates as Record<string, unknown>[])
+        .map((gate) => str(gate.conditionType))
+        .filter((v) => v.trim())
+        .join('\n')
+    : ''
 
   const strategyType = str(strategy.type)
 
@@ -163,6 +180,23 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     revisionHistoryLimit: spec.revisionHistoryLimit != null ? str(spec.revisionHistoryLimit) : '',
     progressDeadlineSeconds: spec.progressDeadlineSeconds != null ? str(spec.progressDeadlineSeconds) : '',
     podTerminationGracePeriodSeconds: tmplSpec.terminationGracePeriodSeconds != null ? str(tmplSpec.terminationGracePeriodSeconds) : '',
+    podPriorityClassName: tmplSpec.priorityClassName != null ? str(tmplSpec.priorityClassName) : '',
+    podRestartPolicy: tmplSpec.restartPolicy != null ? str(tmplSpec.restartPolicy) : 'Always',
+    podDnsPolicy: tmplSpec.dnsPolicy != null ? str(tmplSpec.dnsPolicy) : 'ClusterFirst',
+    podDnsNameservers: dnsNameservers,
+    podDnsSearches: dnsSearches,
+    podReadinessGates,
+    serviceAccountName: tmplSpec.serviceAccountName != null ? str(tmplSpec.serviceAccountName) : '',
+    podHostNetworking: tmplSpec.hostNetwork === true ? 'True' : 'False',
+    podSecurityFsGroup: podSc.fsGroup != null ? str(podSc.fsGroup) : '',
+    podSecurityRunAsGroup: podSc.runAsGroup != null ? str(podSc.runAsGroup) : '',
+    podSecurityRunAsUser: podSc.runAsUser != null ? str(podSc.runAsUser) : '',
+    podSecuritySupplementalGroups: supplementalGroups,
+    podSecurityRunAsNonRoot: podSc.runAsNonRoot === true ? 'True' : podSc.runAsNonRoot === false ? 'False' : '',
+    podSecuritySeLinuxLevel: seLinux.level != null ? str(seLinux.level) : '',
+    podSecuritySeLinuxRole: seLinux.role != null ? str(seLinux.role) : '',
+    podSecuritySeLinuxType: seLinux.type != null ? str(seLinux.type) : '',
+    podSecuritySeLinuxUser: seLinux.user != null ? str(seLinux.user) : '',
     deploymentLabels: mapToKv(meta.labels),
     deploymentAnnotations: mapToKv(meta.annotations),
     podAnnotations: mapToKv(tmplMeta.annotations),
@@ -195,6 +229,7 @@ function parseService(doc: Record<string, unknown>): Partial<ContainersEditorSta
   return {
     serviceName: str(meta.name),
     serviceType: str(spec.type) || 'ClusterIP',
+    serviceClusterIp: str(spec.clusterIP),
     servicePorts,
   }
 }

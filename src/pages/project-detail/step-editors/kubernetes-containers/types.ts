@@ -140,6 +140,23 @@ export interface ContainersEditorState {
   revisionHistoryLimit: string
   progressDeadlineSeconds: string
   podTerminationGracePeriodSeconds: string
+  podPriorityClassName: string
+  podRestartPolicy: string
+  podDnsPolicy: string
+  podDnsNameservers: string
+  podDnsSearches: string
+  podReadinessGates: string
+  serviceAccountName: string
+  podHostNetworking: string
+  podSecurityFsGroup: string
+  podSecurityRunAsGroup: string
+  podSecurityRunAsUser: string
+  podSecuritySupplementalGroups: string
+  podSecurityRunAsNonRoot: string
+  podSecuritySeLinuxLevel: string
+  podSecuritySeLinuxRole: string
+  podSecuritySeLinuxType: string
+  podSecuritySeLinuxUser: string
   deploymentStyle: string
   maxUnavailable: string
   maxSurge: string
@@ -160,6 +177,7 @@ export interface ContainersEditorState {
   // Service
   serviceName: string
   serviceType: string
+  serviceClusterIp: string
   servicePorts: ServicePort[]
 
   // Ingress
@@ -240,6 +258,23 @@ export function defaultEditorState(): ContainersEditorState {
     revisionHistoryLimit: '',
     progressDeadlineSeconds: '',
     podTerminationGracePeriodSeconds: '',
+    podPriorityClassName: '',
+    podRestartPolicy: 'Always',
+    podDnsPolicy: 'ClusterFirst',
+    podDnsNameservers: '',
+    podDnsSearches: '',
+    podReadinessGates: '',
+    serviceAccountName: '',
+    podHostNetworking: 'False',
+    podSecurityFsGroup: '',
+    podSecurityRunAsGroup: '',
+    podSecurityRunAsUser: '',
+    podSecuritySupplementalGroups: '',
+    podSecurityRunAsNonRoot: '',
+    podSecuritySeLinuxLevel: '',
+    podSecuritySeLinuxRole: '',
+    podSecuritySeLinuxType: '',
+    podSecuritySeLinuxUser: '',
     deploymentStyle: 'RollingUpdate',
     maxUnavailable: '',
     maxSurge: '',
@@ -252,6 +287,7 @@ export function defaultEditorState(): ContainersEditorState {
     volumes: [],
     serviceName: '',
     serviceType: 'ClusterIP',
+    serviceClusterIp: '',
     servicePorts: [],
     ingressName: '',
     ingressClassName: '',

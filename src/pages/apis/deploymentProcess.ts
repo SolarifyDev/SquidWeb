@@ -1,4 +1,4 @@
-import { get, post, put, del } from 'utils/request'
+import { get, post } from 'utils/request'
 
 // --- DTOs ---
 
@@ -144,23 +144,21 @@ export function getDeploymentProcess(id: number) {
 }
 
 export function getDeploymentSteps(params: GetDeploymentStepsRequest) {
-  return get<GetDeploymentStepsResponseData>('/deploymentstep', { params })
+  return get<GetDeploymentStepsResponseData>('/deployment-steps/list', { params })
 }
 
 export function getDeploymentStep(id: number) {
-  return get<DeploymentStepDto>(`/deploymentstep/${id}`)
+  return get<DeploymentStepDto>(`/deployment-steps/detail/${id}`)
 }
 
 export function createDeploymentStep(command: CreateDeploymentStepCommand) {
-  return post<DeploymentStepDto>('/deploymentstep', command)
+  return post<DeploymentStepDto>('/deployment-steps/create', command)
 }
 
 export function updateDeploymentStep(command: UpdateDeploymentStepCommand) {
-  return put<DeploymentStepDto>('/deploymentstep', command)
+  return post<DeploymentStepDto>('/deployment-steps/update', command)
 }
 
 export function deleteDeploymentSteps(ids: number[]) {
-  return del<DeleteDeploymentStepResponseData>('/deploymentstep', {
-    data: { ids },
-  })
+  return post<DeleteDeploymentStepResponseData>('/deployment-steps/delete', { ids })
 }

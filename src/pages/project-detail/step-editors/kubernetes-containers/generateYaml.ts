@@ -274,6 +274,22 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
 
   // Pod termination grace period
   if (state.podTerminationGracePeriodSeconds) lines.push(`      terminationGracePeriodSeconds: ${state.podTerminationGracePeriodSeconds}`)
+  if (state.podPriorityClassName) lines.push(`      priorityClassName: ${state.podPriorityClassName}`)
+  if (state.serviceAccountName) lines.push(`      serviceAccountName: ${state.serviceAccountName}`)
+  if (state.podRestartPolicy) lines.push(`      restartPolicy: ${state.podRestartPolicy}`)
+  if (state.podDnsPolicy) lines.push(`      dnsPolicy: ${state.podDnsPolicy}`)
+  if (state.podHostNetworking) lines.push(`      hostNetwork: ${state.podHostNetworking === 'True' ? 'true' : 'false'}`)
+
+  const readinessGates = state.podReadinessGates
+    .split(/\r?\n/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+  if (readinessGates.length > 0) {
+    lines.push('      readinessGates:')
+    for (const gate of readinessGates) {
+      lines.push(`        - conditionType: ${JSON.stringify(gate)}`)
+    }
+  }
 
   // Volumes
   const vols = state.volumes.filter((v) => v.Name)
@@ -332,24 +348,86 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
   }
 
   // DNS config
+  const dnsNameservers = state.podDnsNameservers
+    .split(/\r?\n/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+  const dnsSearches = state.podDnsSearches
+    .split(/\r?\n/)
+    .map((v) => v.trim())
+    .filter(Boolean)
   const dnsOpts = state.dnsConfigOptions.filter((d) => d.name)
-  if (dnsOpts.length > 0) {
+  if (dnsNameservers.length > 0 || dnsSearches.length > 0 || dnsOpts.length > 0) {
     lines.push('      dnsConfig:')
-    lines.push('        options:')
-    for (const opt of dnsOpts) {
-      lines.push(`          - name: ${opt.name}`)
-      if (opt.value) lines.push(`            value: "${opt.value}"`)
+    if (dnsNameservers.length > 0) {
+      lines.push('        nameservers:')
+      for (const ns of dnsNameservers) {
+        lines.push(`          - ${ns}`)
+      }
+    }
+    if (dnsSearches.length > 0) {
+      lines.push('        searches:')
+      for (const search of dnsSearches) {
+        lines.push(`          - ${search}`)
+      }
+    }
+    if (dnsOpts.length > 0) {
+      lines.push('        options:')
+      for (const opt of dnsOpts) {
+        lines.push(`          - name: ${opt.name}`)
+        if (opt.value) lines.push(`            value: "${opt.value}"`)
+      }
     }
   }
 
-  // Pod security context (sysctls)
+  // Pod security context
+  const supplementalGroups = state.podSecuritySupplementalGroups
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
   const sysctls = state.sysctls.filter((s) => s.name)
-  if (sysctls.length > 0) {
+  const hasSeLinux =
+    !!state.podSecuritySeLinuxLevel ||
+    !!state.podSecuritySeLinuxRole ||
+    !!state.podSecuritySeLinuxType ||
+    !!state.podSecuritySeLinuxUser
+  const hasPodSecurityContext =
+    !!state.podSecurityFsGroup ||
+    !!state.podSecurityRunAsGroup ||
+    !!state.podSecurityRunAsUser ||
+    supplementalGroups.length > 0 ||
+    state.podSecurityRunAsNonRoot === 'True' ||
+    state.podSecurityRunAsNonRoot === 'False' ||
+    hasSeLinux ||
+    sysctls.length > 0
+
+  if (hasPodSecurityContext) {
     lines.push('      securityContext:')
-    lines.push('        sysctls:')
-    for (const sysctl of sysctls) {
-      lines.push(`          - name: ${sysctl.name}`)
-      lines.push(`            value: "${sysctl.value}"`)
+    if (state.podSecurityFsGroup) lines.push(`        fsGroup: ${state.podSecurityFsGroup}`)
+    if (state.podSecurityRunAsGroup) lines.push(`        runAsGroup: ${state.podSecurityRunAsGroup}`)
+    if (state.podSecurityRunAsUser) lines.push(`        runAsUser: ${state.podSecurityRunAsUser}`)
+    if (supplementalGroups.length > 0) {
+      lines.push('        supplementalGroups:')
+      for (const group of supplementalGroups) {
+        lines.push(`          - ${group}`)
+      }
+    }
+    if (state.podSecurityRunAsNonRoot === 'True' || state.podSecurityRunAsNonRoot === 'False') {
+      lines.push(`        runAsNonRoot: ${state.podSecurityRunAsNonRoot === 'True' ? 'true' : 'false'}`)
+    }
+    if (hasSeLinux) {
+      lines.push('        seLinuxOptions:')
+      if (state.podSecuritySeLinuxLevel) lines.push(`          level: ${state.podSecuritySeLinuxLevel}`)
+      if (state.podSecuritySeLinuxRole) lines.push(`          role: ${state.podSecuritySeLinuxRole}`)
+      if (state.podSecuritySeLinuxType) lines.push(`          type: ${state.podSecuritySeLinuxType}`)
+      if (state.podSecuritySeLinuxUser) lines.push(`          user: ${state.podSecuritySeLinuxUser}`)
+    }
+    if (sysctls.length > 0) {
+      lines.push('        sysctls:')
+      for (const sysctl of sysctls) {
+        lines.push(`          - name: ${sysctl.name}`)
+        lines.push(`            value: "${sysctl.value}"`)
+      }
     }
   }
 
@@ -394,6 +472,7 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
   lines.push(`  namespace: ${namespace}`)
   lines.push('spec:')
   lines.push(`  type: ${state.serviceType || 'ClusterIP'}`)
+  if (state.serviceClusterIp) lines.push(`  clusterIP: ${JSON.stringify(state.serviceClusterIp)}`)
   lines.push('  selector:')
   lines.push(emitMap(selectorLabels, 4))
   lines.push('  ports:')

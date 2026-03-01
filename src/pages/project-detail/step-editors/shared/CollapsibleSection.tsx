@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 
 interface CollapsibleSectionProps {
   title: string
-  subtitle?: string
+  subtitle?: React.ReactNode
   defaultOpen?: boolean
   fullWidth?: boolean
   children: React.ReactNode

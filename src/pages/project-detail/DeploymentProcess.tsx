@@ -10,6 +10,23 @@ import {
   DeploymentStepDto,
 } from 'pages/apis/deploymentProcess'
 import { KubernetesContainersEditor, type KubernetesContainersEditorHandle } from './step-editors/kubernetes-containers/KubernetesContainersEditor'
+import { KubernetesIngressEditor } from './step-editors/kubernetes-ingress/KubernetesIngressEditor'
+import { KubernetesServiceEditor } from './step-editors/kubernetes-service/KubernetesServiceEditor'
+import { KubernetesConfigMapEditor } from './step-editors/kubernetes-configmap/KubernetesConfigMapEditor'
+import { KubernetesSecretEditor } from './step-editors/kubernetes-secret/KubernetesSecretEditor'
+import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
+
+// ── Step editor registry ───────────────────────────────────────────────────────
+
+type StepEditorComponent = React.ForwardRefExoticComponent<StepEditorProps & React.RefAttributes<StepEditorHandle>>
+
+const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
+  'Squid.KubernetesDeployContainers': KubernetesContainersEditor as StepEditorComponent,
+  'Squid.KubernetesDeployIngress':    KubernetesIngressEditor,
+  'Squid.KubernetesDeployService':    KubernetesServiceEditor,
+  'Squid.KubernetesDeployConfigMap':  KubernetesConfigMapEditor,
+  'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
+}
 
 // ── API base for image URLs ────────────────────────────────────────────────────
 
@@ -236,6 +253,30 @@ const FEATURED_TEMPLATES: FeaturedTemplate[] = [
       'Use the Squid UI to configure Kubernetes resources',
       'No YAML files required',
     ],
+  },
+  {
+    id: 'k8s-ingress',
+    title: 'Deploy Kubernetes Ingress',
+    actionType: 'Squid.KubernetesDeployIngress',
+    bullets: ['Deploy a standalone Ingress resource'],
+  },
+  {
+    id: 'k8s-service',
+    title: 'Deploy Kubernetes Service',
+    actionType: 'Squid.KubernetesDeployService',
+    bullets: ['Deploy a standalone Service resource'],
+  },
+  {
+    id: 'k8s-configmap',
+    title: 'Deploy Kubernetes ConfigMap',
+    actionType: 'Squid.KubernetesDeployConfigMap',
+    bullets: ['Deploy a standalone ConfigMap resource'],
+  },
+  {
+    id: 'k8s-secret',
+    title: 'Deploy Kubernetes Secret',
+    actionType: 'Squid.KubernetesDeploySecret',
+    bullets: ['Deploy a standalone Opaque Secret resource'],
   },
   {
     id: 'helm',
@@ -889,7 +930,7 @@ const Process: React.FC = () => {
   const [editingTemplate, setEditingTemplate] = useState<{ actionType: string; step: DeploymentStepDto | null } | null>(null)
   const [draftStepName, setDraftStepName] = useState('')
   const [processId, setProcessId] = useState<number>(0)
-  const editorRef = useRef<KubernetesContainersEditorHandle>(null)
+  const editorRef = useRef<StepEditorHandle>(null)
 
   useEffect(() => {
     if (!projectName) return
@@ -1063,28 +1104,31 @@ const Process: React.FC = () => {
 
         {/* Right panel */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          {editingTemplate?.actionType === 'Squid.KubernetesDeployContainers' ? (
-            <KubernetesContainersEditor
-              ref={editorRef}
-              step={editingTemplate.step}
-              processId={processId}
-              spaceId={spaceId}
-              stepIndex={editingTemplate.step ? steps.findIndex((s) => s.id === editingTemplate.step!.id) : steps.length}
-              onSave={(savedStep) => {
-                setSteps((prev) => {
-                  const exists = prev.some((s) => s.id === savedStep.id)
-                  const next = exists
-                    ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
-                    : [...prev, savedStep]
-                  return next.sort((a, b) => a.stepOrder - b.stepOrder)
-                })
-                setEditingTemplate(null)
-                setDraftStepName('')
-                setSelectedStepId(savedStep.id)
-              }}
-              onStepNameChange={(name) => setDraftStepName(name)}
-            />
-          ) : selectedStep ? (
+          {editingTemplate && STEP_EDITOR_MAP[editingTemplate.actionType] ? (() => {
+            const EditorComponent = STEP_EDITOR_MAP[editingTemplate.actionType]
+            return (
+              <EditorComponent
+                ref={editorRef}
+                step={editingTemplate.step}
+                processId={processId}
+                spaceId={spaceId}
+                stepIndex={editingTemplate.step ? steps.findIndex((s) => s.id === editingTemplate.step!.id) : steps.length}
+                onSave={(savedStep) => {
+                  setSteps((prev) => {
+                    const exists = prev.some((s) => s.id === savedStep.id)
+                    const next = exists
+                      ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
+                      : [...prev, savedStep]
+                    return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                  })
+                  setEditingTemplate(null)
+                  setDraftStepName('')
+                  setSelectedStepId(savedStep.id)
+                }}
+                onStepNameChange={(name) => setDraftStepName(name)}
+              />
+            )
+          })() : selectedStep ? (
             <StepDetailPanel step={selectedStep} spaceId={spaceId} />
           ) : (
             <AddStepPanel

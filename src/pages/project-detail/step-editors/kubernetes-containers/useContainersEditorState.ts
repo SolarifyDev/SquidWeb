@@ -44,6 +44,23 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     revisionHistoryLimit: get(KEYS.RevisionHistoryLimit) ?? '',
     progressDeadlineSeconds: get(KEYS.ProgressDeadlineSeconds) ?? '',
     podTerminationGracePeriodSeconds: get(KEYS.PodTerminationGracePeriodSeconds) ?? '',
+    podPriorityClassName: get(KEYS.PodPriorityClassName) ?? '',
+    podRestartPolicy: get(KEYS.PodRestartPolicy) ?? 'Always',
+    podDnsPolicy: get(KEYS.PodDnsPolicy) ?? 'ClusterFirst',
+    podDnsNameservers: get(KEYS.PodDnsNameservers) ?? '',
+    podDnsSearches: get(KEYS.PodDnsSearches) ?? '',
+    podReadinessGates: get(KEYS.PodReadinessGates) ?? '',
+    serviceAccountName: get(KEYS.ServiceAccountName) ?? '',
+    podHostNetworking: get(KEYS.PodHostNetworking) ?? 'False',
+    podSecurityFsGroup: get(KEYS.PodSecurityFsGroup) ?? '',
+    podSecurityRunAsGroup: get(KEYS.PodSecurityRunAsGroup) ?? '',
+    podSecurityRunAsUser: get(KEYS.PodSecurityRunAsUser) ?? '',
+    podSecuritySupplementalGroups: get(KEYS.PodSecuritySupplementalGroups) ?? '',
+    podSecurityRunAsNonRoot: get(KEYS.PodSecurityRunAsNonRoot) ?? '',
+    podSecuritySeLinuxLevel: get(KEYS.PodSecuritySeLinuxLevel) ?? '',
+    podSecuritySeLinuxRole: get(KEYS.PodSecuritySeLinuxRole) ?? '',
+    podSecuritySeLinuxType: get(KEYS.PodSecuritySeLinuxType) ?? '',
+    podSecuritySeLinuxUser: get(KEYS.PodSecuritySeLinuxUser) ?? '',
     deploymentStyle: get(KEYS.DeploymentStyle) ?? 'RollingUpdate',
     maxUnavailable: get(KEYS.MaxUnavailable) ?? '',
     maxSurge: get(KEYS.MaxSurge) ?? '',
@@ -56,6 +73,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     volumes: safeJsonParse(get(KEYS.CombinedVolumes), []),
     serviceName: get(KEYS.ServiceName) ?? '',
     serviceType: get(KEYS.ServiceType) ?? 'ClusterIP',
+    serviceClusterIp: get(KEYS.ServiceClusterIp) ?? '',
     servicePorts: safeJsonParse(get(KEYS.ServicePorts), []),
     ingressName: get(KEYS.IngressName) ?? '',
     ingressClassName: get(KEYS.IngressClassName) ?? '',
@@ -95,6 +113,23 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KEYS.RevisionHistoryLimit, state.revisionHistoryLimit)
   add(KEYS.ProgressDeadlineSeconds, state.progressDeadlineSeconds)
   add(KEYS.PodTerminationGracePeriodSeconds, state.podTerminationGracePeriodSeconds)
+  add(KEYS.PodPriorityClassName, state.podPriorityClassName)
+  add(KEYS.PodRestartPolicy, state.podRestartPolicy)
+  add(KEYS.PodDnsPolicy, state.podDnsPolicy)
+  add(KEYS.PodDnsNameservers, state.podDnsNameservers)
+  add(KEYS.PodDnsSearches, state.podDnsSearches)
+  add(KEYS.PodReadinessGates, state.podReadinessGates)
+  add(KEYS.ServiceAccountName, state.serviceAccountName)
+  add(KEYS.PodHostNetworking, state.podHostNetworking)
+  add(KEYS.PodSecurityFsGroup, state.podSecurityFsGroup)
+  add(KEYS.PodSecurityRunAsGroup, state.podSecurityRunAsGroup)
+  add(KEYS.PodSecurityRunAsUser, state.podSecurityRunAsUser)
+  add(KEYS.PodSecuritySupplementalGroups, state.podSecuritySupplementalGroups)
+  add(KEYS.PodSecurityRunAsNonRoot, state.podSecurityRunAsNonRoot)
+  add(KEYS.PodSecuritySeLinuxLevel, state.podSecuritySeLinuxLevel)
+  add(KEYS.PodSecuritySeLinuxRole, state.podSecuritySeLinuxRole)
+  add(KEYS.PodSecuritySeLinuxType, state.podSecuritySeLinuxType)
+  add(KEYS.PodSecuritySeLinuxUser, state.podSecuritySeLinuxUser)
   add(KEYS.DeploymentStyle, state.deploymentStyle)
   add(KEYS.MaxUnavailable, state.maxUnavailable)
   add(KEYS.MaxSurge, state.maxSurge)
@@ -105,6 +140,7 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KEYS.CombinedVolumes, JSON.stringify(state.volumes))
   add(KEYS.ServiceName, state.serviceName)
   add(KEYS.ServiceType, state.serviceType)
+  add(KEYS.ServiceClusterIp, state.serviceClusterIp)
   add(KEYS.ServicePorts, JSON.stringify(state.servicePorts))
   add(KEYS.ConfigMapName, state.configMapName)
   add(KEYS.ConfigMapValues, kvToJson(state.configMapValues))
@@ -128,15 +164,16 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   return props
 }
 
-export function serializeToStep(state: ContainersEditorState, processId: number, existingStep?: DeploymentStepDto): DeploymentStepDto {
+export function serializeToStep(state: ContainersEditorState, processId: number, existingStep?: DeploymentStepDto, actionType?: string): DeploymentStepDto {
   const actionProperties = buildActionProperties(state)
+  const resolvedActionType = actionType ?? 'Squid.KubernetesDeployContainers'
 
   const action: DeploymentActionDto = {
     id: existingStep?.actions[0]?.id ?? 0,
     stepId: existingStep?.id ?? 0,
     actionOrder: 0,
     name: state.stepName || 'Deploy Kubernetes Containers',
-    actionType: 'Squid.KubernetesDeployContainers',
+    actionType: resolvedActionType,
     workerPoolId: null,
     feedId: state.feedId,
     packageId: state.packageId,
@@ -162,7 +199,7 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
     stepType: 'Action',
     condition: state.condition,
     startTrigger: state.startTrigger,
-    packageRequirement: '',
+    packageRequirement: 'LetSquidDecide',
     isDisabled: false,
     isRequired: false,
     createdAt: existingStep?.createdAt ?? new Date().toISOString(),
