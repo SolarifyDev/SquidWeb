@@ -34,6 +34,7 @@ export const KEYS = {
   ServiceName: 'Squid.Action.KubernetesContainers.ServiceName',
   ServiceType: 'Squid.Action.KubernetesContainers.ServiceType',
   ServiceClusterIp: 'Squid.Action.KubernetesContainers.ServiceClusterIp',
+  ServiceAnnotations: 'Squid.Action.KubernetesContainers.ServiceAnnotations',
   ServicePorts: 'Squid.Action.KubernetesContainers.ServicePorts',
   ConfigMapName: 'Squid.Action.KubernetesContainers.ConfigMapName',
   ConfigMapValues: 'Squid.Action.KubernetesContainers.ConfigMapValues',

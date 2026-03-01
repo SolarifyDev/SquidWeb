@@ -11,8 +11,6 @@ import { ServiceSection } from './sections/ServiceSection'
 import { IngressSection } from './sections/IngressSection'
 import { ConfigMapSection } from './sections/ConfigMapSection'
 import { SecretSection } from './sections/SecretSection'
-import { PodSchedulingSection } from './sections/PodSchedulingSection'
-import { ConditionsSection } from './sections/ConditionsSection'
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 
@@ -114,8 +112,6 @@ export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorH
           <IngressSection state={state} updateField={updateField} />
           <ConfigMapSection state={state} updateField={updateField} />
           <SecretSection state={state} updateField={updateField} />
-          <PodSchedulingSection state={state} updateField={updateField} />
-          <ConditionsSection state={state} updateField={updateField} />
         </div>
       </div>
     )

@@ -74,6 +74,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     serviceName: get(KEYS.ServiceName) ?? '',
     serviceType: get(KEYS.ServiceType) ?? 'ClusterIP',
     serviceClusterIp: get(KEYS.ServiceClusterIp) ?? '',
+    serviceAnnotations: kvFromJson(get(KEYS.ServiceAnnotations)),
     servicePorts: safeJsonParse(get(KEYS.ServicePorts), []),
     ingressName: get(KEYS.IngressName) ?? '',
     ingressClassName: get(KEYS.IngressClassName) ?? '',
@@ -141,6 +142,7 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KEYS.ServiceName, state.serviceName)
   add(KEYS.ServiceType, state.serviceType)
   add(KEYS.ServiceClusterIp, state.serviceClusterIp)
+  add(KEYS.ServiceAnnotations, kvToJson(state.serviceAnnotations))
   add(KEYS.ServicePorts, JSON.stringify(state.servicePorts))
   add(KEYS.ConfigMapName, state.configMapName)
   add(KEYS.ConfigMapValues, kvToJson(state.configMapValues))

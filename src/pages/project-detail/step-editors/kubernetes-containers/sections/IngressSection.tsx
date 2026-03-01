@@ -1,95 +1,498 @@
-import React from 'react'
-import { Input, Button } from 'antd'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import React, { useMemo, useState } from 'react'
+import { Button, Input, Modal, Radio, message } from 'antd'
+import { CloseOutlined, CopyOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { KeyValueListEditor } from '../../shared/KeyValueListEditor'
-import type { ContainersEditorState, IngressRule, IngressTls } from '../types'
+import { generateIngressYaml } from '../generateYaml'
+import { parseYamlToState } from '../parseYamlToState'
+import type { ContainersEditorState } from '../types'
 
 interface IngressSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
 }
 
+function EditIngressYamlSubSection({
+  state,
+  onApply,
+}: {
+  state: ContainersEditorState
+  onApply: (partial: Partial<ContainersEditorState>) => void
+}) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [yamlText, setYamlText] = useState('')
+  const [parseError, setParseError] = useState<string | null>(null)
+
+  const generatedYaml = useMemo(() => generateIngressYaml(state) ?? '', [state])
+
+  const openModal = () => {
+    setYamlText(generatedYaml)
+    setParseError(null)
+    setModalOpen(true)
+  }
+
+  const handleYamlChange = (text: string) => {
+    setYamlText(text)
+    setParseError(null)
+  }
+
+  const handleDone = () => {
+    try {
+      const partial = parseYamlToState(yamlText)
+      onApply(partial)
+      setModalOpen(false)
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : 'Invalid YAML')
+    }
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(yamlText)
+      message.success('Copied to clipboard')
+    } catch {
+      message.error('Failed to copy')
+    }
+  }
+
+  const lineCount = yamlText.split('\n').length
+
+  return (
+    <CollapsibleSection title="Edit YAML" subtitle="Edit the resource YAML." defaultOpen>
+      <p className="text-xs text-slate-500 leading-relaxed mb-0">
+        Directly edit the raw Kubernetes resource in YAML. This is intended to populated the step from existing YAML, or for the resource created by this step to be exported.
+      </p>
+      <p className="text-xs text-slate-500 leading-relaxed mb-0">
+        Be aware that not every valid Kubernetes property is reflected in the UI, and unrecognized properties are ignored. Also note that the YAML here is parsed literally, and does not implement variable replacements. The <code className="text-xs bg-slate-100 px-1 rounded">Deploy raw Kubernetes YAML</code> step can be used to deploy raw YAML without these restrictions.
+      </p>
+      <div>
+        <Button onClick={openModal}>Edit YAML</Button>
+      </div>
+
+      <Modal
+        title="Edit YAML"
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        width={720}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button type="primary" onClick={handleDone}>Done</Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex gap-3 p-3 bg-amber-50 border border-amber-200 rounded">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" className="text-amber-500 flex-shrink-0 mt-0.5">
+              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+            </svg>
+            <div className="text-xs text-amber-800 leading-relaxed">
+              <p className="mb-1 font-medium">Not all fields are supported</p>
+              <p className="mb-0">
+                Not every valid Kubernetes property is reflected in the UI. Unrecognized properties will be ignored when applying YAML back to the form. Variable substitution syntax (<code className="text-xs bg-amber-100 px-1 rounded">{"#{Variable}"}</code>) is not processed in this preview.
+              </p>
+            </div>
+          </div>
+
+          {parseError && (
+            <div className="flex gap-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+              <span className="font-medium">Parse error:</span> {parseError}
+            </div>
+          )}
+
+          <div className="relative">
+            <div className="absolute top-2 right-2 z-10">
+              <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>
+                Copy to clipboard
+              </Button>
+            </div>
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <div className="flex bg-white max-h-[60vh] overflow-auto">
+                <div className="flex-shrink-0 bg-slate-50 border-r border-slate-200 select-none pointer-events-none">
+                  <pre className="text-xs text-slate-400 text-right px-3 py-3 leading-[1.6] font-mono m-0">
+                    {Array.from({ length: lineCount }, (_, i) => (
+                      <div key={i}>{i + 1}</div>
+                    ))}
+                  </pre>
+                </div>
+                <textarea
+                  value={yamlText}
+                  onChange={(e) => handleYamlChange(e.target.value)}
+                  spellCheck={false}
+                  className="flex-1 min-w-0 resize-none text-xs text-slate-800 px-4 py-3 leading-[1.6] font-mono border-none outline-none bg-white"
+                  style={{ minHeight: `${Math.max(lineCount, 10) * 1.6 * 12 + 24}px` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </CollapsibleSection>
+  )
+}
+
 export function IngressSection({ state, updateField }: IngressSectionProps) {
-  const updateRule = (index: number, rule: IngressRule) => {
-    updateField('ingressRules', state.ingressRules.map((r, i) => (i === index ? rule : r)))
+  const [tlsModalOpen, setTlsModalOpen] = useState(false)
+  const [tlsMode, setTlsMode] = useState<'IngressDefault' | 'Octopus' | 'Secret'>('IngressDefault')
+  const [tlsSecretName, setTlsSecretName] = useState('')
+  const [tlsDraftHosts, setTlsDraftHosts] = useState<string[]>([])
+
+  const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
+    const fields: (keyof ContainersEditorState)[] = ['namespace', 'ingressName', 'ingressClassName', 'ingressAnnotations', 'ingressRules', 'ingressTls']
+    for (const field of fields) {
+      const value = partial[field]
+      if (value !== undefined) {
+        updateField(field, value)
+      }
+    }
+  }
+
+  const handleAddHostRule = () => {
+    updateField('ingressRules', [
+      ...state.ingressRules,
+      {
+        host: '',
+        paths: [
+          {
+            path: '/',
+            pathType: 'Prefix',
+            backend: {
+              serviceName: state.serviceName || '',
+              servicePort: '',
+            },
+          },
+        ],
+      },
+    ])
+  }
+
+  const handleSortRules = () => {
+    const sorted = [...state.ingressRules].sort((a, b) => (a.host || '').localeCompare(b.host || '', undefined, { sensitivity: 'base' }))
+    updateField('ingressRules', sorted)
+  }
+
+  const openTlsModal = () => {
+    setTlsMode('IngressDefault')
+    setTlsSecretName('')
+    setTlsDraftHosts([])
+    setTlsModalOpen(true)
+  }
+
+  const updateTlsDraftHost = (index: number, value: string) => {
+    setTlsDraftHosts((prev) => prev.map((host, i) => (i === index ? value : host)))
+  }
+
+  const addTlsDraftHost = () => {
+    setTlsDraftHosts((prev) => [...prev, ''])
+  }
+
+  const removeTlsDraftHost = (index: number) => {
+    setTlsDraftHosts((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleAddTlsCertificate = () => {
+    const hosts = tlsDraftHosts.map((host) => host.trim()).filter((host) => host.length > 0)
+    if (hosts.length === 0) {
+      message.error('At least one host is required')
+      return
+    }
+    if (tlsMode === 'Secret' && !tlsSecretName.trim()) {
+      message.error('Secret name is required for Existing Secret')
+      return
+    }
+
+    updateField('ingressTls', [
+      ...state.ingressTls,
+      {
+        hosts,
+        secretName: tlsMode === 'Secret' ? tlsSecretName.trim() : '',
+      },
+    ])
+    setTlsModalOpen(false)
   }
 
   return (
-    <CollapsibleSection title="Ingress" subtitle="Configure the Kubernetes Ingress resource.">
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Ingress name</label>
-        <Input value={state.ingressName} onChange={(e) => updateField('ingressName', e.target.value)} placeholder="my-ingress" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Ingress class name</label>
-        <Input value={state.ingressClassName} onChange={(e) => updateField('ingressClassName', e.target.value)} placeholder="nginx" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Ingress annotations</label>
-        <KeyValueListEditor items={state.ingressAnnotations} onChange={(v) => updateField('ingressAnnotations', v)} addLabel="Add Annotation" />
-      </div>
+    <CollapsibleSection title="Ingress" subtitle="Configure the Kubernetes Ingress resource." fullWidth>
+      <EditIngressYamlSubSection state={state} onApply={handleYamlApply} />
 
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Host rules</label>
-        <div className="space-y-3">
-          {state.ingressRules.map((rule, ri) => (
-            <div key={ri} className="border border-slate-100 rounded p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <Input size="small" placeholder="Host (e.g. example.com)" value={rule.host} onChange={(e) => updateRule(ri, { ...rule, host: e.target.value })} className="flex-1" />
-                <Button size="small" type="text" icon={<DeleteOutlined />} onClick={() => updateField('ingressRules', state.ingressRules.filter((_, j) => j !== ri))} />
-              </div>
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider">Paths</div>
-              {rule.paths.map((path, pi) => (
-                <div key={pi} className="flex items-center gap-2">
-                  <Input size="small" placeholder="Path" value={path.path} onChange={(e) => {
-                    const paths = rule.paths.map((p, j) => (j === pi ? { ...p, path: e.target.value } : p))
-                    updateRule(ri, { ...rule, paths })
-                  }} style={{ width: 100 }} />
-                  <Input size="small" placeholder="Path Type" value={path.pathType} onChange={(e) => {
-                    const paths = rule.paths.map((p, j) => (j === pi ? { ...p, pathType: e.target.value } : p))
-                    updateRule(ri, { ...rule, paths })
-                  }} style={{ width: 100 }} />
-                  <Input size="small" placeholder="Service Name" value={path.backend.serviceName} onChange={(e) => {
-                    const paths = rule.paths.map((p, j) => (j === pi ? { ...p, backend: { ...p.backend, serviceName: e.target.value } } : p))
-                    updateRule(ri, { ...rule, paths })
-                  }} className="flex-1" />
-                  <Input size="small" placeholder="Port" value={path.backend.servicePort} onChange={(e) => {
-                    const paths = rule.paths.map((p, j) => (j === pi ? { ...p, backend: { ...p.backend, servicePort: e.target.value } } : p))
-                    updateRule(ri, { ...rule, paths })
-                  }} style={{ width: 70 }} />
-                  <Button size="small" type="text" icon={<DeleteOutlined />} onClick={() => {
-                    const paths = rule.paths.filter((_, j) => j !== pi)
-                    updateRule(ri, { ...rule, paths })
-                  }} />
+      <CollapsibleSection title="Ingress Name" subtitle="Enter the ingress name exposing the deployment." defaultOpen>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          The name of the ingress resource.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://octopus.com/docs/deployment-examples/kubernetes-deployments/deploy-container#ingress-name"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ingress name
+          </a>
+          .
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Ingress name</label>
+          <Input
+            value={state.ingressName}
+            onChange={(e) => updateField('ingressName', e.target.value)}
+            placeholder="my-ingress"
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Ingress Class Name"
+        subtitle="Enter the ingress class name for the controller that will implement this resource."
+        defaultOpen
+      >
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          The name of the ingress class.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://octopus.com/docs/deployment-examples/kubernetes-deployments/deploy-container#ingress-class-name"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ingress class names
+          </a>
+          .
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Ingress class name</label>
+          <Input
+            value={state.ingressClassName}
+            onChange={(e) => updateField('ingressClassName', e.target.value)}
+            placeholder="nginx"
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Ingress Annotations"
+        subtitle="Add annotations to configure the ingress controller."
+        defaultOpen
+      >
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Ingress annotations can be specific to the type of ingress controller used by the Kubernetes cluster, and the suggested annotation keys are not exhaustive.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://octopus.com/docs/deployment-examples/kubernetes-deployments/deploy-container#ingress-annotations"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ingress annotations
+          </a>
+          .
+        </p>
+        <KeyValueListEditor
+          items={state.ingressAnnotations}
+          onChange={(v) => updateField('ingressAnnotations', v)}
+          addLabel="Add Annotation"
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Ingress Host Rules" subtitle="Add rules to be applied to hosts." defaultOpen>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Host rules map incoming requests by their host name and path to ports exposed by the service resource.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://octopus.com/docs/deployment-examples/kubernetes-deployments/deploy-container#ingress-host-rules"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ingress host rules
+          </a>
+          .
+        </p>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleSortRules}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+          >
+            Sort Rules
+          </button>
+          <button
+            type="button"
+            onClick={handleAddHostRule}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+          >
+            Add Host Rule
+          </button>
+        </div>
+
+        {state.ingressRules.length > 0 && (
+          <ul className="space-y-2">
+            {state.ingressRules.map((rule, index) => {
+              const firstPath = rule.paths[0]
+              const pathCount = rule.paths.length
+              return (
+                <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
+                  <div className="text-sm text-slate-700 space-y-1">
+                    <p className="mb-0">Host: <strong>{rule.host || '(all hosts)'}</strong></p>
+                    <p className="mb-0">Path: <strong>{firstPath?.path || '/'}</strong></p>
+                    <p className="mb-0">Service: <strong>{firstPath?.backend.serviceName || state.serviceName || '(not set)'}</strong></p>
+                    <p className="mb-0">Service Port: <strong>{firstPath?.backend.servicePort || '(not set)'}</strong></p>
+                    {pathCount > 1 && <p className="mb-0 text-xs text-slate-500">+{pathCount - 1} additional path{pathCount - 1 > 1 ? 's' : ''}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateField('ingressRules', state.ingressRules.filter((_, i) => i !== index))}
+                    className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    aria-label="Remove host rule"
+                  >
+                    <CloseOutlined style={{ fontSize: 13 }} />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Ingress TLS" subtitle="Configure TLS certificates" defaultOpen>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          The ingress can be configured to use TLS for specified hosts.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://oc.to/KubernetesIngressTls"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ingress TLS
+          </a>
+          .
+        </p>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={openTlsModal}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+          >
+            Add TLS certificate
+          </button>
+        </div>
+
+        {state.ingressTls.length > 0 && (
+          <ul className="space-y-2">
+            {state.ingressTls.map((tls, index) => (
+              <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
+                <div className="text-sm text-slate-700 space-y-1">
+                  <p className="mb-0">Hosts: <strong>{tls.hosts.join(', ') || '(none)'}</strong></p>
+                  <p className="mb-0">Certificate: <strong>{tls.secretName || 'Ingress default / controller-managed'}</strong></p>
                 </div>
-              ))}
-              <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => updateRule(ri, { ...rule, paths: [...rule.paths, { path: '/', pathType: 'Prefix', backend: { serviceName: '', servicePort: '' } }] })}>Add Path</Button>
-            </div>
-          ))}
-        </div>
-        <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => updateField('ingressRules', [...state.ingressRules, { host: '', paths: [{ path: '/', pathType: 'Prefix', backend: { serviceName: '', servicePort: '' } }] }])} className="mt-2">Add Host Rule</Button>
-      </div>
+                <button
+                  type="button"
+                  onClick={() => updateField('ingressTls', state.ingressTls.filter((_, i) => i !== index))}
+                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  aria-label="Remove TLS certificate"
+                >
+                  <CloseOutlined style={{ fontSize: 13 }} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">TLS certificates</label>
-        <div className="space-y-2">
-          {state.ingressTls.map((tls, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input size="small" placeholder="Hosts (comma-separated)" value={tls.hosts.join(', ')} onChange={(e) => {
-                const updated: IngressTls = { ...tls, hosts: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }
-                updateField('ingressTls', state.ingressTls.map((t, j) => (j === i ? updated : t)))
-              }} className="flex-1" />
-              <Input size="small" placeholder="Secret Name" value={tls.secretName} onChange={(e) => {
-                const updated: IngressTls = { ...tls, secretName: e.target.value }
-                updateField('ingressTls', state.ingressTls.map((t, j) => (j === i ? updated : t)))
-              }} className="flex-1" />
-              <Button size="small" type="text" icon={<DeleteOutlined />} onClick={() => updateField('ingressTls', state.ingressTls.filter((_, j) => j !== i))} />
+        <Modal
+          title="Configure TLS certificate"
+          open={tlsModalOpen}
+          onCancel={() => setTlsModalOpen(false)}
+          onOk={handleAddTlsCertificate}
+          okText="Ok"
+          cancelText="Cancel"
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500 leading-relaxed mb-0">
+              See the Kubernetes documentation for more information on{' '}
+              <a
+                href="https://oc.to/KubernetesIngressTls"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
+              >
+                ingress TLS
+              </a>
+              .
+            </p>
+
+            <Radio.Group value={tlsMode} onChange={(e) => setTlsMode(e.target.value)} className="flex flex-col gap-2">
+              <Radio value="IngressDefault">
+                <span className="text-sm">Ingress Default <span className="text-slate-500">(default)</span></span>
+              </Radio>
+              <p className="text-xs text-slate-500 leading-relaxed mt-0 mb-1 ml-6">
+                Your ingress controller has default certificates defined, or is using SSL passthrough.
+              </p>
+              <Radio value="Octopus"><span className="text-sm">Octopus Certificate</span></Radio>
+              <Radio value="Secret"><span className="text-sm">Existing Secret</span></Radio>
+            </Radio.Group>
+
+            {tlsMode === 'Secret' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Secret name</label>
+                <Input
+                  value={tlsSecretName}
+                  onChange={(e) => setTlsSecretName(e.target.value)}
+                  placeholder="my-tls-secret"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={addTlsDraftHost}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  Add Host
+                </button>
+              </div>
+              <ul className="space-y-2">
+                {tlsDraftHosts.map((host, index) => (
+                  <li key={index} className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Host</label>
+                      <Input
+                        value={host}
+                        onChange={(e) => updateTlsDraftHost(index, e.target.value)}
+                        placeholder="sslexample.foo.com"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeTlsDraftHost(index)}
+                      className="mt-6 flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                      aria-label="Remove host"
+                    >
+                      <CloseOutlined style={{ fontSize: 13 }} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ))}
-        </div>
-        <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => updateField('ingressTls', [...state.ingressTls, { hosts: [], secretName: '' }])} className="mt-1">Add TLS</Button>
-      </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed mb-0">
+              Configure the hosts which TLS should be configured for. For example, <em>sslexample.foo.com</em>.
+            </p>
+          </div>
+        </Modal>
+      </CollapsibleSection>
     </CollapsibleSection>
   )
 }

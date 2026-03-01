@@ -462,6 +462,7 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
   const deploymentName = state.deploymentName || 'my-deployment'
   const namespace = state.namespace || 'default'
   const labels = kvToMap(state.deploymentLabels)
+  const annotations = kvToMap(state.serviceAnnotations)
   const selectorLabels = Object.keys(labels).length > 0 ? labels : { app: deploymentName }
 
   const lines: string[] = []
@@ -470,6 +471,10 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
   lines.push('metadata:')
   lines.push(`  name: ${state.serviceName}`)
   lines.push(`  namespace: ${namespace}`)
+  if (Object.keys(annotations).length > 0) {
+    lines.push('  annotations:')
+    lines.push(emitMap(annotations, 4))
+  }
   lines.push('spec:')
   lines.push(`  type: ${state.serviceType || 'ClusterIP'}`)
   if (state.serviceClusterIp) lines.push(`  clusterIP: ${JSON.stringify(state.serviceClusterIp)}`)
@@ -482,6 +487,73 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
     if (port.targetPort) lines.push(`      targetPort: ${port.targetPort}`)
     if (port.nodePort && state.serviceType === 'NodePort') lines.push(`      nodePort: ${port.nodePort}`)
     if (port.protocol && port.protocol !== 'TCP') lines.push(`      protocol: ${port.protocol}`)
+  }
+
+  return lines.join('\n')
+}
+
+export function generateIngressYaml(state: ContainersEditorState): string | null {
+  if (!state.ingressName) return null
+
+  const namespace = state.namespace || 'default'
+  const annotations = kvToMap(state.ingressAnnotations)
+  const tlsItems = state.ingressTls.filter((tls) => tls.secretName || tls.hosts.length > 0)
+  const rules = state.ingressRules.filter((rule) => rule.host || rule.paths.some((path) => path.path || path.backend.serviceName || path.backend.servicePort))
+
+  const lines: string[] = []
+  lines.push('apiVersion: networking.k8s.io/v1')
+  lines.push('kind: Ingress')
+  lines.push('metadata:')
+  lines.push(`  name: ${state.ingressName}`)
+  lines.push(`  namespace: ${namespace}`)
+  if (Object.keys(annotations).length > 0) {
+    lines.push('  annotations:')
+    lines.push(emitMap(annotations, 4))
+  }
+  lines.push('spec:')
+  if (state.ingressClassName) {
+    lines.push(`  ingressClassName: ${state.ingressClassName}`)
+  }
+  if (tlsItems.length > 0) {
+    lines.push('  tls:')
+    for (const tls of tlsItems) {
+      lines.push('    -')
+      if (tls.hosts.length > 0) {
+        lines.push('      hosts:')
+        for (const host of tls.hosts) {
+          lines.push(`        - ${host}`)
+        }
+      }
+      if (tls.secretName) {
+        lines.push(`      secretName: ${tls.secretName}`)
+      }
+    }
+  }
+  if (rules.length > 0) {
+    lines.push('  rules:')
+    for (const rule of rules) {
+      lines.push('    -')
+      if (rule.host) lines.push(`      host: ${rule.host}`)
+      lines.push('      http:')
+      lines.push('        paths:')
+      const validPaths = rule.paths.filter((path) => path.path || path.backend.serviceName || path.backend.servicePort)
+      const paths = validPaths.length > 0 ? validPaths : [{ path: '/', pathType: 'Prefix', backend: { serviceName: state.serviceName, servicePort: '80' } }]
+      for (const path of paths) {
+        lines.push(`          - path: ${path.path || '/'}`)
+        lines.push(`            pathType: ${path.pathType || 'Prefix'}`)
+        lines.push('            backend:')
+        lines.push('              service:')
+        lines.push(`                name: ${path.backend.serviceName || state.serviceName || 'service-name'}`)
+        lines.push(`                port:`)
+        if (/^\d+$/.test(path.backend.servicePort || '')) {
+          lines.push(`                  number: ${path.backend.servicePort}`)
+        } else if ((path.backend.servicePort || '').trim()) {
+          lines.push(`                  name: ${path.backend.servicePort}`)
+        } else {
+          lines.push('                  number: 80')
+        }
+      }
+    }
   }
 
   return lines.join('\n')
@@ -534,6 +606,9 @@ export function generateAllYaml(state: ContainersEditorState): string {
 
   const service = generateServiceYaml(state)
   if (service) parts.push(service)
+
+  const ingress = generateIngressYaml(state)
+  if (ingress) parts.push(ingress)
 
   const configMap = generateConfigMapYaml(state)
   if (configMap) parts.push(configMap)

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react'
-import { Button, Input, Modal, Radio, message } from 'antd'
-import { CopyOutlined } from '@ant-design/icons'
+import { Button, Input, Modal, Radio, Select, message } from 'antd'
+import { CloseOutlined, CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
+import { KeyValueListEditor } from '../../shared/KeyValueListEditor'
 import { generateServiceYaml } from '../generateYaml'
 import { parseYamlToState } from '../parseYamlToState'
-import type { ContainersEditorState } from '../types'
+import type { ContainersEditorState, ServicePort } from '../types'
 
 interface ServiceSectionProps {
   state: ContainersEditorState
@@ -131,14 +132,36 @@ function EditServiceYamlSubSection({
 }
 
 export function ServiceSection({ state, updateField }: ServiceSectionProps) {
+  const emptyPort: ServicePort = { name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }
+  const [addPortModalOpen, setAddPortModalOpen] = useState(false)
+  const [newPort, setNewPort] = useState<ServicePort>(emptyPort)
+
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
-    const fields: (keyof ContainersEditorState)[] = ['namespace', 'serviceName', 'serviceType', 'serviceClusterIp', 'servicePorts']
+    const fields: (keyof ContainersEditorState)[] = ['namespace', 'serviceName', 'serviceType', 'serviceClusterIp', 'serviceAnnotations', 'servicePorts']
     for (const field of fields) {
       const value = partial[field]
       if (value !== undefined) {
         updateField(field, value)
       }
     }
+  }
+
+  const openAddPortModal = () => {
+    setNewPort(emptyPort)
+    setAddPortModalOpen(true)
+  }
+
+  const handleAddPort = () => {
+    if (!newPort.port.trim()) {
+      message.error('Port is required')
+      return
+    }
+    const added: ServicePort = {
+      ...newPort,
+      targetPort: newPort.targetPort || newPort.port,
+    }
+    updateField('servicePorts', [...state.servicePorts, added])
+    setAddPortModalOpen(false)
   }
 
   return (
@@ -242,6 +265,118 @@ export function ServiceSection({ state, updateField }: ServiceSectionProps) {
             An optional value that defines the internal IP address of the service. If left blank, Kubernetes will assign a private IP address to the service.
           </p>
         </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Service Annotations" subtitle="Add annotations to configure the service resource." defaultOpen>
+        <KeyValueListEditor
+          items={state.serviceAnnotations}
+          onChange={(v) => updateField('serviceAnnotations', v)}
+          addLabel="Add Annotation"
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Service Ports" subtitle="Add service ports that are exposed by the service." defaultOpen>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Ports must be configured with the ports that the service exposes, and the port that the service directs traffic to.
+        </p>
+        <p className="text-xs text-slate-500 leading-relaxed mb-0">
+          Learn more about{' '}
+          <a
+            href="https://octopus.com/docs/deployment-examples/kubernetes-deployments/deploy-container#ports-1"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            ports
+          </a>
+          .
+        </p>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={openAddPortModal}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+          >
+            <PlusOutlined style={{ fontSize: 11 }} />
+            Add Port
+          </button>
+        </div>
+
+        {state.servicePorts.length > 0 && (
+          <ul className="space-y-2">
+            {state.servicePorts.map((port, index) => (
+              <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
+                <div className="text-sm text-slate-700 space-y-1">
+                  <p className="mb-0">Name: <strong>{port.name || '(not set)'}</strong></p>
+                  <p className="mb-0">Port: <strong>{port.port || '(not set)'}</strong></p>
+                  <p className="mb-0">Target Port: <strong>{port.targetPort || port.port || '(not set)'}</strong></p>
+                  <p className="mb-0">Node Port: {port.nodePort ? <strong>{port.nodePort}</strong> : 'Automatically assigned'}</p>
+                  <p className="mb-0">Protocol: <strong>{port.protocol || 'TCP'}</strong></p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateField('servicePorts', state.servicePorts.filter((_, i) => i !== index))}
+                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  aria-label="Remove port"
+                >
+                  <CloseOutlined style={{ fontSize: 13 }} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <Modal
+          title="Add Service Port"
+          open={addPortModalOpen}
+          onCancel={() => setAddPortModalOpen(false)}
+          onOk={handleAddPort}
+          okText="Ok"
+          cancelText="Cancel"
+        >
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Name</label>
+              <Input value={newPort.name} onChange={(e) => setNewPort((p) => ({ ...p, name: e.target.value }))} />
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                The optional name of the port. This name can be referenced in the ingress path.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Port</label>
+              <Input value={newPort.port} onChange={(e) => setNewPort((p) => ({ ...p, port: e.target.value }))} />
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                The port internal Kubernetes workloads use to access the service.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Target Port</label>
+              <Input value={newPort.targetPort} onChange={(e) => setNewPort((p) => ({ ...p, targetPort: e.target.value }))} />
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                An optional value set to a port exposed by the container. This can be the name of the port, or the port number. If left blank, it will default to the value of the <code className="text-xs bg-slate-100 px-1 rounded">Port</code> above.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Protocol</label>
+              <Select
+                value={newPort.protocol || 'TCP'}
+                onChange={(value) => setNewPort((p) => ({ ...p, protocol: value }))}
+                className="w-full"
+                options={[
+                  { label: 'TCP', value: 'TCP' },
+                  { label: 'UDP', value: 'UDP' },
+                ]}
+              />
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                The protocol used by the service.
+              </p>
+            </div>
+          </div>
+        </Modal>
       </CollapsibleSection>
     </CollapsibleSection>
   )

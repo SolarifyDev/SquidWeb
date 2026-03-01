@@ -178,6 +178,7 @@ export interface ContainersEditorState {
   serviceName: string
   serviceType: string
   serviceClusterIp: string
+  serviceAnnotations: KeyValueItem[]
   servicePorts: ServicePort[]
 
   // Ingress
@@ -288,6 +289,7 @@ export function defaultEditorState(): ContainersEditorState {
     serviceName: '',
     serviceType: 'ClusterIP',
     serviceClusterIp: '',
+    serviceAnnotations: [],
     servicePorts: [],
     ingressName: '',
     ingressClassName: '',

@@ -1,5 +1,5 @@
 import { load, loadAll } from 'js-yaml'
-import type { ContainersEditorState, ContainerSpec, ProbeConfig, VolumeSpec, ServicePort } from './types'
+import type { ContainersEditorState, ContainerSpec, ProbeConfig, VolumeSpec, ServicePort, IngressRule, IngressTls } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -230,7 +230,53 @@ function parseService(doc: Record<string, unknown>): Partial<ContainersEditorSta
     serviceName: str(meta.name),
     serviceType: str(spec.type) || 'ClusterIP',
     serviceClusterIp: str(spec.clusterIP),
+    serviceAnnotations: mapToKv(meta.annotations),
     servicePorts,
+  }
+}
+
+function parseIngress(doc: Record<string, unknown>): Partial<ContainersEditorState> {
+  const meta = (doc.metadata ?? {}) as Record<string, unknown>
+  const spec = (doc.spec ?? {}) as Record<string, unknown>
+
+  const ingressRules: IngressRule[] = Array.isArray(spec.rules)
+    ? (spec.rules as Record<string, unknown>[]).map((rule) => {
+        const http = (rule.http ?? {}) as Record<string, unknown>
+        const paths = Array.isArray(http.paths)
+          ? (http.paths as Record<string, unknown>[]).map((path) => {
+              const backend = (path.backend ?? {}) as Record<string, unknown>
+              const service = (backend.service ?? {}) as Record<string, unknown>
+              const port = (service.port ?? {}) as Record<string, unknown>
+              return {
+                path: str(path.path) || '/',
+                pathType: str(path.pathType) || 'Prefix',
+                backend: {
+                  serviceName: str(service.name),
+                  servicePort: str(port.number || port.name),
+                },
+              }
+            })
+          : []
+        return {
+          host: str(rule.host),
+          paths,
+        }
+      })
+    : []
+
+  const ingressTls: IngressTls[] = Array.isArray(spec.tls)
+    ? (spec.tls as Record<string, unknown>[]).map((tls) => ({
+        hosts: Array.isArray(tls.hosts) ? (tls.hosts as unknown[]).map((host) => str(host)).filter((host) => host.trim()) : [],
+        secretName: str(tls.secretName),
+      }))
+    : []
+
+  return {
+    ingressName: str(meta.name),
+    ingressClassName: str(spec.ingressClassName),
+    ingressAnnotations: mapToKv(meta.annotations),
+    ingressRules,
+    ingressTls,
   }
 }
 
@@ -269,6 +315,8 @@ export function parseYamlToState(yamlText: string): Partial<ContainersEditorStat
       result = { ...result, ...parseDeployment(doc) }
     } else if (kind === 'Service') {
       result = { ...result, ...parseService(doc) }
+    } else if (kind === 'Ingress') {
+      result = { ...result, ...parseIngress(doc) }
     } else if (kind === 'ConfigMap') {
       result = { ...result, ...parseConfigMap(doc) }
     } else if (kind === 'Secret') {
