@@ -1,15 +1,16 @@
-import { get } from 'utils/request'
+import { get, post } from 'utils/request'
 
 export interface ReleaseDto {
   id: number
   version: string
   channelId: number
   projectId: number
-  releaseNote: string
+  projectVariableSetSnapshotId?: number
+  projectDeploymentProcessSnapshotId?: number
   spaceId: number
   assembled: string
-  lastModifiedOn: string | null
-  lastModifiedBy: string
+  lastModified?: string
+  releaseNote?: string
 }
 
 export interface GetReleasesRequest {
@@ -25,6 +26,37 @@ export interface GetReleasesResponseData {
   currentDeployedReleaseIds: number[]
 }
 
-export function getReleases(params?: GetReleasesRequest) {
-  return get<GetReleasesResponseData>('/release', { params })
+export interface CreateReleaseSelectedPackageDto {
+  actionName: string
+  version: string
+  packageReferenceName: string
+}
+
+export interface CreateReleaseCommand {
+  version: string
+  channelId: number
+  projectId: number
+  releaseNote: string
+  selectedPackages: CreateReleaseSelectedPackageDto[]
+}
+
+export async function getReleases(params?: GetReleasesRequest) {
+  const query = {
+    pageIndex: params?.pageIndex ?? 1,
+    pageSize: params?.pageSize ?? 30,
+    ...(typeof params?.projectId === 'number' ? { projectId: params.projectId } : {}),
+    ...(typeof params?.channelId === 'number' ? { channelId: params.channelId } : {}),
+  }
+
+  try {
+    // Squid.Api endpoint
+    return await get<GetReleasesResponseData>('/releases/list', { params: query })
+  } catch {
+    // Backward-compatible endpoint
+    return get<GetReleasesResponseData>('/release', { params: query })
+  }
+}
+
+export async function createRelease(command: CreateReleaseCommand) {
+  return post<ReleaseDto>('/releases/create', command)
 }

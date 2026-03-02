@@ -94,12 +94,21 @@ const ProjectDetail: React.FC = () => {
 
   const base = `/${spaceId}/projects/${projectName}/project-detail`;
 
-  const isActive = (path: string) => {
+  const currentSubPath = (() => {
     const marker = "/project-detail/";
     const idx = location.pathname.indexOf(marker);
-    if (idx === -1) return false;
-    const subPath = location.pathname.slice(idx + marker.length);
-    return subPath === path;
+    if (idx === -1) return "";
+    return location.pathname.slice(idx + marker.length);
+  })();
+
+  const activeNavPath = navSections
+    .flat()
+    .map((item) => item.path)
+    .filter((path) => currentSubPath === path || currentSubPath.startsWith(`${path}/`))
+    .sort((a, b) => b.length - a.length)[0];
+
+  const isActive = (path: string) => {
+    return activeNavPath === path;
   };
 
   const displayName = project?.name || projectName || "";

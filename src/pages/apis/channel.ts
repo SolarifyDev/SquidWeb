@@ -14,6 +14,8 @@ export interface ChannelDto {
 export interface GetChannelsRequest {
   pageIndex?: number
   pageSize?: number
+  projectId?: number
+  keyword?: string
 }
 
 export interface GetChannelsResponseData {
@@ -21,6 +23,19 @@ export interface GetChannelsResponseData {
   channels: ChannelDto[]
 }
 
-export function getChannels(params?: GetChannelsRequest) {
-  return get<GetChannelsResponseData>('/channel', { params })
+export async function getChannels(params?: GetChannelsRequest) {
+  const query = {
+    pageIndex: params?.pageIndex ?? 1,
+    pageSize: params?.pageSize ?? 1000,
+    ...(params?.keyword ? { keyword: params.keyword } : {}),
+    ...(typeof params?.projectId === 'number' ? { projectId: params.projectId } : {}),
+  }
+
+  try {
+    // Squid.Api endpoint
+    return await get<GetChannelsResponseData>('/channels/list', { params: query })
+  } catch {
+    // Backward-compatible endpoint
+    return get<GetChannelsResponseData>('/channel', { params: query })
+  }
 }

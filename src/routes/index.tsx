@@ -16,6 +16,10 @@ import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
 import ProjectVariables from "pages/project-detail/ProjectVariables";
+import ProjectVariableSets from "pages/project-detail/ProjectVariableSets";
+import Channels from "pages/project-detail/Channels";
+import Releases from "pages/project-detail/Releases";
+import ReleasesCreate from "pages/project-detail/ReleasesCreate";
 
 const routes = [
   {
@@ -112,9 +116,29 @@ const routes = [
                 name: "Process",
               },
               {
+                path: "channels",
+                component: Channels,
+                name: "Channels",
+              },
+              {
+                path: "releases",
+                component: Releases,
+                name: "Releases",
+              },
+              {
+                path: "releases/create",
+                component: ReleasesCreate,
+                name: "ReleasesCreate",
+              },
+              {
                 path: "variables",
                 component: ProjectVariables,
                 name: "ProjectVariables",
+              },
+              {
+                path: "variables/library",
+                component: ProjectVariableSets,
+                name: "ProjectVariableSets",
               },
             ],
           },

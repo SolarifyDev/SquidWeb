@@ -821,8 +821,8 @@ function ProcessOverview({
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-slate-100 flex-shrink-0">
-        <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-1">
+      <div className="flex items-center gap-3 px-6 py-2.5 flex-shrink-0">
+        <div className="flex items-center gap-2 border-b border-slate-300 pb-1.5" style={{ maxWidth: 320 }}>
           <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
           </svg>
@@ -831,7 +831,7 @@ function ProcessOverview({
             placeholder="Filter by name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border-0 outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent w-44"
+            className="flex-1 border-0 outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
           />
         </div>
         <button className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5">
@@ -1049,17 +1049,19 @@ const Process: React.FC = () => {
       <div className="flex flex-1 min-h-0">
         {/* Left sidebar */}
         <div className="flex-shrink-0 border-r border-slate-200 flex flex-col" style={{ width: 280 }}>
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 flex-shrink-0">
-            <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-            </svg>
-            <input
-              type="search"
-              placeholder="Filter by name..."
-              value={sidebarFilter}
-              onChange={(e) => setSidebarFilter(e.target.value)}
-              className="flex-1 border-0 outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
-            />
+          <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-1 border-b border-slate-300 pb-1.5">
+              <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+              </svg>
+              <input
+                type="search"
+                placeholder="Filter by name..."
+                value={sidebarFilter}
+                onChange={(e) => setSidebarFilter(e.target.value)}
+                className="flex-1 border-0 outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
+              />
+            </div>
             <button className="p-1 rounded hover:bg-slate-100 text-slate-400" aria-label="Options">
               <MoreOutlined style={{ fontSize: 16 }} />
             </button>
