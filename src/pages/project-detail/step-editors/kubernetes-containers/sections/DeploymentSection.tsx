@@ -422,27 +422,29 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
       <CollapsibleSection title="DNS Config" subtitle="Define the DNS configuration for the pods in this deployment." defaultOpen>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">Nameservers</label>
-          <Input
+          <Input.TextArea
             size="small"
+            rows={3}
             value={state.podDnsNameservers}
             onChange={(e) => updateField('podDnsNameservers', e.target.value)}
-            placeholder="10.96.0.10"
+            placeholder={"10.96.0.10\n10.96.0.11"}
           />
           <p className="text-xs text-slate-400 leading-relaxed mt-1 mb-0">
-            A line separated list of up to 3 DNS name server IP addresses.
+            A newline separated list of up to 3 DNS name server IP addresses.
           </p>
         </div>
 
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">Searches</label>
-          <Input
+          <Input.TextArea
             size="small"
+            rows={3}
             value={state.podDnsSearches}
             onChange={(e) => updateField('podDnsSearches', e.target.value)}
-            placeholder="svc.cluster.local"
+            placeholder={"svc.cluster.local\nexample.com"}
           />
           <p className="text-xs text-slate-400 leading-relaxed mt-1 mb-0">
-            A line separated list of up to 6 DNS search domains for host-name lookup.
+            A newline separated list of up to 6 DNS search domains for host-name lookup.
           </p>
         </div>
 

@@ -200,13 +200,27 @@ const ScopeChip: React.FC<{ label: string }> = ({ label }) => (
   </span>
 );
 
+const InlineVariableInput: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = ({ value, onChange, placeholder }) => (
+  <input
+    type="text"
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+    className="w-full bg-transparent border-0 border-b border-transparent px-0 py-1 text-sm font-mono text-gray-800 placeholder:text-gray-400 outline-none focus:border-slate-300"
+  />
+);
+
 const ScopeCell: React.FC<{
   entry: VariableDto;
   editorOpen: boolean;
   onEditorOpenChange: (open: boolean) => void;
   editorContent: React.ReactNode;
 }> = ({ entry, editorOpen, onEditorOpenChange, editorContent }) => (
-  <div className="flex items-center">
+  <div className="w-full">
     <Popover
       trigger="click"
       open={editorOpen}
@@ -215,7 +229,7 @@ const ScopeCell: React.FC<{
       placement="bottomLeft"
       destroyTooltipOnHide
     >
-      <div className="flex items-center flex-wrap gap-0.5 flex-1 min-w-0 cursor-pointer">
+      <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 min-w-0 cursor-pointer">
         {entry.scopes.length > 0 ? (
           entry.scopes.map((s, i) => (
             <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${i}`} label={s.scopeValue} />
@@ -233,13 +247,19 @@ const RowControlActions: React.FC<{
   rowMenuItems: { key: string; label: string; danger?: boolean }[];
   onMenuAction: (key: string) => void;
 }> = ({ isModified, rowMenuItems, onMenuAction }) => (
-  <div className="flex items-center justify-center">
-    {isModified && <EditOutlined className="text-gray-400 text-xs mr-1" />}
+  <div className="relative w-full h-full flex items-center justify-end">
+    {isModified && <EditOutlined className="absolute left-0 text-gray-400 text-xs" />}
     <Dropdown
       menu={{ items: rowMenuItems, onClick: ({ key }) => onMenuAction(String(key)) }}
       trigger={['click']}
     >
-      <Button icon={<MoreOutlined />} type="text" size="small" aria-label="OverflowMenu" />
+      <Button
+        icon={<MoreOutlined />}
+        type="text"
+        size="small"
+        aria-label="OverflowMenu"
+        className="!inline-flex !items-center !justify-center !w-8 !h-8"
+      />
     </Dropdown>
   </div>
 );
@@ -257,15 +277,15 @@ const SingleVariableRow: React.FC<{
 }> = ({ entry, onNameChange, onValueChange, isModified, rowMenuItems, onRowMenuAction, scopeEditorOpen, onScopeEditorOpenChange, scopeEditorContent }) => (
   <div className="flex items-center hover:bg-gray-50 border-b border-gray-200" style={{ minHeight: ROW_HEIGHT }}>
     <div style={{ width: NAME_COL_WIDTH }} className="px-3">
-      <Input value={entry.name} onChange={(e) => onNameChange(entry.id, e.target.value)} variant="borderless" className="font-mono text-sm !px-0" />
+      <InlineVariableInput value={entry.name} onChange={(next) => onNameChange(entry.id, next)} />
     </div>
     <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-      <Input value={entry.value} onChange={(e) => onValueChange(entry.id, e.target.value)} variant="borderless" className="font-mono text-sm !px-0" />
+      <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
     </div>
     <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
       <ScopeCell entry={entry} editorOpen={scopeEditorOpen} onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)} editorContent={scopeEditorContent} />
     </div>
-    <div style={{ width: CONTROL_COL_WIDTH }} className="px-1">
+    <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 flex items-center justify-end">
       <RowControlActions isModified={isModified} rowMenuItems={rowMenuItems} onMenuAction={(key) => onRowMenuAction(entry, key)} />
     </div>
   </div>
@@ -294,7 +314,7 @@ const MultiVariableGroup: React.FC<{
         <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
           <span className="text-gray-400 text-xs">Multiple scopes</span>
         </div>
-        <div style={{ width: CONTROL_COL_WIDTH }} className="px-1">
+        <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 flex items-center justify-end">
           {firstEntry && (
             <RowControlActions isModified={isVariableModified(firstEntry)} rowMenuItems={getRowMenuItems(firstEntry, true)} onMenuAction={(key) => onRowMenuAction(firstEntry, key)} />
           )}
@@ -304,12 +324,12 @@ const MultiVariableGroup: React.FC<{
         <div key={entry.id} className="flex items-stretch" style={{ minHeight: ROW_HEIGHT }}>
           <div style={{ width: NAME_COL_WIDTH }} className="px-3" />
           <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
-            <Input value={entry.value} onChange={(e) => onValueChange(entry.id, e.target.value)} variant="borderless" className="font-mono text-sm !px-0" />
+            <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
           </div>
           <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
             <ScopeCell entry={entry} editorOpen={scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id} onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)} editorContent={scopeEditorContent} />
           </div>
-          <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 border-t border-gray-200">
+          <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center justify-end">
             <RowControlActions isModified={isVariableModified(entry)} rowMenuItems={getRowMenuItems(entry, false)} onMenuAction={(key) => onRowMenuAction(entry, key)} />
           </div>
         </div>
@@ -604,17 +624,17 @@ const ProjectVariables: React.FC = () => {
             <div key={row.id} className={`flex items-center ${index > 0 ? 'border-t border-gray-200' : ''}`} style={{ minHeight: ROW_HEIGHT }}>
               <div style={{ width: NAME_COL_WIDTH }} className="px-3">
                 {index === 0 ? (
-                  <Input placeholder="Enter new variable" value={newVar.name} onChange={(e) => setNewVar({ name: e.target.value })} variant="borderless" className="font-mono text-sm !px-0" />
+                  <InlineVariableInput placeholder="Enter new variable" value={newVar.name} onChange={(next) => setNewVar({ name: next })} />
                 ) : (
                   <div className="h-7" />
                 )}
               </div>
               <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-                <Input placeholder="Enter value" value={row.value} onChange={(e) => handleDraftValueChange(row.id, e.target.value)} variant="borderless" className="font-mono text-sm !px-0" />
+                <InlineVariableInput placeholder="Enter value" value={row.value} onChange={(next) => handleDraftValueChange(row.id, next)} />
               </div>
               <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
                 <Popover trigger="click" open={scopeEditorTarget?.kind === 'draft' && scopeEditorTarget.id === row.id} onOpenChange={(open) => handleDraftScopeEditorOpenChange(row, open)} content={scopeEditorContent} placement="bottomLeft" destroyTooltipOnHide>
-                  <div className="flex items-center flex-wrap gap-0.5 min-h-[22px] cursor-pointer">
+                  <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 cursor-pointer">
                     {row.scopes.length > 0 ? (
                       row.scopes.map((s, i) => <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${i}`} label={s.scopeValue} />)
                     ) : (
@@ -623,12 +643,29 @@ const ProjectVariables: React.FC = () => {
                   </div>
                 </Popover>
               </div>
-              <div style={{ width: CONTROL_COL_WIDTH }} className="px-1" />
+              <div style={{ width: CONTROL_COL_WIDTH }} className="px-3" />
             </div>
           ))}
-          <div className="flex justify-end gap-2 px-3 pb-2">
-            <Button size="small" disabled={!canAddAnotherValue} onClick={handleAddAnotherValue}>Add another value</Button>
-            <Button size="small" type="primary" disabled={!canAddToList} onClick={handleAddToList} className="!bg-green-600 !border-green-600">Add to list</Button>
+          <div className="border-t border-gray-200 bg-gray-50/60">
+            <div className="flex justify-end gap-2 px-3 py-2.5">
+              <Button
+                size="middle"
+                disabled={!canAddAnotherValue}
+                onClick={handleAddAnotherValue}
+                className="!h-9 !px-4 !text-sm !font-medium"
+              >
+                Add another value
+              </Button>
+              <Button
+                size="middle"
+                type="primary"
+                disabled={!canAddToList}
+                onClick={handleAddToList}
+                className="!h-9 !px-4 !text-sm !font-medium !bg-green-600 !border-green-600 hover:!bg-green-700 hover:!border-green-700"
+              >
+                Add to list
+              </Button>
+            </div>
           </div>
         </div>
 

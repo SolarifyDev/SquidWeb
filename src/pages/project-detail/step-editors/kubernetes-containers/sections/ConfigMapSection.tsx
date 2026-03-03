@@ -133,7 +133,7 @@ function EditConfigMapYamlSubSection({
 
 export function ConfigMapSection({ state, updateField }: ConfigMapSectionProps) {
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
-    const fields: (keyof ContainersEditorState)[] = ['configMapName', 'configMapValues']
+    const fields: (keyof ContainersEditorState)[] = ['namespace', 'configMapName', 'configMapValues']
     for (const field of fields) {
       const value = partial[field]
       if (value !== undefined) {

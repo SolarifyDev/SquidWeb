@@ -29,7 +29,7 @@ function emitMapLiteral(map: Record<string, string>, indentLevel: number): strin
     if (v.includes('\n')) {
       return `${' '.repeat(indentLevel)}${k}: |\n${indent(v, indentLevel + 2)}`
     }
-    return `${' '.repeat(indentLevel)}${k}: ${v}`
+    return `${' '.repeat(indentLevel)}${k}: ${JSON.stringify(v)}`
   }).join('\n')
 }
 
@@ -218,136 +218,114 @@ function emitContainer(container: ContainerSpec, indentLevel: number): string {
 
 // ── Public generators ────────────────────────────────────────────────────────
 
-export function generateDeploymentYaml(state: ContainersEditorState): string {
-  const resourceType = state.resourceType || 'Deployment'
-  const deploymentName = state.deploymentName || 'my-deployment'
-  const namespace = state.namespace || 'default'
-  const replicas = state.replicas || '1'
-  const labels = kvToMap(state.deploymentLabels)
-  const annotations = kvToMap(state.deploymentAnnotations)
+function appendPodTemplate(
+  lines: string[],
+  state: ContainersEditorState,
+  selectorLabels: Record<string, string>,
+  templateIndent: number,
+): void {
   const podAnnotations = kvToMap(state.podAnnotations)
+  const at = (offset: number) => ' '.repeat(templateIndent + offset)
 
-  // Default selector label if no labels provided
-  const selectorLabels = Object.keys(labels).length > 0 ? labels : { app: deploymentName }
-
-  const apiVersion = resourceType === 'Job' ? 'batch/v1' : 'apps/v1'
-  const lines: string[] = []
-
-  lines.push(`apiVersion: ${apiVersion}`)
-  lines.push(`kind: ${resourceType}`)
-  lines.push('metadata:')
-  lines.push(`  name: ${deploymentName}`)
-  lines.push(`  namespace: ${namespace}`)
-  if (Object.keys(labels).length > 0) {
-    lines.push('  labels:')
-    lines.push(emitMap(labels, 4))
-  }
-  if (Object.keys(annotations).length > 0) {
-    lines.push('  annotations:')
-    lines.push(emitMap(annotations, 4))
-  }
-
-  lines.push('spec:')
-  lines.push(`  replicas: ${replicas}`)
-  if (state.revisionHistoryLimit) lines.push(`  revisionHistoryLimit: ${state.revisionHistoryLimit}`)
-  if (state.progressDeadlineSeconds) lines.push(`  progressDeadlineSeconds: ${state.progressDeadlineSeconds}`)
-  lines.push('  selector:')
-  lines.push('    matchLabels:')
-  lines.push(emitMap(selectorLabels, 6))
-  const strategyType = state.deploymentStyle === 'BlueGreen' ? 'RollingUpdate' : (state.deploymentStyle || 'RollingUpdate')
-  lines.push(`  strategy:`)
-  lines.push(`    type: ${strategyType}`)
-  if (strategyType === 'RollingUpdate' && (state.maxUnavailable || state.maxSurge)) {
-    lines.push(`    rollingUpdate:`)
-    if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
-    if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
-  }
-  lines.push('  template:')
-  lines.push('    metadata:')
-  lines.push('      labels:')
-  lines.push(emitMap(selectorLabels, 8))
+  lines.push(`${at(0)}template:`)
+  lines.push(`${at(2)}metadata:`)
+  lines.push(`${at(4)}labels:`)
+  lines.push(emitMap(selectorLabels, templateIndent + 6))
   if (Object.keys(podAnnotations).length > 0) {
-    lines.push('      annotations:')
-    lines.push(emitMap(podAnnotations, 8))
+    lines.push(`${at(4)}annotations:`)
+    lines.push(emitMap(podAnnotations, templateIndent + 6))
   }
-  lines.push('    spec:')
+  lines.push(`${at(2)}spec:`)
 
-  // Pod termination grace period
-  if (state.podTerminationGracePeriodSeconds) lines.push(`      terminationGracePeriodSeconds: ${state.podTerminationGracePeriodSeconds}`)
-  if (state.podPriorityClassName) lines.push(`      priorityClassName: ${state.podPriorityClassName}`)
-  if (state.serviceAccountName) lines.push(`      serviceAccountName: ${state.serviceAccountName}`)
-  if (state.podRestartPolicy) lines.push(`      restartPolicy: ${state.podRestartPolicy}`)
-  if (state.podDnsPolicy) lines.push(`      dnsPolicy: ${state.podDnsPolicy}`)
-  if (state.podHostNetworking) lines.push(`      hostNetwork: ${state.podHostNetworking === 'True' ? 'true' : 'false'}`)
+  if (state.podTerminationGracePeriodSeconds) lines.push(`${at(4)}terminationGracePeriodSeconds: ${state.podTerminationGracePeriodSeconds}`)
+  if (state.podPriorityClassName) lines.push(`${at(4)}priorityClassName: ${state.podPriorityClassName}`)
+  if (state.serviceAccountName) lines.push(`${at(4)}serviceAccountName: ${state.serviceAccountName}`)
+  if (state.podRestartPolicy) lines.push(`${at(4)}restartPolicy: ${state.podRestartPolicy}`)
+  if (state.podDnsPolicy) lines.push(`${at(4)}dnsPolicy: ${state.podDnsPolicy}`)
+  if (state.podHostNetworking) lines.push(`${at(4)}hostNetwork: ${state.podHostNetworking === 'True' ? 'true' : 'false'}`)
 
   const readinessGates = state.podReadinessGates
     .split(/\r?\n/)
     .map((v) => v.trim())
     .filter(Boolean)
   if (readinessGates.length > 0) {
-    lines.push('      readinessGates:')
+    lines.push(`${at(4)}readinessGates:`)
     for (const gate of readinessGates) {
-      lines.push(`        - conditionType: ${JSON.stringify(gate)}`)
+      lines.push(`${at(6)}- conditionType: ${JSON.stringify(gate)}`)
     }
   }
 
-  // Volumes
-  const vols = state.volumes.filter((v) => v.Name)
-  if (vols.length > 0) {
-    lines.push('      volumes:')
-    for (const vol of vols) {
-      lines.push(`        - name: ${vol.Name}`)
-      if (vol.Type === 'ConfigMap') {
-        lines.push(`          configMap:`)
-        lines.push(`            name: ${vol.ReferenceName || vol.Name}`)
-      } else if (vol.Type === 'Secret') {
-        lines.push(`          secret:`)
-        lines.push(`            secretName: ${vol.ReferenceName || vol.Name}`)
-      } else if (vol.Type === 'EmptyDir') {
-        lines.push(`          emptyDir: {}`)
-      } else if (vol.Type === 'PVC') {
-        lines.push(`          persistentVolumeClaim:`)
-        lines.push(`            claimName: ${vol.ReferenceName || vol.Name}`)
-      } else if (vol.Type === 'HostPath') {
-        lines.push(`          hostPath:`)
-        lines.push(`            path: ${vol.ReferenceName || '/'}`)
+  const hostAliases = state.hostAliases.filter((alias) => alias.ip.trim() || alias.hostnames.trim())
+  if (hostAliases.length > 0) {
+    lines.push(`${at(4)}hostAliases:`)
+    for (const alias of hostAliases) {
+      lines.push(`${at(6)}- ip: ${JSON.stringify(alias.ip.trim())}`)
+      const hostnames = alias.hostnames
+        .split(/[\s,]+/)
+        .map((host) => host.trim())
+        .filter(Boolean)
+      if (hostnames.length > 0) {
+        lines.push(`${at(8)}hostnames:`)
+        for (const hostname of hostnames) {
+          lines.push(`${at(10)}- ${JSON.stringify(hostname)}`)
+        }
       }
     }
   }
 
-  // Tolerations
-  const tolerations = state.tolerations.filter((t) => t.key)
-  if (tolerations.length > 0) {
-    lines.push('      tolerations:')
-    for (const tol of tolerations) {
-      lines.push(`        - key: ${tol.key}`)
-      lines.push(`          operator: ${tol.operator || 'Equal'}`)
-      if (tol.value) lines.push(`          value: "${tol.value}"`)
-      if (tol.effect) lines.push(`          effect: ${tol.effect}`)
+  const vols = state.volumes.filter((v) => v.Name)
+  if (vols.length > 0) {
+    lines.push(`${at(4)}volumes:`)
+    for (const vol of vols) {
+      lines.push(`${at(6)}- name: ${vol.Name}`)
+      if (vol.Type === 'ConfigMap') {
+        lines.push(`${at(8)}configMap:`)
+        lines.push(`${at(10)}name: ${vol.ReferenceName || vol.Name}`)
+      } else if (vol.Type === 'Secret') {
+        lines.push(`${at(8)}secret:`)
+        lines.push(`${at(10)}secretName: ${vol.ReferenceName || vol.Name}`)
+      } else if (vol.Type === 'EmptyDir') {
+        lines.push(`${at(8)}emptyDir: {}`)
+      } else if (vol.Type === 'PVC') {
+        lines.push(`${at(8)}persistentVolumeClaim:`)
+        lines.push(`${at(10)}claimName: ${vol.ReferenceName || vol.Name}`)
+      } else if (vol.Type === 'HostPath') {
+        lines.push(`${at(8)}hostPath:`)
+        lines.push(`${at(10)}path: ${vol.ReferenceName || '/'}`)
+      }
     }
   }
 
-  // Affinity
+  const tolerations = state.tolerations.filter((t) => t.key)
+  if (tolerations.length > 0) {
+    lines.push(`${at(4)}tolerations:`)
+    for (const tol of tolerations) {
+      lines.push(`${at(6)}- key: ${tol.key}`)
+      lines.push(`${at(8)}operator: ${tol.operator || 'Equal'}`)
+      if (tol.value) lines.push(`${at(8)}value: ${JSON.stringify(tol.value)}`)
+      if (tol.effect) lines.push(`${at(8)}effect: ${tol.effect}`)
+    }
+  }
+
   const nodeAffinity = tryParseJson(state.nodeAffinity)
   const podAffinity = tryParseJson(state.podAffinity)
   const podAntiAffinity = tryParseJson(state.podAntiAffinity)
   if (nodeAffinity || podAffinity || podAntiAffinity) {
-    lines.push('      affinity:')
+    lines.push(`${at(4)}affinity:`)
     if (nodeAffinity) {
-      lines.push('        nodeAffinity:')
-      lines.push(jsonToYaml(nodeAffinity, 10))
+      lines.push(`${at(6)}nodeAffinity:`)
+      lines.push(jsonToYaml(nodeAffinity, templateIndent + 8))
     }
     if (podAffinity) {
-      lines.push('        podAffinity:')
-      lines.push(jsonToYaml(podAffinity, 10))
+      lines.push(`${at(6)}podAffinity:`)
+      lines.push(jsonToYaml(podAffinity, templateIndent + 8))
     }
     if (podAntiAffinity) {
-      lines.push('        podAntiAffinity:')
-      lines.push(jsonToYaml(podAntiAffinity, 10))
+      lines.push(`${at(6)}podAntiAffinity:`)
+      lines.push(jsonToYaml(podAntiAffinity, templateIndent + 8))
     }
   }
 
-  // DNS config
   const dnsNameservers = state.podDnsNameservers
     .split(/\r?\n/)
     .map((v) => v.trim())
@@ -358,29 +336,28 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
     .filter(Boolean)
   const dnsOpts = state.dnsConfigOptions.filter((d) => d.name)
   if (dnsNameservers.length > 0 || dnsSearches.length > 0 || dnsOpts.length > 0) {
-    lines.push('      dnsConfig:')
+    lines.push(`${at(4)}dnsConfig:`)
     if (dnsNameservers.length > 0) {
-      lines.push('        nameservers:')
+      lines.push(`${at(6)}nameservers:`)
       for (const ns of dnsNameservers) {
-        lines.push(`          - ${ns}`)
+        lines.push(`${at(8)}- ${ns}`)
       }
     }
     if (dnsSearches.length > 0) {
-      lines.push('        searches:')
+      lines.push(`${at(6)}searches:`)
       for (const search of dnsSearches) {
-        lines.push(`          - ${search}`)
+        lines.push(`${at(8)}- ${search}`)
       }
     }
     if (dnsOpts.length > 0) {
-      lines.push('        options:')
+      lines.push(`${at(6)}options:`)
       for (const opt of dnsOpts) {
-        lines.push(`          - name: ${opt.name}`)
-        if (opt.value) lines.push(`            value: "${opt.value}"`)
+        lines.push(`${at(8)}- name: ${opt.name}`)
+        if (opt.value) lines.push(`${at(10)}value: ${JSON.stringify(opt.value)}`)
       }
     }
   }
 
-  // Pod security context
   const supplementalGroups = state.podSecuritySupplementalGroups
     .split(',')
     .map((v) => v.trim())
@@ -402,53 +379,142 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
     sysctls.length > 0
 
   if (hasPodSecurityContext) {
-    lines.push('      securityContext:')
-    if (state.podSecurityFsGroup) lines.push(`        fsGroup: ${state.podSecurityFsGroup}`)
-    if (state.podSecurityRunAsGroup) lines.push(`        runAsGroup: ${state.podSecurityRunAsGroup}`)
-    if (state.podSecurityRunAsUser) lines.push(`        runAsUser: ${state.podSecurityRunAsUser}`)
+    lines.push(`${at(4)}securityContext:`)
+    if (state.podSecurityFsGroup) lines.push(`${at(6)}fsGroup: ${state.podSecurityFsGroup}`)
+    if (state.podSecurityRunAsGroup) lines.push(`${at(6)}runAsGroup: ${state.podSecurityRunAsGroup}`)
+    if (state.podSecurityRunAsUser) lines.push(`${at(6)}runAsUser: ${state.podSecurityRunAsUser}`)
     if (supplementalGroups.length > 0) {
-      lines.push('        supplementalGroups:')
+      lines.push(`${at(6)}supplementalGroups:`)
       for (const group of supplementalGroups) {
-        lines.push(`          - ${group}`)
+        lines.push(`${at(8)}- ${group}`)
       }
     }
     if (state.podSecurityRunAsNonRoot === 'True' || state.podSecurityRunAsNonRoot === 'False') {
-      lines.push(`        runAsNonRoot: ${state.podSecurityRunAsNonRoot === 'True' ? 'true' : 'false'}`)
+      lines.push(`${at(6)}runAsNonRoot: ${state.podSecurityRunAsNonRoot === 'True' ? 'true' : 'false'}`)
     }
     if (hasSeLinux) {
-      lines.push('        seLinuxOptions:')
-      if (state.podSecuritySeLinuxLevel) lines.push(`          level: ${state.podSecuritySeLinuxLevel}`)
-      if (state.podSecuritySeLinuxRole) lines.push(`          role: ${state.podSecuritySeLinuxRole}`)
-      if (state.podSecuritySeLinuxType) lines.push(`          type: ${state.podSecuritySeLinuxType}`)
-      if (state.podSecuritySeLinuxUser) lines.push(`          user: ${state.podSecuritySeLinuxUser}`)
+      lines.push(`${at(6)}seLinuxOptions:`)
+      if (state.podSecuritySeLinuxLevel) lines.push(`${at(8)}level: ${state.podSecuritySeLinuxLevel}`)
+      if (state.podSecuritySeLinuxRole) lines.push(`${at(8)}role: ${state.podSecuritySeLinuxRole}`)
+      if (state.podSecuritySeLinuxType) lines.push(`${at(8)}type: ${state.podSecuritySeLinuxType}`)
+      if (state.podSecuritySeLinuxUser) lines.push(`${at(8)}user: ${state.podSecuritySeLinuxUser}`)
     }
     if (sysctls.length > 0) {
-      lines.push('        sysctls:')
+      lines.push(`${at(6)}sysctls:`)
       for (const sysctl of sysctls) {
-        lines.push(`          - name: ${sysctl.name}`)
-        lines.push(`            value: "${sysctl.value}"`)
+        lines.push(`${at(8)}- name: ${sysctl.name}`)
+        lines.push(`${at(10)}value: ${JSON.stringify(sysctl.value)}`)
       }
     }
   }
 
-  // Image pull secrets
   const pullSecrets = state.imagePullSecrets.filter((s) => s.name)
   if (pullSecrets.length > 0) {
-    lines.push('      imagePullSecrets:')
+    lines.push(`${at(4)}imagePullSecrets:`)
     for (const secret of pullSecrets) {
-      lines.push(`        - name: ${secret.name}`)
+      lines.push(`${at(6)}- name: ${secret.name}`)
     }
   }
 
-  // Containers
-  if (state.containers.length > 0) {
-    lines.push('      containers:')
-    for (const container of state.containers) {
-      lines.push(emitContainer(container, 6))
+  const initContainers = state.containers.filter((container) => container.IsInitContainer === 'True')
+  const workloadContainers = state.containers.filter((container) => container.IsInitContainer !== 'True')
+  const containerItemIndent = templateIndent + 4
+
+  if (initContainers.length > 0) {
+    lines.push(`${at(4)}initContainers:`)
+    for (const container of initContainers) {
+      lines.push(emitContainer(container, containerItemIndent))
+    }
+  }
+
+  if (workloadContainers.length > 0) {
+    lines.push(`${at(4)}containers:`)
+    for (const container of workloadContainers) {
+      lines.push(emitContainer(container, containerItemIndent))
     }
   } else {
-    lines.push('      containers: []')
+    lines.push(`${at(4)}containers: []`)
   }
+}
+
+export function generateDeploymentYaml(state: ContainersEditorState): string {
+  const resourceType = state.resourceType || 'Deployment'
+  const deploymentName = state.deploymentName || 'my-deployment'
+  const namespace = state.namespace || 'default'
+  const replicas = state.replicas || '1'
+  const labels = kvToMap(state.deploymentLabels)
+  const annotations = kvToMap(state.deploymentAnnotations)
+  const selectorLabels = Object.keys(labels).length > 0 ? labels : { app: deploymentName }
+
+  const apiVersion = resourceType === 'Job' ? 'batch/v1' : 'apps/v1'
+  const lines: string[] = []
+
+  const pushSelector = () => {
+    lines.push('  selector:')
+    lines.push('    matchLabels:')
+    lines.push(emitMap(selectorLabels, 6))
+  }
+
+  lines.push(`apiVersion: ${apiVersion}`)
+  lines.push(`kind: ${resourceType}`)
+  lines.push('metadata:')
+  lines.push(`  name: ${deploymentName}`)
+  lines.push(`  namespace: ${namespace}`)
+  if (Object.keys(labels).length > 0) {
+    lines.push('  labels:')
+    lines.push(emitMap(labels, 4))
+  }
+  if (Object.keys(annotations).length > 0) {
+    lines.push('  annotations:')
+    lines.push(emitMap(annotations, 4))
+  }
+
+  lines.push('spec:')
+
+  if (resourceType === 'Job') {
+    appendPodTemplate(lines, state, selectorLabels, 2)
+    return lines.filter((l) => l !== '').join('\n')
+  }
+
+  if (resourceType === 'StatefulSet') {
+    lines.push(`  serviceName: ${state.serviceName || deploymentName}`)
+    lines.push(`  replicas: ${replicas}`)
+    pushSelector()
+    const updateStrategyType = state.deploymentStyle === 'OnDelete' ? 'OnDelete' : 'RollingUpdate'
+    lines.push('  updateStrategy:')
+    lines.push(`    type: ${updateStrategyType}`)
+    appendPodTemplate(lines, state, selectorLabels, 2)
+    return lines.filter((l) => l !== '').join('\n')
+  }
+
+  if (resourceType === 'DaemonSet') {
+    pushSelector()
+    const updateStrategyType = state.deploymentStyle === 'OnDelete' ? 'OnDelete' : 'RollingUpdate'
+    lines.push('  updateStrategy:')
+    lines.push(`    type: ${updateStrategyType}`)
+    if (updateStrategyType === 'RollingUpdate' && (state.maxUnavailable || state.maxSurge)) {
+      lines.push('    rollingUpdate:')
+      if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
+      if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
+    }
+    appendPodTemplate(lines, state, selectorLabels, 2)
+    return lines.filter((l) => l !== '').join('\n')
+  }
+
+  // Deployment (default)
+  lines.push(`  replicas: ${replicas}`)
+  if (state.revisionHistoryLimit) lines.push(`  revisionHistoryLimit: ${state.revisionHistoryLimit}`)
+  if (state.progressDeadlineSeconds) lines.push(`  progressDeadlineSeconds: ${state.progressDeadlineSeconds}`)
+  pushSelector()
+  const strategyType = state.deploymentStyle === 'Recreate' ? 'Recreate' : 'RollingUpdate'
+  lines.push('  strategy:')
+  lines.push(`    type: ${strategyType}`)
+  if (strategyType === 'RollingUpdate' && (state.maxUnavailable || state.maxSurge)) {
+    lines.push('    rollingUpdate:')
+    if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
+    if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
+  }
+  appendPodTemplate(lines, state, selectorLabels, 2)
 
   return lines.filter((l) => l !== '').join('\n')
 }

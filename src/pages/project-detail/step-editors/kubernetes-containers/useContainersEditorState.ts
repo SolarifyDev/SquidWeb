@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import type { DeploymentStepDto, DeploymentActionDto, DeploymentActionPropertyDto } from 'pages/apis/deploymentProcess'
-import { KEYS } from './propertyKeys'
+import { KubernetesProperties } from './KubernetesProperties'
 import { type ContainersEditorState, defaultEditorState } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
 
@@ -26,74 +26,166 @@ function kvToJson(items: KeyValueItem[]): string {
   return JSON.stringify(items.filter((i) => i.key).map((i) => ({ Key: i.key, Value: i.value })))
 }
 
+function normalizeServicePorts(value: string | undefined): ContainersEditorState['servicePorts'] {
+  const parsed = safeJsonParse<unknown[]>(value, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed.map((item) => {
+    const obj = (item ?? {}) as Record<string, unknown>
+    return {
+      name: obj.name == null ? '' : String(obj.name),
+      port: obj.port == null ? '' : String(obj.port),
+      targetPort: obj.targetPort == null ? '' : String(obj.targetPort),
+      nodePort: obj.nodePort == null ? '' : String(obj.nodePort),
+      protocol: obj.protocol == null ? 'TCP' : String(obj.protocol),
+    }
+  })
+}
+
+function normalizeIngressRules(value: string | undefined): ContainersEditorState['ingressRules'] {
+  const parsed = safeJsonParse<unknown[]>(value, [])
+  if (!Array.isArray(parsed)) return []
+
+  return parsed.map((rule) => {
+    const ruleObj = (rule ?? {}) as Record<string, unknown>
+    const pathsRaw = Array.isArray(ruleObj.paths) ? ruleObj.paths : []
+    return {
+      host: ruleObj.host == null ? '' : String(ruleObj.host),
+      paths: pathsRaw.map((path) => {
+        const pathObj = (path ?? {}) as Record<string, unknown>
+        const backendObj = (pathObj.backend ?? {}) as Record<string, unknown>
+
+        // Backward/forward compatible: support both flat and nested backend shapes.
+        const serviceName = backendObj.serviceName ?? pathObj.serviceName
+        const servicePort = backendObj.servicePort ?? pathObj.servicePort
+
+        return {
+          path: pathObj.path == null ? '' : String(pathObj.path),
+          pathType: pathObj.pathType == null ? 'Prefix' : String(pathObj.pathType),
+          backend: {
+            serviceName: serviceName == null ? '' : String(serviceName),
+            servicePort: servicePort == null ? '' : String(servicePort),
+          },
+        }
+      }),
+    }
+  })
+}
+
+function toNumericIfPossible(value: string): number | string {
+  return /^\d+$/.test(value) ? Number(value) : value
+}
+
+function serializeServicePorts(ports: ContainersEditorState['servicePorts']): string {
+  const mapped = ports
+    .filter((p) => p.port.trim())
+    .map((p) => {
+      const item: Record<string, string | number> = {
+        port: toNumericIfPossible(p.port.trim()),
+      }
+
+      if (p.name.trim()) item.name = p.name.trim()
+      if (p.targetPort.trim()) item.targetPort = toNumericIfPossible(p.targetPort.trim())
+      if (p.nodePort.trim()) item.nodePort = Number(p.nodePort.trim())
+      if (p.protocol.trim()) item.protocol = p.protocol.trim()
+
+      return item
+    })
+
+  return JSON.stringify(mapped)
+}
+
+function serializeIngressRules(rules: ContainersEditorState['ingressRules']): string {
+  const mapped = rules.map((rule) => ({
+    host: rule.host,
+    paths: rule.paths.map((path) => ({
+      path: path.path,
+      pathType: path.pathType,
+      serviceName: path.backend.serviceName,
+      servicePort: path.backend.servicePort.trim()
+        ? toNumericIfPossible(path.backend.servicePort.trim())
+        : '',
+    })),
+  }))
+  return JSON.stringify(mapped)
+}
+
+function serializeContainers(containers: ContainersEditorState['containers'], packageId: string): string {
+  const mapped = containers.map((container) => ({
+    ...container,
+    // Keep UI behavior (single package selector) but ensure per-container payload stays populated.
+    PackageId: container.PackageId || packageId,
+  }))
+  return JSON.stringify(mapped)
+}
+
 function deserializeState(step: DeploymentStepDto): ContainersEditorState {
   const action = step.actions[0]
   if (!action) return { ...defaultEditorState(), stepName: step.name }
 
   const get = (key: string) => getActionProp(action, key)
 
-  const targetRoles = step.properties.find((p) => p.propertyName === 'Squid.Action.TargetRoles')?.propertyValue ?? ''
+  const targetRoles = step.properties.find((p) => p.propertyName === KubernetesProperties.TargetRoles)?.propertyValue ?? ''
 
   return {
     stepName: step.name,
     targetRoles,
-    resourceType: get(KEYS.DeploymentResourceType) ?? 'Deployment',
-    deploymentName: get(KEYS.DeploymentName) ?? '',
-    namespace: get(KEYS.Namespace) ?? 'default',
-    replicas: get(KEYS.Replicas) ?? '1',
-    revisionHistoryLimit: get(KEYS.RevisionHistoryLimit) ?? '',
-    progressDeadlineSeconds: get(KEYS.ProgressDeadlineSeconds) ?? '',
-    podTerminationGracePeriodSeconds: get(KEYS.PodTerminationGracePeriodSeconds) ?? '',
-    podPriorityClassName: get(KEYS.PodPriorityClassName) ?? '',
-    podRestartPolicy: get(KEYS.PodRestartPolicy) ?? 'Always',
-    podDnsPolicy: get(KEYS.PodDnsPolicy) ?? 'ClusterFirst',
-    podDnsNameservers: get(KEYS.PodDnsNameservers) ?? '',
-    podDnsSearches: get(KEYS.PodDnsSearches) ?? '',
-    podReadinessGates: get(KEYS.PodReadinessGates) ?? '',
-    serviceAccountName: get(KEYS.ServiceAccountName) ?? '',
-    podHostNetworking: get(KEYS.PodHostNetworking) ?? 'False',
-    podSecurityFsGroup: get(KEYS.PodSecurityFsGroup) ?? '',
-    podSecurityRunAsGroup: get(KEYS.PodSecurityRunAsGroup) ?? '',
-    podSecurityRunAsUser: get(KEYS.PodSecurityRunAsUser) ?? '',
-    podSecuritySupplementalGroups: get(KEYS.PodSecuritySupplementalGroups) ?? '',
-    podSecurityRunAsNonRoot: get(KEYS.PodSecurityRunAsNonRoot) ?? '',
-    podSecuritySeLinuxLevel: get(KEYS.PodSecuritySeLinuxLevel) ?? '',
-    podSecuritySeLinuxRole: get(KEYS.PodSecuritySeLinuxRole) ?? '',
-    podSecuritySeLinuxType: get(KEYS.PodSecuritySeLinuxType) ?? '',
-    podSecuritySeLinuxUser: get(KEYS.PodSecuritySeLinuxUser) ?? '',
-    deploymentStyle: get(KEYS.DeploymentStyle) ?? 'RollingUpdate',
-    maxUnavailable: get(KEYS.MaxUnavailable) ?? '',
-    maxSurge: get(KEYS.MaxSurge) ?? '',
-    deploymentLabels: kvFromJson(get(KEYS.DeploymentLabels)),
-    deploymentAnnotations: kvFromJson(get(KEYS.DeploymentAnnotations)),
-    podAnnotations: kvFromJson(get(KEYS.PodAnnotations)),
+    resourceType: get(KubernetesProperties.DeploymentResourceType) ?? 'Deployment',
+    deploymentName: get(KubernetesProperties.DeploymentName) ?? '',
+    namespace: get(KubernetesProperties.Namespace) ?? 'default',
+    replicas: get(KubernetesProperties.Replicas) ?? '1',
+    revisionHistoryLimit: get(KubernetesProperties.RevisionHistoryLimit) ?? '',
+    progressDeadlineSeconds: get(KubernetesProperties.ProgressDeadlineSeconds) ?? '',
+    podTerminationGracePeriodSeconds: get(KubernetesProperties.PodTerminationGracePeriodSeconds) ?? '',
+    podPriorityClassName: get(KubernetesProperties.PodPriorityClassName) ?? '',
+    podRestartPolicy: get(KubernetesProperties.PodRestartPolicy) ?? 'Always',
+    podDnsPolicy: get(KubernetesProperties.PodDnsPolicy) ?? 'ClusterFirst',
+    podDnsNameservers: get(KubernetesProperties.PodDnsNameservers) ?? '',
+    podDnsSearches: get(KubernetesProperties.PodDnsSearches) ?? '',
+    podReadinessGates: get(KubernetesProperties.PodReadinessGates) ?? '',
+    serviceAccountName: get(KubernetesProperties.ServiceAccountName) ?? '',
+    podHostNetworking: get(KubernetesProperties.PodHostNetworking) ?? 'False',
+    podSecurityFsGroup: get(KubernetesProperties.PodSecurityFsGroup) ?? '',
+    podSecurityRunAsGroup: get(KubernetesProperties.PodSecurityRunAsGroup) ?? '',
+    podSecurityRunAsUser: get(KubernetesProperties.PodSecurityRunAsUser) ?? '',
+    podSecuritySupplementalGroups: get(KubernetesProperties.PodSecuritySupplementalGroups) ?? '',
+    podSecurityRunAsNonRoot: get(KubernetesProperties.PodSecurityRunAsNonRoot) ?? '',
+    podSecuritySeLinuxLevel: get(KubernetesProperties.PodSecuritySeLinuxLevel) ?? '',
+    podSecuritySeLinuxRole: get(KubernetesProperties.PodSecuritySeLinuxRole) ?? '',
+    podSecuritySeLinuxType: get(KubernetesProperties.PodSecuritySeLinuxType) ?? '',
+    podSecuritySeLinuxUser: get(KubernetesProperties.PodSecuritySeLinuxUser) ?? '',
+    deploymentStyle: get(KubernetesProperties.DeploymentStyle) ?? 'RollingUpdate',
+    maxUnavailable: get(KubernetesProperties.MaxUnavailable) ?? '',
+    maxSurge: get(KubernetesProperties.MaxSurge) ?? '',
+    deploymentLabels: kvFromJson(get(KubernetesProperties.DeploymentLabels)),
+    deploymentAnnotations: kvFromJson(get(KubernetesProperties.DeploymentAnnotations)),
+    podAnnotations: kvFromJson(get(KubernetesProperties.PodAnnotations)),
     feedId: action.feedId ?? null,
     packageId: action.packageId ?? '',
-    containers: safeJsonParse(get(KEYS.Containers), []),
-    volumes: safeJsonParse(get(KEYS.CombinedVolumes), []),
-    serviceName: get(KEYS.ServiceName) ?? '',
-    serviceType: get(KEYS.ServiceType) ?? 'ClusterIP',
-    serviceClusterIp: get(KEYS.ServiceClusterIp) ?? '',
-    serviceAnnotations: kvFromJson(get(KEYS.ServiceAnnotations)),
-    servicePorts: safeJsonParse(get(KEYS.ServicePorts), []),
-    ingressName: get(KEYS.IngressName) ?? '',
-    ingressClassName: get(KEYS.IngressClassName) ?? '',
-    ingressAnnotations: kvFromJson(get(KEYS.IngressAnnotations)),
-    ingressRules: safeJsonParse(get(KEYS.IngressRules), []),
-    ingressTls: safeJsonParse(get(KEYS.IngressTlsCertificates), []),
-    configMapName: get(KEYS.ConfigMapName) ?? '',
-    configMapValues: kvFromJson(get(KEYS.ConfigMapValues)),
-    secretName: get(KEYS.SecretName) ?? '',
-    secretValues: kvFromJson(get(KEYS.SecretValues)),
-    objectStatusCheck: get(KEYS.ObjectStatusCheck) ?? 'disabled',
-    hostAliases: safeJsonParse(get(KEYS.HostAliases), []),
-    tolerations: safeJsonParse(get(KEYS.Tolerations), []),
-    nodeAffinity: get(KEYS.NodeAffinity) ?? '',
-    podAffinity: get(KEYS.PodAffinity) ?? '',
-    podAntiAffinity: get(KEYS.PodAntiAffinity) ?? '',
-    imagePullSecrets: safeJsonParse(get(KEYS.PodSecurityImagePullSecrets), []),
-    sysctls: safeJsonParse(get(KEYS.PodSecuritySysctls), []),
-    dnsConfigOptions: safeJsonParse(get(KEYS.DnsConfigOptions), []),
+    containers: safeJsonParse(get(KubernetesProperties.Containers), []),
+    volumes: safeJsonParse(get(KubernetesProperties.CombinedVolumes), []),
+    serviceName: get(KubernetesProperties.ServiceName) ?? '',
+    serviceType: get(KubernetesProperties.ServiceType) ?? 'ClusterIP',
+    serviceClusterIp: get(KubernetesProperties.ServiceClusterIp) ?? '',
+    serviceAnnotations: kvFromJson(get(KubernetesProperties.ServiceAnnotations)),
+    servicePorts: normalizeServicePorts(get(KubernetesProperties.ServicePorts)),
+    ingressName: get(KubernetesProperties.IngressName) ?? '',
+    ingressClassName: get(KubernetesProperties.IngressClassName) ?? '',
+    ingressAnnotations: kvFromJson(get(KubernetesProperties.IngressAnnotations)),
+    ingressRules: normalizeIngressRules(get(KubernetesProperties.IngressRules)),
+    ingressTls: safeJsonParse(get(KubernetesProperties.IngressTlsCertificates), []),
+    configMapName: get(KubernetesProperties.ConfigMapName) ?? '',
+    configMapValues: kvFromJson(get(KubernetesProperties.ConfigMapValues)),
+    secretName: get(KubernetesProperties.SecretName) ?? '',
+    secretValues: kvFromJson(get(KubernetesProperties.SecretValues)),
+    objectStatusCheck: get(KubernetesProperties.ObjectStatusCheck) ?? 'disabled',
+    hostAliases: safeJsonParse(get(KubernetesProperties.HostAliases), []),
+    tolerations: safeJsonParse(get(KubernetesProperties.Tolerations), []),
+    nodeAffinity: get(KubernetesProperties.NodeAffinity) ?? '',
+    podAffinity: get(KubernetesProperties.PodAffinity) ?? '',
+    podAntiAffinity: get(KubernetesProperties.PodAntiAffinity) ?? '',
+    imagePullSecrets: safeJsonParse(get(KubernetesProperties.PodSecurityImagePullSecrets), []),
+    sysctls: safeJsonParse(get(KubernetesProperties.PodSecuritySysctls), []),
+    dnsConfigOptions: safeJsonParse(get(KubernetesProperties.DnsConfigOptions), []),
     condition: step.condition || 'Success',
     startTrigger: step.startTrigger || 'StartAfterPrevious',
   }
@@ -107,61 +199,61 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
     }
   }
 
-  add(KEYS.DeploymentResourceType, state.resourceType)
-  add(KEYS.DeploymentName, state.deploymentName)
-  add(KEYS.Namespace, state.namespace)
-  add(KEYS.Replicas, state.replicas)
-  add(KEYS.RevisionHistoryLimit, state.revisionHistoryLimit)
-  add(KEYS.ProgressDeadlineSeconds, state.progressDeadlineSeconds)
-  add(KEYS.PodTerminationGracePeriodSeconds, state.podTerminationGracePeriodSeconds)
-  add(KEYS.PodPriorityClassName, state.podPriorityClassName)
-  add(KEYS.PodRestartPolicy, state.podRestartPolicy)
-  add(KEYS.PodDnsPolicy, state.podDnsPolicy)
-  add(KEYS.PodDnsNameservers, state.podDnsNameservers)
-  add(KEYS.PodDnsSearches, state.podDnsSearches)
-  add(KEYS.PodReadinessGates, state.podReadinessGates)
-  add(KEYS.ServiceAccountName, state.serviceAccountName)
-  add(KEYS.PodHostNetworking, state.podHostNetworking)
-  add(KEYS.PodSecurityFsGroup, state.podSecurityFsGroup)
-  add(KEYS.PodSecurityRunAsGroup, state.podSecurityRunAsGroup)
-  add(KEYS.PodSecurityRunAsUser, state.podSecurityRunAsUser)
-  add(KEYS.PodSecuritySupplementalGroups, state.podSecuritySupplementalGroups)
-  add(KEYS.PodSecurityRunAsNonRoot, state.podSecurityRunAsNonRoot)
-  add(KEYS.PodSecuritySeLinuxLevel, state.podSecuritySeLinuxLevel)
-  add(KEYS.PodSecuritySeLinuxRole, state.podSecuritySeLinuxRole)
-  add(KEYS.PodSecuritySeLinuxType, state.podSecuritySeLinuxType)
-  add(KEYS.PodSecuritySeLinuxUser, state.podSecuritySeLinuxUser)
-  add(KEYS.DeploymentStyle, state.deploymentStyle)
-  add(KEYS.MaxUnavailable, state.maxUnavailable)
-  add(KEYS.MaxSurge, state.maxSurge)
-  add(KEYS.DeploymentLabels, kvToJson(state.deploymentLabels))
-  add(KEYS.DeploymentAnnotations, kvToJson(state.deploymentAnnotations))
-  add(KEYS.PodAnnotations, kvToJson(state.podAnnotations))
-  add(KEYS.Containers, JSON.stringify(state.containers))
-  add(KEYS.CombinedVolumes, JSON.stringify(state.volumes))
-  add(KEYS.ServiceName, state.serviceName)
-  add(KEYS.ServiceType, state.serviceType)
-  add(KEYS.ServiceClusterIp, state.serviceClusterIp)
-  add(KEYS.ServiceAnnotations, kvToJson(state.serviceAnnotations))
-  add(KEYS.ServicePorts, JSON.stringify(state.servicePorts))
-  add(KEYS.ConfigMapName, state.configMapName)
-  add(KEYS.ConfigMapValues, kvToJson(state.configMapValues))
-  add(KEYS.IngressName, state.ingressName)
-  add(KEYS.IngressClassName, state.ingressClassName)
-  add(KEYS.IngressAnnotations, kvToJson(state.ingressAnnotations))
-  add(KEYS.IngressRules, JSON.stringify(state.ingressRules))
-  add(KEYS.IngressTlsCertificates, JSON.stringify(state.ingressTls))
-  add(KEYS.SecretName, state.secretName)
-  add(KEYS.SecretValues, kvToJson(state.secretValues))
-  add(KEYS.ObjectStatusCheck, state.objectStatusCheck)
-  add(KEYS.HostAliases, JSON.stringify(state.hostAliases))
-  add(KEYS.Tolerations, JSON.stringify(state.tolerations))
-  if (state.nodeAffinity) add(KEYS.NodeAffinity, state.nodeAffinity)
-  if (state.podAffinity) add(KEYS.PodAffinity, state.podAffinity)
-  if (state.podAntiAffinity) add(KEYS.PodAntiAffinity, state.podAntiAffinity)
-  add(KEYS.PodSecurityImagePullSecrets, JSON.stringify(state.imagePullSecrets))
-  add(KEYS.PodSecuritySysctls, JSON.stringify(state.sysctls))
-  add(KEYS.DnsConfigOptions, JSON.stringify(state.dnsConfigOptions))
+  add(KubernetesProperties.DeploymentResourceType, state.resourceType)
+  add(KubernetesProperties.DeploymentName, state.deploymentName)
+  add(KubernetesProperties.Namespace, state.namespace)
+  add(KubernetesProperties.Replicas, state.replicas)
+  add(KubernetesProperties.RevisionHistoryLimit, state.revisionHistoryLimit)
+  add(KubernetesProperties.ProgressDeadlineSeconds, state.progressDeadlineSeconds)
+  add(KubernetesProperties.PodTerminationGracePeriodSeconds, state.podTerminationGracePeriodSeconds)
+  add(KubernetesProperties.PodPriorityClassName, state.podPriorityClassName)
+  add(KubernetesProperties.PodRestartPolicy, state.podRestartPolicy)
+  add(KubernetesProperties.PodDnsPolicy, state.podDnsPolicy)
+  add(KubernetesProperties.PodDnsNameservers, state.podDnsNameservers)
+  add(KubernetesProperties.PodDnsSearches, state.podDnsSearches)
+  add(KubernetesProperties.PodReadinessGates, state.podReadinessGates)
+  add(KubernetesProperties.ServiceAccountName, state.serviceAccountName)
+  add(KubernetesProperties.PodHostNetworking, state.podHostNetworking)
+  add(KubernetesProperties.PodSecurityFsGroup, state.podSecurityFsGroup)
+  add(KubernetesProperties.PodSecurityRunAsGroup, state.podSecurityRunAsGroup)
+  add(KubernetesProperties.PodSecurityRunAsUser, state.podSecurityRunAsUser)
+  add(KubernetesProperties.PodSecuritySupplementalGroups, state.podSecuritySupplementalGroups)
+  add(KubernetesProperties.PodSecurityRunAsNonRoot, state.podSecurityRunAsNonRoot)
+  add(KubernetesProperties.PodSecuritySeLinuxLevel, state.podSecuritySeLinuxLevel)
+  add(KubernetesProperties.PodSecuritySeLinuxRole, state.podSecuritySeLinuxRole)
+  add(KubernetesProperties.PodSecuritySeLinuxType, state.podSecuritySeLinuxType)
+  add(KubernetesProperties.PodSecuritySeLinuxUser, state.podSecuritySeLinuxUser)
+  add(KubernetesProperties.DeploymentStyle, state.deploymentStyle)
+  add(KubernetesProperties.MaxUnavailable, state.maxUnavailable)
+  add(KubernetesProperties.MaxSurge, state.maxSurge)
+  add(KubernetesProperties.DeploymentLabels, kvToJson(state.deploymentLabels))
+  add(KubernetesProperties.DeploymentAnnotations, kvToJson(state.deploymentAnnotations))
+  add(KubernetesProperties.PodAnnotations, kvToJson(state.podAnnotations))
+  add(KubernetesProperties.Containers, serializeContainers(state.containers, state.packageId))
+  add(KubernetesProperties.CombinedVolumes, JSON.stringify(state.volumes))
+  add(KubernetesProperties.ServiceName, state.serviceName)
+  add(KubernetesProperties.ServiceType, state.serviceType)
+  add(KubernetesProperties.ServiceClusterIp, state.serviceClusterIp)
+  add(KubernetesProperties.ServiceAnnotations, kvToJson(state.serviceAnnotations))
+  add(KubernetesProperties.ServicePorts, serializeServicePorts(state.servicePorts))
+  add(KubernetesProperties.ConfigMapName, state.configMapName)
+  add(KubernetesProperties.ConfigMapValues, kvToJson(state.configMapValues))
+  add(KubernetesProperties.IngressName, state.ingressName)
+  add(KubernetesProperties.IngressClassName, state.ingressClassName)
+  add(KubernetesProperties.IngressAnnotations, kvToJson(state.ingressAnnotations))
+  add(KubernetesProperties.IngressRules, serializeIngressRules(state.ingressRules))
+  add(KubernetesProperties.IngressTlsCertificates, JSON.stringify(state.ingressTls))
+  add(KubernetesProperties.SecretName, state.secretName)
+  add(KubernetesProperties.SecretValues, kvToJson(state.secretValues))
+  add(KubernetesProperties.ObjectStatusCheck, state.objectStatusCheck)
+  add(KubernetesProperties.HostAliases, JSON.stringify(state.hostAliases))
+  add(KubernetesProperties.Tolerations, JSON.stringify(state.tolerations))
+  if (state.nodeAffinity) add(KubernetesProperties.NodeAffinity, state.nodeAffinity)
+  if (state.podAffinity) add(KubernetesProperties.PodAffinity, state.podAffinity)
+  if (state.podAntiAffinity) add(KubernetesProperties.PodAntiAffinity, state.podAntiAffinity)
+  add(KubernetesProperties.PodSecurityImagePullSecrets, JSON.stringify(state.imagePullSecrets))
+  add(KubernetesProperties.PodSecuritySysctls, JSON.stringify(state.sysctls))
+  add(KubernetesProperties.DnsConfigOptions, JSON.stringify(state.dnsConfigOptions))
 
   return props
 }
@@ -190,7 +282,7 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
   }
 
   const stepProperties = [
-    { id: 0, stepId: existingStep?.id ?? 0, propertyName: 'Squid.Action.TargetRoles', propertyValue: state.targetRoles },
+    { id: 0, stepId: existingStep?.id ?? 0, propertyName: KubernetesProperties.TargetRoles, propertyValue: state.targetRoles },
   ]
 
   return {

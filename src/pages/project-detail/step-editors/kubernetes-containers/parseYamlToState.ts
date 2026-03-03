@@ -42,7 +42,7 @@ function parseProbe(p: Record<string, unknown>): ProbeConfig {
   return probe
 }
 
-function parseContainer(c: Record<string, unknown>): ContainerSpec {
+function parseContainer(c: Record<string, unknown>, isInitContainer = false): ContainerSpec {
   const ports = Array.isArray(c.ports)
     ? (c.ports as Record<string, unknown>[]).map((p) => ({
         key: str(p.name),
@@ -80,7 +80,7 @@ function parseContainer(c: Record<string, unknown>): ContainerSpec {
     Image: str(c.image),
     PackageId: '',
     CreateFeedSecrets: 'False',
-    IsInitContainer: 'False',
+    IsInitContainer: isInitContainer ? 'True' : 'False',
     Ports: ports,
     Resources: {
       requests: { cpu: str(req.cpu), memory: str(req.memory) },
@@ -116,7 +116,10 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
   const rollingUpdate = (strategy.rollingUpdate ?? {}) as Record<string, unknown>
 
   const containers: ContainerSpec[] = Array.isArray(tmplSpec.containers)
-    ? (tmplSpec.containers as Record<string, unknown>[]).map(parseContainer)
+    ? (tmplSpec.containers as Record<string, unknown>[]).map((container) => parseContainer(container, false))
+    : []
+  const initContainers: ContainerSpec[] = Array.isArray(tmplSpec.initContainers)
+    ? (tmplSpec.initContainers as Record<string, unknown>[]).map((container) => parseContainer(container, true))
     : []
 
   const volumes: VolumeSpec[] = Array.isArray(tmplSpec.volumes)
@@ -142,6 +145,14 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
 
   const imagePullSecrets = Array.isArray(tmplSpec.imagePullSecrets)
     ? (tmplSpec.imagePullSecrets as Record<string, unknown>[]).map((s) => ({ name: str(s.name) }))
+    : []
+  const hostAliases = Array.isArray(tmplSpec.hostAliases)
+    ? (tmplSpec.hostAliases as Record<string, unknown>[]).map((alias) => ({
+        ip: str(alias.ip),
+        hostnames: Array.isArray(alias.hostnames)
+          ? (alias.hostnames as unknown[]).map((hostname) => str(hostname)).filter((hostname) => hostname.trim()).join(' ')
+          : '',
+      }))
     : []
 
   const podSc = (tmplSpec.securityContext ?? {}) as Record<string, unknown>
@@ -171,6 +182,10 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     : ''
 
   const strategyType = str(strategy.type)
+  const affinity = (tmplSpec.affinity ?? {}) as Record<string, unknown>
+  const nodeAffinity = affinity.nodeAffinity ? JSON.stringify(affinity.nodeAffinity) : ''
+  const podAffinity = affinity.podAffinity ? JSON.stringify(affinity.podAffinity) : ''
+  const podAntiAffinity = affinity.podAntiAffinity ? JSON.stringify(affinity.podAntiAffinity) : ''
 
   return {
     resourceType: str(doc.kind) || 'Deployment',
@@ -203,9 +218,13 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     deploymentStyle: strategyType || 'RollingUpdate',
     maxUnavailable: rollingUpdate.maxUnavailable != null ? str(rollingUpdate.maxUnavailable) : '',
     maxSurge: rollingUpdate.maxSurge != null ? str(rollingUpdate.maxSurge) : '',
-    containers,
+    containers: [...initContainers, ...containers],
     volumes,
     tolerations,
+    hostAliases,
+    nodeAffinity,
+    podAffinity,
+    podAntiAffinity,
     imagePullSecrets,
     sysctls,
     dnsConfigOptions,
@@ -227,6 +246,7 @@ function parseService(doc: Record<string, unknown>): Partial<ContainersEditorSta
     : []
 
   return {
+    namespace: str(meta.namespace),
     serviceName: str(meta.name),
     serviceType: str(spec.type) || 'ClusterIP',
     serviceClusterIp: str(spec.clusterIP),
@@ -272,6 +292,7 @@ function parseIngress(doc: Record<string, unknown>): Partial<ContainersEditorSta
     : []
 
   return {
+    namespace: str(meta.namespace),
     ingressName: str(meta.name),
     ingressClassName: str(spec.ingressClassName),
     ingressAnnotations: mapToKv(meta.annotations),
@@ -283,6 +304,7 @@ function parseIngress(doc: Record<string, unknown>): Partial<ContainersEditorSta
 function parseConfigMap(doc: Record<string, unknown>): Partial<ContainersEditorState> {
   const meta = (doc.metadata ?? {}) as Record<string, unknown>
   return {
+    namespace: str(meta.namespace),
     configMapName: str(meta.name),
     configMapValues: mapToKv(doc.data),
   }
@@ -291,6 +313,7 @@ function parseConfigMap(doc: Record<string, unknown>): Partial<ContainersEditorS
 function parseSecret(doc: Record<string, unknown>): Partial<ContainersEditorState> {
   const meta = (doc.metadata ?? {}) as Record<string, unknown>
   return {
+    namespace: str(meta.namespace),
     secretName: str(meta.name),
     secretValues: mapToKv(doc.stringData ?? doc.data),
   }

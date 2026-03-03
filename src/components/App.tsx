@@ -269,7 +269,7 @@ function App() {
                   boxShadow: '0 1px 2px rgba(15,23,42,0.08), 0 6px 12px rgba(15,23,42,0.06)',
                 }}
               >
-                <img src="/squid-logo.png" alt="Space Default Logo" className="w-full h-full object-contain" />
+                <img src="/squid-logo.svg" alt="Space Default Logo" className="w-full h-full object-contain" />
               </div>
             </button>
 

@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, Tag, message } from 'antd';
-import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
-import { getExternalFeeds, createExternalFeed, ExternalFeedDto, CreateExternalFeedCommand } from 'pages/apis/externalFeed';
+import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, message, Dropdown } from 'antd';
+import { SearchOutlined, PlusOutlined, DownOutlined, MoreOutlined } from '@ant-design/icons';
+import {
+  getExternalFeeds,
+  createExternalFeed,
+  updateExternalFeed,
+  testExternalFeed,
+  ExternalFeedDto,
+  CreateExternalFeedCommand,
+  UpdateExternalFeedCommand,
+} from 'pages/apis/externalFeed';
 import { useSpace } from 'contexts/SpaceContext';
 
 const { Password } = Input;
@@ -50,7 +58,7 @@ function FeedTypeIcon({ feedType }: { feedType: string }) {
   const meta = getFeedMeta(feedType);
   return (
     <div
-      className="flex items-center justify-center w-10 h-10 rounded flex-shrink-0 text-white text-xs font-bold select-none"
+      className="flex items-center justify-center w-9 h-9 rounded flex-shrink-0 text-white text-xs font-bold select-none"
       style={{ backgroundColor: meta.color }}
     >
       {meta.abbrev}
@@ -58,13 +66,7 @@ function FeedTypeIcon({ feedType }: { feedType: string }) {
   );
 }
 
-// ── Create / Edit form ────────────────────────────────────────────────────────
-
-interface FeedFormProps {
-  spaceId: number;
-  onBack: () => void;
-  onSave: (command: CreateExternalFeedCommand) => Promise<void>;
-}
+// ── Collapsible form panel ────────────────────────────────────────────────────
 
 interface FormPanelProps {
   title: string;
@@ -105,19 +107,33 @@ function FormPanel({ title, description, isOpen, onToggle, hasBorder = true, chi
   );
 }
 
-function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
+// ── Create / Edit form ────────────────────────────────────────────────────────
+
+interface FeedFormProps {
+  spaceId: number;
+  feed?: ExternalFeedDto;       // undefined = create, defined = edit
+  onBack: () => void;
+  onSaved: () => void;
+}
+
+function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
+  const isEdit = !!feed;
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isSticky, setIsSticky] = useState(false);
   const [activeKeys, setActiveKeys] = useState<string[]>(['feedtype', 'name', 'url', 'retry', 'credentials', 'extended']);
-  const [feedType, setFeedType] = useState('NuGet Feed');
-  const [feedName, setFeedName] = useState('');
-  const [feedUrl, setFeedUrl] = useState('');
+  const [feedType, setFeedType] = useState(feed?.feedType ?? 'NuGet Feed');
+  const [feedName, setFeedName] = useState(feed?.name ?? '');
+  const [feedUrl, setFeedUrl] = useState(feed?.feedUri ?? '');
   const [downloadAttempts, setDownloadAttempts] = useState(5);
   const [downloadRetryBackoff, setDownloadRetryBackoff] = useState(10);
-  const [feedUsername, setFeedUsername] = useState('');
+  const [feedUsername, setFeedUsername] = useState(feed?.username ?? '');
   const [feedPassword, setFeedPassword] = useState('');
-  const [useExtendedAPI, setUseExtendedAPI] = useState(false);
+  const [useExtendedAPI, setUseExtendedAPI] = useState(
+    feed ? feed.apiVersion === 'Extended' : false
+  );
   const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message?: string } | null>(null);
+  const [showTestModal, setShowTestModal] = useState(false);
 
   const allKeys = ['feedtype', 'name', 'url', 'retry', 'credentials', 'extended'];
   const allExpanded = activeKeys.length === allKeys.length;
@@ -137,33 +153,63 @@ function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
     return () => observer.disconnect();
   }, []);
 
-  const handleSave = async () => {
+  const buildCommand = (): CreateExternalFeedCommand => ({
+    feedType,
+    apiVersion: useExtendedAPI ? 'Extended' : '',
+    registryPath: '',
+    feedUri: feedUrl.trim(),
+    username: feedUsername.trim(),
+    password: feedPassword,
+    name: feedName.trim(),
+    slug: toFeedSlug(feedName),
+    packageAcquisitionLocationOptions: [],
+    spaceId,
+  });
+
+  const handleSave = async (): Promise<ExternalFeedDto | null> => {
     const name = feedName.trim();
     if (!name) {
       message.warning('Please enter a feed name');
-      return;
+      return null;
     }
 
     setSaving(true);
     try {
-      await onSave({
-        feedType,
-        apiVersion: useExtendedAPI ? 'Extended' : '',
-        registryPath: '',
-        feedUri: feedUrl.trim(),
-        username: feedUsername.trim(),
-        password: feedPassword,
-        name,
-        slug: toFeedSlug(name),
-        packageAcquisitionLocationOptions: [],
-        spaceId,
-      });
+      if (isEdit && feed) {
+        const cmd: UpdateExternalFeedCommand = { ...buildCommand(), id: feed.id };
+        const saved = await updateExternalFeed(cmd);
+        message.success('External feed updated');
+        onSaved();
+        return saved;
+      } else {
+        const saved = await createExternalFeed(buildCommand());
+        message.success('External feed created');
+        onSaved();
+        return saved;
+      }
     } catch (error) {
-      console.error('Failed to create external feed', error);
-      message.error(error instanceof Error ? error.message : 'Failed to create external feed');
+      console.error('Failed to save external feed', error);
+      message.error(error instanceof Error ? error.message : 'Failed to save external feed');
+      return null;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveAndTest = async () => {
+    const saved = await handleSave();
+    if (!saved) return;
+
+    try {
+      const result = await testExternalFeed(saved.id);
+      setTestResult(result);
+    } catch (error) {
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Connection test failed',
+      });
+    }
+    setShowTestModal(true);
   };
 
   return (
@@ -171,10 +217,9 @@ function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
       <div ref={sentinelRef} style={{ height: 1 }} />
 
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        {/* Form card — no overflow-hidden so sticky header works */}
         <div className="border border-gray-200 rounded-md">
 
-          {/* Sticky title — inside the card, first child */}
+          {/* Sticky header */}
           <div
             className="sticky top-0 z-10 bg-white rounded-t-md border-b border-gray-200 px-6 pt-5 pb-0 transition-shadow duration-200"
             style={isSticky ? { boxShadow: '0 1px 1px 0 rgba(0,0,0,0.12), 0 1px 8px 0 rgba(0,0,0,0.06)' } : {}}
@@ -186,10 +231,12 @@ function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
               External Feeds
             </button>
             <div className="flex items-center justify-between mb-3">
-              <h1 className="text-2xl font-semibold text-gray-900 m-0">Create Feed</h1>
+              <h1 className="text-2xl font-semibold text-gray-900 m-0">
+                {isEdit ? `Edit: ${feed!.name}` : 'Create Feed'}
+              </h1>
               <div className="flex items-center gap-2">
                 <Button onClick={onBack} disabled={saving}>Cancel</Button>
-                <Button onClick={() => void handleSave()} loading={saving} disabled={saving}>
+                <Button onClick={() => void handleSaveAndTest()} loading={saving} disabled={saving}>
                   Save and test
                 </Button>
                 <Button
@@ -271,7 +318,11 @@ function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
           >
             <div className="space-y-3">
               <Input placeholder="Username" value={feedUsername} onChange={(e) => setFeedUsername(e.target.value)} />
-              <Password placeholder="Password" value={feedPassword} onChange={(e) => setFeedPassword(e.target.value)} />
+              <Password
+                placeholder={isEdit ? 'Leave blank to keep current password' : 'Password'}
+                value={feedPassword}
+                onChange={(e) => setFeedPassword(e.target.value)}
+              />
             </div>
           </FormPanel>
 
@@ -288,15 +339,42 @@ function FeedForm({ spaceId, onBack, onSave }: FeedFormProps) {
           </FormPanel>
         </div>
       </div>
+
+      {/* Test result modal */}
+      <Modal
+        title={testResult?.success ? 'Connection Successful' : 'Connection Failed'}
+        open={showTestModal}
+        onOk={() => setShowTestModal(false)}
+        onCancel={() => setShowTestModal(false)}
+        cancelButtonProps={{ style: { display: 'none' } }}
+        okText="OK"
+      >
+        {testResult?.success ? (
+          <div className="flex items-start gap-3 py-2">
+            <span className="text-green-600 text-lg">✓</span>
+            <p className="text-sm text-gray-700 m-0">
+              {testResult.message ?? 'Successfully connected to the feed.'}
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 py-2">
+            <span className="text-red-500 text-lg">✗</span>
+            <p className="text-sm text-gray-700 m-0">
+              {testResult?.message ?? 'Could not connect to the feed. Check the URL and credentials.'}
+            </p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Main list component ───────────────────────────────────────────────────────
 
 const ExternalFeeds: React.FC = () => {
   const { space } = useSpace();
   const [searchText, setSearchText] = useState('');
+  const [editFeed, setEditFeed] = useState<ExternalFeedDto | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ExternalFeedDto | null>(null);
   const [feeds, setFeeds] = useState<ExternalFeedDto[]>([]);
@@ -318,31 +396,38 @@ const ExternalFeeds: React.FC = () => {
     loadFeeds();
   }, [space?.id]);
 
-  const filtered = feeds.filter((f) =>
-    f.name.toLowerCase().includes(searchText.toLowerCase())
-  );
-
-  const handleCreateFeed = async (command: CreateExternalFeedCommand) => {
-    await createExternalFeed(command);
-    message.success('External feed created');
+  const handleBack = () => {
     setShowCreate(false);
+    setEditFeed(null);
+  };
+
+  const handleSaved = () => {
+    setShowCreate(false);
+    setEditFeed(null);
     loadFeeds();
   };
 
-  if (showCreate) {
+  if (showCreate || editFeed) {
     return (
       <FeedForm
         spaceId={space.id}
-        onBack={() => setShowCreate(false)}
-        onSave={handleCreateFeed}
+        feed={editFeed ?? undefined}
+        onBack={handleBack}
+        onSaved={handleSaved}
       />
     );
   }
+
+  const filtered = feeds.filter((f) =>
+    f.name.toLowerCase().includes(searchText.toLowerCase())
+  );
 
   return (
     <div className="bg-white min-h-screen">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
         <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+
+          {/* Page header */}
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-2xl font-semibold text-gray-900 m-0">External Feeds</h1>
@@ -366,70 +451,100 @@ const ExternalFeeds: React.FC = () => {
             />
           </div>
 
-          <div className="p-6">
-            <Spin spinning={loading}>
-              <div className="border border-gray-200 rounded-md overflow-hidden">
-                {filtered.length === 0 && !loading && (
-                  <div className="px-6 py-12 text-center text-gray-400 text-sm">
-                    No external feeds found.
-                  </div>
-                )}
+          {/* Table */}
+          <Spin spinning={loading}>
+            {filtered.length === 0 && !loading ? (
+              <div className="px-6 py-12 text-center text-gray-400 text-sm">
+                No external feeds found.
+              </div>
+            ) : (
+              <div>
+                {/* Column headers */}
+                <div
+                  className="grid border-b border-gray-200 bg-gray-50 px-5 py-2"
+                  style={{ gridTemplateColumns: '1fr 1fr 40px' }}
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Name</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">URL</div>
+                  <div />
+                </div>
+
                 {filtered.map((feed, idx) => {
                   const meta = getFeedMeta(feed.feedType);
                   return (
                     <div
                       key={feed.id}
                       className={[
-                        'flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors',
-                        idx < filtered.length - 1 ? 'border-b border-gray-200' : '',
+                        'grid items-center px-5 py-3 hover:bg-gray-50 transition-colors',
+                        idx < filtered.length - 1 ? 'border-b border-gray-100' : '',
                       ].join(' ')}
+                      style={{ gridTemplateColumns: '1fr 1fr 40px' }}
                     >
-                      <FeedTypeIcon feedType={feed.feedType} />
-
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-900 text-sm">{feed.name}</div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Tag className="text-xs m-0" color="default">{meta.label}</Tag>
+                      {/* Name column */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FeedTypeIcon feedType={feed.feedType} />
+                        <div className="min-w-0">
+                          <div
+                            className="font-semibold text-sm text-squid-blue hover:underline cursor-pointer truncate"
+                            onClick={() => setEditFeed(feed)}
+                          >
+                            {feed.name}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">{meta.label}</div>
                         </div>
                       </div>
 
-                      <div className="flex-1 min-w-0 hidden md:block">
+                      {/* URL column */}
+                      <div className="min-w-0 pr-4">
                         {feed.feedUri ? (
                           <a
                             href={feed.feedUri}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm text-squid-blue hover:underline truncate block"
+                            className="text-sm text-gray-600 hover:text-squid-blue hover:underline truncate flex items-center gap-1"
                             title={feed.feedUri}
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {feed.feedUri}
+                            <span className="truncate">{feed.feedUri}</span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-gray-400 w-3 h-3">
+                              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
                           </a>
                         ) : (
                           <span className="text-sm text-gray-400">—</span>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <Button
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={() => setShowCreate(true)}
+                      {/* Overflow menu */}
+                      <div className="flex justify-end">
+                        <Dropdown
+                          trigger={['click']}
+                          menu={{
+                            items: [
+                              { key: 'edit', label: 'Edit' },
+                              { key: 'delete', label: 'Delete', danger: true },
+                            ],
+                            onClick: ({ key }) => {
+                              if (key === 'edit') setEditFeed(feed);
+                              if (key === 'delete') setDeleteTarget(feed);
+                            },
+                          }}
                         >
-                          Edit
-                        </Button>
-                        <Button
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => setDeleteTarget(feed)}
-                        />
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<MoreOutlined />}
+                            className="text-gray-400 hover:text-gray-700"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </Dropdown>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </Spin>
-          </div>
+            )}
+          </Spin>
         </div>
       </div>
 

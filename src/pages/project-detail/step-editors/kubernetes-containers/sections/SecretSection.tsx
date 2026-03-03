@@ -133,7 +133,7 @@ function EditSecretYamlSubSection({
 
 export function SecretSection({ state, updateField }: SecretSectionProps) {
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
-    const fields: (keyof ContainersEditorState)[] = ['secretName', 'secretValues']
+    const fields: (keyof ContainersEditorState)[] = ['namespace', 'secretName', 'secretValues']
     for (const field of fields) {
       const value = partial[field]
       if (value !== undefined) {

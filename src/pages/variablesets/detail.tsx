@@ -239,6 +239,20 @@ const ScopeChip: React.FC<{ label: string }> = ({ label }) => (
   </span>
 );
 
+const InlineVariableInput: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = ({ value, onChange, placeholder }) => (
+  <input
+    type="text"
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+    className="w-full bg-transparent border-0 border-b border-transparent px-0 py-1 text-sm font-mono text-gray-800 placeholder:text-gray-400 outline-none focus:border-slate-300"
+  />
+);
+
 const ScopeCell: React.FC<{
   entry: VariableDto;
   editorOpen: boolean;
@@ -250,7 +264,7 @@ const ScopeCell: React.FC<{
   onEditorOpenChange,
   editorContent,
 }) => (
-  <div className="flex items-center">
+  <div className="w-full">
     <Popover
       trigger="click"
       open={editorOpen}
@@ -259,7 +273,7 @@ const ScopeCell: React.FC<{
       placement="bottomLeft"
       destroyTooltipOnHide
     >
-      <div className="flex items-center flex-wrap gap-0.5 flex-1 min-w-0 cursor-pointer">
+      <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 min-w-0 cursor-pointer">
         {entry.scopes.length > 0 ? (
           entry.scopes.map((s, index) => (
             <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${index}`} label={s.scopeValue} />
@@ -277,13 +291,13 @@ const RowControlActions: React.FC<{
   rowMenuItems: { key: string; label: string; danger?: boolean }[];
   onMenuAction: (key: string) => void;
 }> = ({ isModified, rowMenuItems, onMenuAction }) => (
-  <div className="flex items-center justify-center">
-    {isModified && <EditOutlined className="text-gray-400 text-xs mr-1" />}
+  <div className="relative w-full h-full flex items-center justify-center">
+    {isModified && <EditOutlined className="absolute left-0 text-gray-400 text-xs" />}
     <Dropdown
       menu={{ items: rowMenuItems, onClick: ({ key }) => onMenuAction(String(key)) }}
       trigger={['click']}
     >
-      <Button icon={<MoreOutlined />} type="text" size="small" aria-label="OverflowMenu" />
+      <Button icon={<MoreOutlined />} type="text" size="small" aria-label="OverflowMenu" className="!inline-flex !items-center !justify-center" />
     </Dropdown>
   </div>
 );
@@ -313,20 +327,10 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
 }) => (
   <div className="flex items-center hover:bg-gray-50 border-b border-gray-200" style={{ minHeight: ROW_HEIGHT }}>
     <div style={{ width: NAME_COL_WIDTH }} className="px-3">
-      <Input
-        value={entry.name}
-        onChange={(e) => onNameChange(entry.id, e.target.value)}
-        variant="borderless"
-        className="font-mono text-sm !px-0"
-      />
+      <InlineVariableInput value={entry.name} onChange={(next) => onNameChange(entry.id, next)} />
     </div>
     <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-      <Input
-        value={entry.value}
-        onChange={(e) => onValueChange(entry.id, e.target.value)}
-        variant="borderless"
-        className="font-mono text-sm !px-0"
-      />
+      <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
     </div>
     <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
       <ScopeCell
@@ -336,7 +340,7 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
         editorContent={scopeEditorContent}
       />
     </div>
-    <div style={{ width: CONTROL_COL_WIDTH }} className="px-1">
+    <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 flex items-center justify-center">
       <RowControlActions
         isModified={isModified}
         rowMenuItems={rowMenuItems}
@@ -381,7 +385,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
       <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 flex items-center justify-between">
         <span className="text-gray-400 text-xs">Multiple scopes</span>
       </div>
-      <div style={{ width: CONTROL_COL_WIDTH }} className="px-1">
+      <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 flex items-center justify-center">
         {firstEntry && (
           <RowControlActions
             isModified={isVariableModified(firstEntry)}
@@ -396,12 +400,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
         <div key={entry.id} className="flex items-stretch" style={{ minHeight: ROW_HEIGHT }}>
           <div style={{ width: NAME_COL_WIDTH }} className="px-3" />
           <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
-            <Input
-              value={entry.value}
-              onChange={(e) => onValueChange(entry.id, e.target.value)}
-              variant="borderless"
-              className="font-mono text-sm !px-0"
-            />
+            <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
           </div>
           <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
             <ScopeCell
@@ -411,7 +410,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
               editorContent={scopeEditorContent}
             />
           </div>
-          <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 border-t border-gray-200">
+          <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 border-t border-gray-200 flex items-center justify-center">
             <RowControlActions
               isModified={isVariableModified(entry)}
               rowMenuItems={getRowMenuItems(entry, false)}
@@ -865,12 +864,10 @@ const VariableSetDetail: React.FC = () => {
               <div style={{ width: NAME_COL_WIDTH }} className="px-3">
                 {index === 0 ? (
                   <div>
-                    <Input
+                    <InlineVariableInput
                       placeholder="Enter new variable"
                       value={newVar.name}
-                      onChange={(e) => setNewVar({ name: e.target.value })}
-                      variant="borderless"
-                      className="font-mono text-sm !px-0"
+                      onChange={(next) => setNewVar({ name: next })}
                     />
                   </div>
                 ) : (
@@ -878,12 +875,10 @@ const VariableSetDetail: React.FC = () => {
                 )}
               </div>
               <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-                <Input
+                <InlineVariableInput
                   placeholder="Enter value"
                   value={row.value}
-                  onChange={(e) => handleDraftValueChange(row.id, e.target.value)}
-                  variant="borderless"
-                  className="font-mono text-sm !px-0"
+                  onChange={(next) => handleDraftValueChange(row.id, next)}
                 />
               </div>
               <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
@@ -895,7 +890,7 @@ const VariableSetDetail: React.FC = () => {
                   placement="bottomLeft"
                   destroyTooltipOnHide
                 >
-                  <div className="flex items-center flex-wrap gap-0.5 min-h-[22px] cursor-pointer">
+                  <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 cursor-pointer">
                     {row.scopes.length > 0 ? (
                       row.scopes.map((s, chipIndex) => (
                         <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${chipIndex}`} label={s.scopeValue} />
