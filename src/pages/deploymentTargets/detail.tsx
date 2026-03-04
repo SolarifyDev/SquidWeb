@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Spin, Switch, message } from 'antd'
+import { Button, Dropdown, Modal, Spin, Switch, message } from 'antd'
+import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getMachines, MachineDto } from 'pages/apis/machine'
+import { deleteMachines, getMachines, MachineDto } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
 import { useSpace } from 'contexts/SpaceContext'
@@ -263,8 +264,7 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const expandAll = () => {
     setExpandedCards(new Set([
       'displayName', 'enabled', 'environments', 'targetTags',
-      'authentication', 'kubernetesDetails', 'workerPool',
-      'healthCheckImage', 'containerOptions',
+      'authentication', 'kubernetesDetails', 'containerOptions',
       'tenantedDeployments', 'associatedTenants',
     ]))
   }
@@ -504,6 +504,59 @@ function SettingsTab({
   navigate: (path: string) => void
 }) {
   const slug = slugify(name)
+  const overflowItems: MenuProps['items'] = [
+    {
+      key: 'toggle-enabled',
+      label: enabled ? 'Disable' : 'Enable',
+    },
+    {
+      key: 'delete',
+      label: <span className="text-red-600">Delete</span>,
+    },
+    { type: 'divider' },
+    {
+      key: 'audit-trail',
+      label: (
+        <a
+          href={`#/${spaceSlug}/configuration/audit?regardingAny=Machines-${machine.id}`}
+          className="block text-gray-700 hover:text-gray-900"
+        >
+          Audit Trail
+        </a>
+      ),
+    },
+  ]
+
+  const handleOverflowClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'toggle-enabled') {
+      setEnabled(!enabled)
+      return
+    }
+
+    if (key === 'delete') {
+      Modal.confirm({
+        title: 'Delete Deployment Target',
+        content: `Are you sure you want to delete "${machine.name}"? This action cannot be undone.`,
+        okText: 'Delete',
+        okButtonProps: { danger: true },
+        cancelText: 'Cancel',
+        centered: true,
+        onOk: async () => {
+          try {
+            const result = await deleteMachines({ ids: [machine.id] })
+            if ((result.failIds ?? []).includes(machine.id)) {
+              message.error('Failed to delete deployment target')
+              return
+            }
+            message.success('Deployment target deleted')
+            navigate(`/${spaceSlug}/deployment/targets`)
+          } catch {
+            message.error('Failed to delete deployment target')
+          }
+        },
+      })
+    }
+  }
 
   return (
     <div>
@@ -511,22 +564,26 @@ function SettingsTab({
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold text-gray-900 m-0">Settings</h1>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={() => navigate(`/${spaceSlug}/deployment/targets/add`)}
-            className="text-sm text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer"
+            className="!border-gray-300 !text-gray-700 hover:!border-gray-400 hover:!text-gray-800"
           >
             Add another
-          </button>
+          </Button>
           <Button
             type="primary"
             disabled={!dirty}
             loading={saving}
             onClick={onSave}
-            className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+            className={dirty
+              ? '!bg-green-700 hover:!bg-green-800 !border-green-700'
+              : '!bg-gray-300 !border-gray-300 !text-gray-600'}
           >
             Save
           </Button>
-          <Button icon={<MoreOutlined />} />
+          <Dropdown menu={{ items: overflowItems, onClick: handleOverflowClick }} placement="bottomRight" trigger={['click']}>
+            <Button icon={<MoreOutlined />} aria-label="Overflow Menu" />
+          </Dropdown>
         </div>
       </div>
 
@@ -727,30 +784,6 @@ function SettingsTab({
           </ExpandableCard>
         )
       })()}
-
-      {/* Worker Pool */}
-      <ExpandableCard
-        title="Worker Pool"
-        summary={<span className="text-gray-400 italic">No pool selected - default pool</span>}
-        expanded={expandedCards.has('workerPool')}
-        onToggle={() => toggleCard('workerPool')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-500">Using the default worker pool.</span>
-        </div>
-      </ExpandableCard>
-
-      {/* Health Check Container Image */}
-      <ExpandableCard
-        title="Health Check Container Image"
-        summary={<span>Runs directly on a <strong>worker</strong></span>}
-        expanded={expandedCards.has('healthCheckImage')}
-        onToggle={() => toggleCard('healthCheckImage')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-600">Health checks run directly on a worker.</span>
-        </div>
-      </ExpandableCard>
 
       {/* Container Options */}
       <ExpandableCard

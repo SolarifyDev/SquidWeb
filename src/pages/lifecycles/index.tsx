@@ -797,6 +797,7 @@ const Lifecycles: React.FC = () => {
     const detailFile = buildDetailRetention(detailFileRetention, detailFileRetentionCount, detailFileRetentionUnit);
 
     const updateCommand: UpdateLifecycleCommand = {
+      id: selectedLifecycle.id,
       lifecyclePhase: {
         lifecycle: {
           ...baseLifecycle,

@@ -30,6 +30,14 @@ export interface GetMachinesResponseData {
   machines: MachineDto[]
 }
 
+export interface DeleteMachinesCommand {
+  ids: number[]
+}
+
+export interface DeleteMachinesResponseData {
+  failIds: number[]
+}
+
 export function getMachines(params?: GetMachinesRequest) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
@@ -38,6 +46,10 @@ export function getMachines(params?: GetMachinesRequest) {
   }
 
   return get<GetMachinesResponseData>('/machines/list', { params: query })
+}
+
+export function deleteMachines(command: DeleteMachinesCommand) {
+  return post<DeleteMachinesResponseData>('/machines/delete', command)
 }
 
 // --- Kubernetes Agent Install Script ---

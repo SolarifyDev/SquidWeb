@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, message, Dropdown } from 'antd';
-import { SearchOutlined, PlusOutlined, DownOutlined, MoreOutlined } from '@ant-design/icons';
+import { SearchOutlined, PlusOutlined, DownOutlined, MoreOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import {
   getExternalFeeds,
   createExternalFeed,
@@ -128,6 +128,7 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
   const [downloadRetryBackoff, setDownloadRetryBackoff] = useState(10);
   const [feedUsername, setFeedUsername] = useState(feed?.username ?? '');
   const [feedPassword, setFeedPassword] = useState('');
+  const [isPasswordEditing, setIsPasswordEditing] = useState(!feed);
   const [useExtendedAPI, setUseExtendedAPI] = useState(
     feed ? feed.apiVersion === 'Extended' : false
   );
@@ -176,7 +177,20 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
     setSaving(true);
     try {
       if (isEdit && feed) {
-        const cmd: UpdateExternalFeedCommand = { ...buildCommand(), id: feed.id };
+        const createLike = buildCommand();
+        const cmd: UpdateExternalFeedCommand = {
+          id: feed.id,
+          feedType: createLike.feedType,
+          apiVersion: createLike.apiVersion,
+          registryPath: createLike.registryPath,
+          feedUri: createLike.feedUri,
+          username: createLike.username,
+          passwordNewValue: feedPassword.length > 0 ? feedPassword : undefined,
+          name: createLike.name,
+          slug: createLike.slug,
+          packageAcquisitionLocationOptions: createLike.packageAcquisitionLocationOptions,
+          spaceId: createLike.spaceId,
+        };
         const saved = await updateExternalFeed(cmd);
         message.success('External feed updated');
         onSaved();
@@ -197,9 +211,27 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
   };
 
   const handleSaveAndTest = async () => {
+    if (isEdit && feed) {
+      setSaving(true);
+      try {
+        const result = await testExternalFeed(feed.id);
+        setTestResult(result);
+      } catch (error) {
+        setTestResult({
+          success: false,
+          message: error instanceof Error ? error.message : 'Connection test failed',
+        });
+      } finally {
+        setSaving(false);
+      }
+      setShowTestModal(true);
+      return;
+    }
+
     const saved = await handleSave();
     if (!saved) return;
 
+    setSaving(true);
     try {
       const result = await testExternalFeed(saved.id);
       setTestResult(result);
@@ -208,6 +240,8 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
         success: false,
         message: error instanceof Error ? error.message : 'Connection test failed',
       });
+    } finally {
+      setSaving(false);
     }
     setShowTestModal(true);
   };
@@ -237,7 +271,7 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
               <div className="flex items-center gap-2">
                 <Button onClick={onBack} disabled={saving}>Cancel</Button>
                 <Button onClick={() => void handleSaveAndTest()} loading={saving} disabled={saving}>
-                  Save and test
+                  {isEdit ? 'Test' : 'Save and test'}
                 </Button>
                 <Button
                   type="primary"
@@ -318,11 +352,51 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
           >
             <div className="space-y-3">
               <Input placeholder="Username" value={feedUsername} onChange={(e) => setFeedUsername(e.target.value)} />
-              <Password
-                placeholder={isEdit ? 'Leave blank to keep current password' : 'Password'}
-                value={feedPassword}
-                onChange={(e) => setFeedPassword(e.target.value)}
-              />
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  {isEdit && !isPasswordEditing ? (
+                    <Password
+                      placeholder="********"
+                      disabled
+                      value=""
+                      visibilityToggle={false}
+                    />
+                  ) : (
+                    <Password
+                      placeholder={isEdit ? 'Enter new password' : 'Password'}
+                      value={feedPassword}
+                      onChange={(e) => setFeedPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  )}
+                </div>
+                {isEdit && (
+                  <div className="flex items-center gap-1 mb-2">
+                    <Button
+                      type="text"
+                      icon={<EditOutlined />}
+                      aria-label="Change value for Feed Password"
+                      onClick={() => setIsPasswordEditing(true)}
+                    />
+                    <Button
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      aria-label="Remove value for Feed Password"
+                      onClick={() => {
+                        setFeedPassword('');
+                        setIsPasswordEditing(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+              {isEdit && !isPasswordEditing && (
+                <div className="text-xs text-gray-400">Password is set. Click edit to change it.</div>
+              )}
+              {isEdit && isPasswordEditing && (
+                <div className="text-xs text-gray-400">Leave blank to keep current password.</div>
+              )}
             </div>
           </FormPanel>
 
@@ -379,6 +453,8 @@ const ExternalFeeds: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<ExternalFeedDto | null>(null);
   const [feeds, setFeeds] = useState<ExternalFeedDto[]>([]);
   const [loading, setLoading] = useState(false);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testModal, setTestModal] = useState<{ feedName: string; success: boolean; message: string } | null>(null);
 
   const loadFeeds = () => {
     setLoading(true);
@@ -405,6 +481,26 @@ const ExternalFeeds: React.FC = () => {
     setShowCreate(false);
     setEditFeed(null);
     loadFeeds();
+  };
+
+  const handleTestConnection = async (feed: ExternalFeedDto) => {
+    setTestingId(feed.id);
+    try {
+      const result = await testExternalFeed(feed.id);
+      setTestModal({
+        feedName: feed.name,
+        success: result.success,
+        message: result.message ?? (result.success ? 'Connection successful.' : 'Connection failed.'),
+      });
+    } catch (error) {
+      setTestModal({
+        feedName: feed.name,
+        success: false,
+        message: error instanceof Error ? error.message : 'Connection test failed.',
+      });
+    } finally {
+      setTestingId(null);
+    }
   };
 
   if (showCreate || editFeed) {
@@ -521,10 +617,13 @@ const ExternalFeeds: React.FC = () => {
                           trigger={['click']}
                           menu={{
                             items: [
+                              { key: 'test', label: testingId === feed.id ? 'Testing…' : 'Test connection', disabled: testingId === feed.id },
                               { key: 'edit', label: 'Edit' },
+                              { type: 'divider' },
                               { key: 'delete', label: 'Delete', danger: true },
                             ],
                             onClick: ({ key }) => {
+                              if (key === 'test') void handleTestConnection(feed);
                               if (key === 'edit') setEditFeed(feed);
                               if (key === 'delete') setDeleteTarget(feed);
                             },
@@ -534,6 +633,7 @@ const ExternalFeeds: React.FC = () => {
                             type="text"
                             size="small"
                             icon={<MoreOutlined />}
+                            loading={testingId === feed.id}
                             className="text-gray-400 hover:text-gray-700"
                             onClick={(e) => e.stopPropagation()}
                           />
@@ -547,6 +647,28 @@ const ExternalFeeds: React.FC = () => {
           </Spin>
         </div>
       </div>
+
+      {/* Test connection result */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            {testModal?.success
+              ? <span className="text-green-600 text-base">✓</span>
+              : <span className="text-red-500 text-base">✗</span>}
+            {testModal?.success ? 'Connection Successful' : 'Connection Failed'}
+          </div>
+        }
+        open={!!testModal}
+        onOk={() => setTestModal(null)}
+        onCancel={() => setTestModal(null)}
+        cancelButtonProps={{ style: { display: 'none' } }}
+        okText="OK"
+      >
+        <div className="py-2">
+          <div className="text-xs text-gray-400 mb-1">{testModal?.feedName}</div>
+          <p className="text-sm text-gray-700 m-0">{testModal?.message}</p>
+        </div>
+      </Modal>
 
       {/* Delete confirmation */}
       <Modal

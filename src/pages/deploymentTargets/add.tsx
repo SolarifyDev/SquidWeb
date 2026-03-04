@@ -275,7 +275,6 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [loadingCertificateOptions, setLoadingCertificateOptions] = useState(false)
   const [apiSkipTlsVerification, setApiSkipTlsVerification] = useState(false)
   const [apiDefaultNamespace, setApiDefaultNamespace] = useState('')
-  const [apiHealthCheckMode, setApiHealthCheckMode] = useState<'worker' | 'container'>('worker')
   const [apiContainerOptions, setApiContainerOptions] = useState('')
   const [apiTenantedMode, setApiTenantedMode] = useState<'untenanted' | 'tenanted' | 'both'>('untenanted')
   // --- Kubernetes Agent wizard ---
@@ -292,7 +291,6 @@ const AddDeploymentTargetPage: React.FC = () => {
     targetTags: true,
     authentication: true,
     kubernetesDetails: true,
-    healthCheckContainerImage: true,
     containerOptions: true,
     tenantedDeployments: true,
   })
@@ -1208,32 +1206,6 @@ const AddDeploymentTargetPage: React.FC = () => {
                 <NoteBlock>
                   Provide an optional default namespace that can be overridden by your step configuration and YAML.
                 </NoteBlock>
-              </ExpandableFormCard>
-
-              <ExpandableFormCard
-                title="Health Check Container Image"
-                subtitle="Choose to run directly on a worker or inside a container"
-                expanded={apiExpanded.healthCheckContainerImage}
-                onToggle={() => toggleApiSection('healthCheckContainerImage')}
-              >
-                <Radio.Group
-                  value={apiHealthCheckMode}
-                  onChange={(e) => setApiHealthCheckMode(e.target.value)}
-                  className="flex flex-col gap-3"
-                >
-                  <div>
-                    <Radio value="worker">
-                      <span className="text-base text-gray-800">Runs directly on a worker <span className="text-gray-500">(default)</span></span>
-                    </Radio>
-                    <NoteBlock>The worker will need the required dependencies pre-installed.</NoteBlock>
-                  </div>
-                  <div>
-                    <Radio value="container">
-                      <span className="text-base text-gray-800">Runs inside a container on a worker</span>
-                    </Radio>
-                    <NoteBlock>The worker must support container execution.</NoteBlock>
-                  </div>
-                </Radio.Group>
               </ExpandableFormCard>
 
               <ExpandableFormCard

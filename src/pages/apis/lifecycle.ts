@@ -109,6 +109,7 @@ export function createLifecycle(command: CreateLifecycleCommand) {
 }
 
 export interface UpdateLifecycleCommand {
+  id: number
   lifecyclePhase: LifecycleDetailDto
 }
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, Modal, Radio, Select, Spin, Tag, message } from 'antd';
-import { SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined, DownOutlined, UploadOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Input, Radio, Select, Spin, Tag, message } from 'antd';
+import { SearchOutlined, PlusOutlined, DownOutlined, UploadOutlined, MoreOutlined } from '@ant-design/icons';
 import { getEnvironments } from 'pages/apis/environment';
-import { createCertificate, deleteCertificates, getCertificates, CertificateDto } from 'pages/apis/certificate';
+import { createCertificate, getCertificates, CertificateDto } from 'pages/apis/certificate';
 import { useSpace } from 'contexts/SpaceContext';
 
 const { TextArea, Password } = Input;
@@ -14,9 +14,20 @@ type TenantedMode = 'untenanted' | 'tenanted' | 'both';
 interface CertificateItem {
   id: number;
   name: string;
+  notes: string;
   format: CertificateFormat;
   thumbprint: string;
   subject: string;
+  issuer: string;
+  subjectCommonName: string;
+  selfSigned: boolean;
+  hasPrivateKey: boolean;
+  version: number;
+  serialNumber: string;
+  signatureAlgorithmName: string;
+  notAfter?: string;
+  notBefore?: string;
+  environmentIds: number[];
   expires?: string;
 }
 
@@ -120,31 +131,74 @@ function mapCertificateDto(dto: CertificateDto): CertificateItem {
   return {
     id: dto.id,
     name: dto.name,
+    notes: dto.notes ?? '',
     format: formatMap[dto.certificateDataFormat] ?? 'PFX',
     thumbprint: dto.thumbprint ?? '',
     subject: dto.subjectDistinguishedName || dto.subjectCommonName || '—',
+    issuer: dto.issuerDistinguishedName || dto.issuerCommonName || '—',
+    subjectCommonName: dto.subjectCommonName ?? '',
+    selfSigned: !!dto.selfSigned,
+    hasPrivateKey: !!dto.hasPrivateKey,
+    version: dto.version ?? 0,
+    serialNumber: dto.serialNumber ?? '',
+    signatureAlgorithmName: dto.signatureAlgorithmName ?? '',
+    notAfter: dto.notAfter,
+    notBefore: dto.notBefore,
+    environmentIds: dto.environmentIds ?? [],
     expires: dto.notAfter ? new Date(dto.notAfter).toISOString().slice(0, 10) : undefined,
   };
+}
+
+function mapCertificateToDraft(cert: CertificateItem): CertificateDraft {
+  return {
+    ...createEmptyDraft(),
+    name: cert.name,
+    notes: cert.notes,
+    dataMode: cert.selfSigned ? 'create-self-signed' : 'upload-file',
+    selfSignedCommonName: cert.subjectCommonName || cert.subject,
+    restrictedEnvironments: cert.environmentIds ?? [],
+  };
+}
+
+function formatCertificateDate(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function CertificateForm({
   onBack,
   onSave,
   initialValue,
+  title = 'Add Certificate',
+  saveDisabled = false,
+  mode = 'create',
+  certificateDetails,
 }: {
   onBack: () => void;
   onSave: (draft: CertificateDraft) => Promise<void>;
   initialValue?: CertificateDraft;
+  title?: string;
+  saveDisabled?: boolean;
+  mode?: 'create' | 'edit';
+  certificateDetails?: CertificateItem;
 }) {
   const { space } = useSpace();
   const [draft, setDraft] = useState<CertificateDraft>(initialValue ?? createEmptyDraft());
-  const [activeKeys, setActiveKeys] = useState<string[]>(['displayName', 'notes', 'data', 'environments', 'tenanted']);
+  const [activeKeys, setActiveKeys] = useState<string[]>(() =>
+    mode === 'edit'
+      ? ['displayName', 'notes', 'details', 'environments', 'tenanted']
+      : ['displayName', 'notes', 'data', 'environments', 'tenanted'],
+  );
   const pfxFileInputRef = useRef<HTMLInputElement>(null);
   const [environmentOptions, setEnvironmentOptions] = useState<{ value: number; label: string }[]>([]);
   const [loadingEnvironmentOptions, setLoadingEnvironmentOptions] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const allKeys = ['displayName', 'notes', 'data', 'environments', 'tenanted'];
+  const allKeys = mode === 'edit'
+    ? ['displayName', 'notes', 'details', 'environments', 'tenanted']
+    : ['displayName', 'notes', 'data', 'environments', 'tenanted'];
   const allExpanded = activeKeys.length === allKeys.length;
 
   const updateDraft = <K extends keyof CertificateDraft>(key: K, value: CertificateDraft[K]) => {
@@ -221,6 +275,23 @@ function CertificateForm({
     }
   };
 
+  const editOverflowItems = mode === 'edit' && certificateDetails
+    ? [
+        { key: 'download', label: 'Download' },
+        { key: 'replace', label: 'Replace' },
+        { key: 'archive', label: 'Archive' },
+        { type: 'divider' as const },
+        {
+          key: 'audit',
+          label: (
+            <a href={`#/${space.slug}/configuration/audit?regardingAny=Certificates-${certificateDetails.id}`} target="_self">
+              Audit Trail
+            </a>
+          ),
+        },
+      ]
+    : [];
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
@@ -233,7 +304,7 @@ function CertificateForm({
               Certificates
             </button>
             <div className="flex items-center justify-between mb-3">
-              <h1 className="text-2xl font-semibold text-gray-900 m-0">Add Certificate</h1>
+              <h1 className="text-2xl font-semibold text-gray-900 m-0">{title}</h1>
               <div className="flex items-center gap-2">
                 <Button onClick={onBack} disabled={saving}>Cancel</Button>
                 <Button
@@ -241,10 +312,25 @@ function CertificateForm({
                   className="!bg-green-700 hover:!bg-green-800 !border-green-700"
                   onClick={() => void handleSave()}
                   loading={saving}
-                  disabled={saving}
+                  disabled={saving || saveDisabled}
                 >
                   Save
                 </Button>
+                {mode === 'edit' && certificateDetails && (
+                  <Dropdown
+                    trigger={['click']}
+                    menu={{
+                      items: editOverflowItems,
+                      onClick: ({ key }) => {
+                        if (key === 'download') message.info('Download is not wired to the API yet.');
+                        if (key === 'replace') message.info('Replace is not wired to the API yet.');
+                        if (key === 'archive') message.info('Archive is not wired to the API yet.');
+                      },
+                    }}
+                  >
+                    <Button type="text" icon={<MoreOutlined />} aria-label="Overflow Menu Button" />
+                  </Dropdown>
+                )}
               </div>
             </div>
             <div className="flex justify-end pb-2">
@@ -286,127 +372,179 @@ function CertificateForm({
             />
           </FormPanel>
 
-          <FormPanel
-            title="Certificate Data"
-            description={
-              draft.dataMode === 'upload-file'
-                ? 'Upload the certificate file and provide a password if required.'
-                : draft.dataMode === 'paste-text'
-                  ? 'Paste the certificate text.'
-                  : 'Create a self-signed certificate and private key.'
-            }
-            isOpen={activeKeys.includes('data')}
-            onToggle={() => togglePanel('data')}
-          >
-            <Radio.Group
-              value={draft.dataMode}
-              onChange={(e) => updateDraft('dataMode', e.target.value)}
-              className="flex flex-col gap-4"
+          {mode === 'edit' ? (
+            <FormPanel
+              title="Details"
+              description="Certificate details."
+              isOpen={activeKeys.includes('details')}
+              onToggle={() => togglePanel('details')}
             >
-              <div>
-                <Radio value="upload-file">
-                  <span className="text-base text-gray-800">Upload a File</span>
-                </Radio>
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <tbody>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 w-48 text-gray-500">Has Private Key</td>
+                      <td className="px-3 py-2 text-gray-800">{certificateDetails?.hasPrivateKey ? 'Yes' : 'No'}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Subject</td>
+                      <td className="px-3 py-2 text-gray-800 break-all">{certificateDetails?.subject || '—'}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Issuer</td>
+                      <td className="px-3 py-2 text-gray-800 break-all">{certificateDetails?.issuer || '—'}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Not After</td>
+                      <td className="px-3 py-2 text-gray-800">{formatCertificateDate(certificateDetails?.notAfter)}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Not Before</td>
+                      <td className="px-3 py-2 text-gray-800">{formatCertificateDate(certificateDetails?.notBefore)}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Thumbprint</td>
+                      <td className="px-3 py-2 text-gray-800 break-all">{certificateDetails?.thumbprint || '—'}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Version</td>
+                      <td className="px-3 py-2 text-gray-800">{certificateDetails?.version ?? '—'}</td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">Serial Number</td>
+                      <td className="px-3 py-2 text-gray-800 break-all">{certificateDetails?.serialNumber || '—'}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 text-gray-500">Signature Algorithm</td>
+                      <td className="px-3 py-2 text-gray-800">{certificateDetails?.signatureAlgorithmName || '—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-
-              {draft.dataMode === 'upload-file' && (
-                <div className="ml-7 space-y-4">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1.5">Certificate file</label>
-                    <div className="flex items-center gap-2">
-                      <Input value={draft.pfxFileName} placeholder="No file selected" readOnly />
-                      <Button icon={<UploadOutlined />} onClick={handlePickPfx}>Upload</Button>
-                    </div>
-                    <input
-                      ref={pfxFileInputRef}
-                      type="file"
-                      className="hidden"
-                      accept=".pfx,.p12,.cer,.crt,.pem"
-                      onChange={(e) => void handlePfxFileChange(e)}
-                    />
-                    <div className="text-xs text-gray-400 mt-1">
-                      Select a `.pfx`, `.p12`, `.cer`, `.crt`, or `.pem` file. The file content is encoded to base64 before calling the API.
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1.5">Password</label>
-                    <Password
-                      value={draft.pfxPassword}
-                      placeholder="Certificate password (if required)"
-                      onChange={(e) => updateDraft('pfxPassword', e.target.value)}
-                    />
-                  </div>
+            </FormPanel>
+          ) : (
+            <FormPanel
+              title="Certificate Data"
+              description={
+                draft.dataMode === 'upload-file'
+                  ? 'Upload the certificate file and provide a password if required.'
+                  : draft.dataMode === 'paste-text'
+                    ? 'Paste the certificate text.'
+                    : 'Create a self-signed certificate and private key.'
+              }
+              isOpen={activeKeys.includes('data')}
+              onToggle={() => togglePanel('data')}
+            >
+              <Radio.Group
+                value={draft.dataMode}
+                onChange={(e) => updateDraft('dataMode', e.target.value)}
+                className="flex flex-col gap-4"
+              >
+                <div>
+                  <Radio value="upload-file">
+                    <span className="text-base text-gray-800">Upload a File</span>
+                  </Radio>
                 </div>
-              )}
 
-              <div>
-                <Radio value="paste-text">
-                  <span className="text-base text-gray-800">Paste Text</span>
-                </Radio>
-              </div>
+                {draft.dataMode === 'upload-file' && (
+                  <div className="ml-7 space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1.5">Certificate file</label>
+                      <div className="flex items-center gap-2">
+                        <Input value={draft.pfxFileName} placeholder="No file selected" readOnly />
+                        <Button icon={<UploadOutlined />} onClick={handlePickPfx}>Upload</Button>
+                      </div>
+                      <input
+                        ref={pfxFileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept=".pfx,.p12,.cer,.crt,.pem"
+                        onChange={(e) => void handlePfxFileChange(e)}
+                      />
+                      <div className="text-xs text-gray-400 mt-1">
+                        Select a `.pfx`, `.p12`, `.cer`, `.crt`, or `.pem` file. The file content is encoded to base64 before calling the API.
+                      </div>
+                    </div>
 
-              {draft.dataMode === 'paste-text' && (
-                <div className="ml-7 space-y-4">
-                  <div className="text-sm text-gray-500">
-                    Paste your certificate as text, either base64 encoded or in PEM format
-                  </div>
-                  <TextArea
-                    rows={3}
-                    value={draft.certificateText}
-                    onChange={(e) => updateDraft('certificateText', e.target.value)}
-                    placeholder="Paste certificate text"
-                  />
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1.5">Password (optional)</label>
-                    <Password
-                      value={draft.pfxPassword}
-                      placeholder="Certificate password"
-                      onChange={(e) => updateDraft('pfxPassword', e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <Radio value="create-self-signed">
-                  <span className="text-base text-gray-800">Create Self Signed</span>
-                </Radio>
-              </div>
-
-              {draft.dataMode === 'create-self-signed' && (
-                <div className="ml-7 space-y-4">
-                  <div className="text-sm text-gray-500">
-                    Create a new self signed certificate with the details below.
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1.5">Common Name (a FQDN or person's name)</label>
-                    <Input
-                      value={draft.selfSignedCommonName}
-                      onChange={(e) => updateDraft('selfSignedCommonName', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Select
-                      className="w-full"
-                      value={draft.selfSignedKeyAlgorithm}
-                      onChange={(value) => updateDraft('selfSignedKeyAlgorithm', value)}
-                      options={[
-                        { value: 'NIST P-256', label: 'NIST P-256' },
-                        { value: 'NIST P-384', label: 'NIST P-384' },
-                        { value: 'NIST P-521', label: 'NIST P-521' },
-                      ]}
-                    />
-                    <div className="text-xs text-gray-400 mt-1">
-                      If this is left blank, P-384 will be used by default.
-                      <br />
-                      If you want to maximize interoperability with existing browsers and servers, select either P-256 and P-384
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1.5">Password</label>
+                      <Password
+                        value={draft.pfxPassword}
+                        placeholder="Certificate password (if required)"
+                        onChange={(e) => updateDraft('pfxPassword', e.target.value)}
+                      />
                     </div>
                   </div>
+                )}
+
+                <div>
+                  <Radio value="paste-text">
+                    <span className="text-base text-gray-800">Paste Text</span>
+                  </Radio>
                 </div>
-              )}
-            </Radio.Group>
-          </FormPanel>
+
+                {draft.dataMode === 'paste-text' && (
+                  <div className="ml-7 space-y-4">
+                    <div className="text-sm text-gray-500">
+                      Paste your certificate as text, either base64 encoded or in PEM format
+                    </div>
+                    <TextArea
+                      rows={3}
+                      value={draft.certificateText}
+                      onChange={(e) => updateDraft('certificateText', e.target.value)}
+                      placeholder="Paste certificate text"
+                    />
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1.5">Password (optional)</label>
+                      <Password
+                        value={draft.pfxPassword}
+                        placeholder="Certificate password"
+                        onChange={(e) => updateDraft('pfxPassword', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Radio value="create-self-signed">
+                    <span className="text-base text-gray-800">Create Self Signed</span>
+                  </Radio>
+                </div>
+
+                {draft.dataMode === 'create-self-signed' && (
+                  <div className="ml-7 space-y-4">
+                    <div className="text-sm text-gray-500">
+                      Create a new self signed certificate with the details below.
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1.5">Common Name (a FQDN or person's name)</label>
+                      <Input
+                        value={draft.selfSignedCommonName}
+                        onChange={(e) => updateDraft('selfSignedCommonName', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Select
+                        className="w-full"
+                        value={draft.selfSignedKeyAlgorithm}
+                        onChange={(value) => updateDraft('selfSignedKeyAlgorithm', value)}
+                        options={[
+                          { value: 'NIST P-256', label: 'NIST P-256' },
+                          { value: 'NIST P-384', label: 'NIST P-384' },
+                          { value: 'NIST P-521', label: 'NIST P-521' },
+                        ]}
+                      />
+                      <div className="text-xs text-gray-400 mt-1">
+                        If this is left blank, P-384 will be used by default.
+                        <br />
+                        If you want to maximize interoperability with existing browsers and servers, select either P-256 and P-384
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Radio.Group>
+            </FormPanel>
+          )}
 
           <FormPanel
             title="Environments"
@@ -473,8 +611,8 @@ const CertificatesPage: React.FC = () => {
   const { space } = useSpace();
   const [searchText, setSearchText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [editingCertificate, setEditingCertificate] = useState<CertificateItem | null>(null);
   const [certificates, setCertificates] = useState<CertificateItem[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<CertificateItem | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadCertificates = () => {
@@ -537,6 +675,22 @@ const CertificatesPage: React.FC = () => {
     );
   }
 
+  if (editingCertificate) {
+    return (
+      <CertificateForm
+        title="Edit Certificate"
+        saveDisabled
+        mode="edit"
+        certificateDetails={editingCertificate}
+        initialValue={mapCertificateToDraft(editingCertificate)}
+        onBack={() => setEditingCertificate(null)}
+        onSave={async () => {
+          message.info('Certificate update is not wired to the API yet.');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="bg-white min-h-screen">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
@@ -577,9 +731,18 @@ const CertificatesPage: React.FC = () => {
                   <div
                     key={cert.id}
                     className={[
-                      'flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors',
+                      'flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer',
                       idx < filtered.length - 1 ? 'border-b border-gray-200' : '',
                     ].join(' ')}
+                    onClick={() => setEditingCertificate(cert)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setEditingCertificate(cert);
+                      }
+                    }}
                   >
                     <div className="w-10 h-10 rounded bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">
                       TLS
@@ -595,12 +758,6 @@ const CertificatesPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      <Button size="small" icon={<EditOutlined />} onClick={() => message.info('Edit is not wired to the API yet.') }>
-                        Edit
-                      </Button>
-                      <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDeleteTarget(cert)} />
-                    </div>
                   </div>
                 ))}
               </div>
@@ -608,35 +765,6 @@ const CertificatesPage: React.FC = () => {
           </div>
         </div>
       </div>
-
-      <Modal
-        title="Delete Certificate"
-        open={!!deleteTarget}
-        onOk={async () => {
-          if (!deleteTarget) return;
-          try {
-            const res = await deleteCertificates({ ids: [deleteTarget.id] });
-            if ((res.failIds ?? []).includes(deleteTarget.id)) {
-              message.error('Failed to delete certificate');
-              return;
-            }
-            setCertificates((prev) => prev.filter((c) => c.id !== deleteTarget.id));
-            message.success('Certificate deleted');
-          } catch (error) {
-            console.error('Failed to delete certificate', error);
-            message.error(error instanceof Error ? error.message : 'Failed to delete certificate');
-          } finally {
-            setDeleteTarget(null);
-          }
-        }}
-        onCancel={() => setDeleteTarget(null)}
-        okText="Delete"
-        okButtonProps={{ danger: true }}
-      >
-        <p>
-          Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This action cannot be undone.
-        </p>
-      </Modal>
     </div>
   );
 };

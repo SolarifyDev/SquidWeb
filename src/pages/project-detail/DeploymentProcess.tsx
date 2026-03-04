@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Spin } from 'antd'
+import { Spin, message } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
 import { getProjects } from 'pages/apis/project'
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle'
@@ -593,6 +593,7 @@ function StepItem({
   selected,
   spaceId,
   onClick,
+  onMoreClick,
 }: {
   step: DeploymentStepDto
   index: number
@@ -600,6 +601,7 @@ function StepItem({
   selected: boolean
   spaceId: string
   onClick: () => void
+  onMoreClick: (step: DeploymentStepDto, trigger: HTMLButtonElement) => void
 }) {
   const firstAction = step.actions[0]
 
@@ -613,22 +615,25 @@ function StepItem({
         selected ? 'bg-blue-50 border-l-blue-600' : 'border-l-transparent hover:bg-slate-50'
       }`}
     >
-      <div className="flex-shrink-0 flex items-start pt-2.5 pb-2.5 pl-2 pr-2" style={{ opacity: step.isDisabled ? 0.4 : 1 }}>
+      <div className="flex-shrink-0 flex items-center py-2.5 pl-2 pr-2" style={{ opacity: step.isDisabled ? 0.4 : 1 }}>
         <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
           {firstAction && <StepLogoImg actionType={firstAction.actionType} spaceId={spaceId} name={step.name} />}
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 flex items-start pt-2.5 pb-2.5 pr-1 gap-1" style={{ opacity: step.isDisabled ? 0.5 : 1 }}>
+      <div className="flex-1 min-w-0 flex items-center py-2.5 pr-1 gap-1.5" style={{ opacity: step.isDisabled ? 0.5 : 1 }}>
         <span className="text-xs font-semibold flex-shrink-0 leading-[1.6] text-slate-800">{index + 1}.</span>
-        <span className={`text-sm leading-snug break-words min-w-0 ${selected ? 'text-blue-700 font-medium' : 'text-slate-700'}`}>
+        <span className={`text-sm leading-snug min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] ${selected ? 'text-blue-700 font-medium' : 'text-slate-700'}`}>
           {step.name}
         </span>
       </div>
 
       <button
-        className="flex-shrink-0 self-start mt-2 p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
-        onClick={(e) => e.stopPropagation()}
+        className="flex-shrink-0 self-center p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
+        onClick={(e) => {
+          e.stopPropagation()
+          onMoreClick(step, e.currentTarget)
+        }}
         aria-label="Step options"
       >
         <MoreOutlined style={{ fontSize: 15, color: '#64748b' }} />
@@ -655,19 +660,19 @@ function DraftStepItem({
 
   return (
     <div className="flex items-stretch border-l-[3px] border-l-blue-600 bg-blue-50">
-      <div className="flex-shrink-0 flex items-start pt-2.5 pb-2.5 pl-2 pr-2">
+      <div className="flex-shrink-0 flex items-center py-2.5 pl-2 pr-2">
         <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
           <StepLogoImg actionType={actionType} spaceId={spaceId} name={displayName} />
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 flex items-start pt-2.5 pb-2.5 pr-1 gap-1">
+      <div className="flex-1 min-w-0 flex items-center py-2.5 pr-1 gap-1.5">
         <span className="text-xs font-semibold flex-shrink-0 leading-[1.6] text-slate-800">{index + 1}.</span>
-        <span className="text-sm leading-snug break-words min-w-0 text-slate-700">{displayName}</span>
+        <span className="text-sm leading-snug min-w-0 whitespace-normal break-words [overflow-wrap:anywhere] text-slate-700">{displayName}</span>
       </div>
 
       <button
-        className="flex-shrink-0 self-start mt-2 p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
+        className="flex-shrink-0 self-center p-1.5 rounded mr-1 hover:bg-slate-200 transition-colors"
         onClick={(e) => e.stopPropagation()}
         aria-label="Step options"
       >
@@ -781,6 +786,7 @@ function ProcessOverview({
   lifecycle,
   envMap,
   onAddStep,
+  onStepClick,
 }: {
   steps: DeploymentStepDto[]
   loading: boolean
@@ -788,6 +794,7 @@ function ProcessOverview({
   lifecycle: LifecycleDto | null
   envMap: Record<number, string>
   onAddStep: () => void
+  onStepClick: (step: DeploymentStepDto) => void
 }) {
   const [search, setSearch] = useState('')
   const filtered = search
@@ -858,14 +865,20 @@ function ProcessOverview({
             ) : (
               <div className="px-6 pt-6 pb-4">
                 {filtered.map((step, i) => (
-                  <OverviewStepItem
+                  <button
                     key={step.id}
-                    step={step}
-                    index={i}
-                    total={filtered.length}
-                    spaceId={spaceId}
-                    envMap={envMap}
-                  />
+                    type="button"
+                    onClick={() => onStepClick(step)}
+                    className="w-full text-left rounded-lg hover:bg-slate-50 transition-colors px-2 py-1"
+                  >
+                    <OverviewStepItem
+                      step={step}
+                      index={i}
+                      total={filtered.length}
+                      spaceId={spaceId}
+                      envMap={envMap}
+                    />
+                  </button>
                 ))}
               </div>
             )}
@@ -929,8 +942,10 @@ const Process: React.FC = () => {
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null)
   const [editingTemplate, setEditingTemplate] = useState<{ actionType: string; step: DeploymentStepDto | null } | null>(null)
   const [draftStepName, setDraftStepName] = useState('')
+  const [stepOverflowMenu, setStepOverflowMenu] = useState<{ stepId: number; top: number; left: number } | null>(null)
   const [processId, setProcessId] = useState<number>(0)
   const editorRef = useRef<StepEditorHandle>(null)
+  const overflowMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!projectName) return
@@ -977,6 +992,87 @@ const Process: React.FC = () => {
     ? steps.find((s) => s.id === selectedStepId) ?? null
     : null
 
+  const overflowStep = stepOverflowMenu
+    ? steps.find((s) => s.id === stepOverflowMenu.stepId) ?? null
+    : null
+
+  useEffect(() => {
+    if (!stepOverflowMenu) return
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!overflowMenuRef.current) return
+      if (!overflowMenuRef.current.contains(event.target as Node)) {
+        setStepOverflowMenu(null)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setStepOverflowMenu(null)
+      }
+    }
+    const closeOnResize = () => setStepOverflowMenu(null)
+    document.addEventListener('mousedown', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', closeOnResize)
+    window.addEventListener('scroll', closeOnResize, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', closeOnResize)
+      window.removeEventListener('scroll', closeOnResize, true)
+    }
+  }, [stepOverflowMenu])
+
+  const handleStepSelect = (step: DeploymentStepDto, options?: { switchToEditor?: boolean }) => {
+    setStepOverflowMenu(null)
+    if (options?.switchToEditor) {
+      setMode('editor')
+    }
+    setSelectedStepId(step.id)
+    setDraftStepName('')
+    const firstAction = step.actions[0]
+    if (firstAction && STEP_EDITOR_MAP[firstAction.actionType]) {
+      setEditingTemplate({ actionType: firstAction.actionType, step })
+      return
+    }
+    setEditingTemplate(null)
+  }
+
+  const openStepOverflowMenu = (step: DeploymentStepDto, trigger: HTMLButtonElement) => {
+    const rect = trigger.getBoundingClientRect()
+    const menuWidth = 135
+    const estimatedHeight = 238
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8))
+    const top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - estimatedHeight - 8))
+    setStepOverflowMenu((prev) => (
+      prev?.stepId === step.id
+        ? null
+        : { stepId: step.id, top, left }
+    ))
+  }
+
+  const closeStepOverflowMenu = () => setStepOverflowMenu(null)
+
+  const handleToggleStepDisabled = () => {
+    if (!overflowStep) return
+    setSteps((prev) => prev.map((s) => (
+      s.id === overflowStep.id ? { ...s, isDisabled: !s.isDisabled } : s
+    )))
+    closeStepOverflowMenu()
+    message.success(overflowStep.isDisabled ? 'Step enabled' : 'Step disabled')
+  }
+
+  const handleDeleteStep = () => {
+    if (!overflowStep) return
+    setSteps((prev) => prev.filter((s) => s.id !== overflowStep.id))
+    if (selectedStepId === overflowStep.id) {
+      setSelectedStepId(null)
+      setEditingTemplate(null)
+      setDraftStepName('')
+    }
+    closeStepOverflowMenu()
+    message.success('Step removed')
+  }
+
   if (mode === 'overview') {
     return (
       <ProcessOverview
@@ -986,6 +1082,7 @@ const Process: React.FC = () => {
         lifecycle={lifecycle}
         envMap={envMap}
         onAddStep={() => setMode('editor')}
+        onStepClick={(step) => handleStepSelect(step, { switchToEditor: true })}
       />
     )
   }
@@ -1082,7 +1179,8 @@ const Process: React.FC = () => {
                     total={0}
                     selected={selectedStepId === step.id}
                     spaceId={spaceId}
-                    onClick={() => setSelectedStepId((prev) => (prev === step.id ? null : step.id))}
+                    onClick={() => handleStepSelect(step)}
+                    onMoreClick={openStepOverflowMenu}
                   />
                 ))}
                 {editingTemplate && !editingTemplate.step && (
@@ -1108,8 +1206,10 @@ const Process: React.FC = () => {
         <div className="flex-1 min-w-0 overflow-hidden">
           {editingTemplate && STEP_EDITOR_MAP[editingTemplate.actionType] ? (() => {
             const EditorComponent = STEP_EDITOR_MAP[editingTemplate.actionType]
+            const editorInstanceKey = `${editingTemplate.actionType}:${editingTemplate.step?.id ?? 'new'}`
             return (
               <EditorComponent
+                key={editorInstanceKey}
                 ref={editorRef}
                 step={editingTemplate.step}
                 processId={processId}
@@ -1123,8 +1223,12 @@ const Process: React.FC = () => {
                       : [...prev, savedStep]
                     return next.sort((a, b) => a.stepOrder - b.stepOrder)
                   })
-                  setEditingTemplate(null)
-                  setDraftStepName('')
+                  setEditingTemplate((prev) => (
+                    prev
+                      ? { ...prev, step: savedStep, actionType: savedStep.actions[0]?.actionType ?? prev.actionType }
+                      : prev
+                  ))
+                  setDraftStepName(savedStep.name ?? '')
                   setSelectedStepId(savedStep.id)
                 }}
                 onStepNameChange={(name) => setDraftStepName(name)}
@@ -1144,6 +1248,61 @@ const Process: React.FC = () => {
           )}
         </div>
       </div>
+
+      {stepOverflowMenu && overflowStep && (
+        <div
+          ref={overflowMenuRef}
+          className="fixed z-50 bg-white rounded-md shadow-lg border border-slate-200 py-1 w-max"
+          style={{ top: stepOverflowMenu.top, left: stepOverflowMenu.left }}
+          role="menu"
+          aria-label={`Overflow for ${overflowStep.name}`}
+        >
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap text-slate-700 hover:bg-slate-50"
+            onClick={() => {
+              closeStepOverflowMenu()
+              message.info('Add child step is not available yet')
+            }}
+          >
+            Add child step
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap text-slate-700 hover:bg-slate-50"
+            onClick={handleToggleStepDisabled}
+          >
+            {overflowStep.isDisabled ? 'Enable' : 'Disable'}
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap text-slate-700 hover:bg-slate-50"
+            onClick={() => {
+              closeStepOverflowMenu()
+              message.info('Move into is not available yet')
+            }}
+          >
+            Move into...
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap text-slate-700 hover:bg-slate-50"
+            onClick={() => {
+              closeStepOverflowMenu()
+              message.info('Clone is not available yet')
+            }}
+          >
+            Clone...
+          </button>
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap text-red-600 hover:bg-red-50"
+            onClick={handleDeleteStep}
+          >
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }

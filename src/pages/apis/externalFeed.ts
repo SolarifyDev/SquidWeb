@@ -58,7 +58,7 @@ export interface UpdateExternalFeedCommand {
   registryPath: string
   feedUri: string
   username: string
-  password: string
+  passwordNewValue?: string
   name: string
   slug: string
   packageAcquisitionLocationOptions: string[]
