@@ -4,7 +4,7 @@ import { DownOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
-import { getDeploymentSteps, type DeploymentStepDto } from 'pages/apis/deploymentProcess'
+import { getDeploymentSteps, getPackageReferences, type DeploymentStepDto, type PackageReferenceItem } from 'pages/apis/deploymentProcess'
 import { createRelease, getReleases, type ReleaseDto } from 'pages/apis/release'
 
 type SectionKey = 'channel' | 'version' | 'packages' | 'notes'
@@ -14,6 +14,8 @@ interface PackageTarget {
   key: string
   actionName: string
   packageReferenceName: string
+  packageId: string
+  feedName: string
 }
 
 interface FormPanelProps {
@@ -81,6 +83,7 @@ const ReleasesCreate: React.FC = () => {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [channelReleases, setChannelReleases] = useState<ReleaseDto[]>([])
   const [steps, setSteps] = useState<DeploymentStepDto[]>([])
+  const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
   const [version, setVersion] = useState('')
   const [versionTouched, setVersionTouched] = useState(false)
   const [showVersionHelp, setShowVersionHelp] = useState(false)
@@ -96,7 +99,7 @@ const ReleasesCreate: React.FC = () => {
   const [packageSpecificVersionByKey, setPackageSpecificVersionByKey] = useState<Record<string, string>>({})
   const channelMenuRef = useRef<HTMLDivElement | null>(null)
 
-  const basePath = `/${spaceId}/projects/${projectName}/project-detail/releases`
+  const basePath = `/${spaceId}/projects/${projectName}/releases`
 
   useEffect(() => {
     if (!projectName) return
@@ -115,13 +118,16 @@ const ReleasesCreate: React.FC = () => {
           return
         }
 
-        const [channelRes, stepRes] = await Promise.all([
+        const [channelRes, stepRes, pkgRefRes] = await Promise.all([
           getChannels({ pageSize: 1000 }),
           getDeploymentSteps({
             processId: foundProject.deploymentProcessId,
             pageSize: 500,
           }).catch(() => ({ steps: [], count: 0 })),
+          getPackageReferences(foundProject.id).catch(() => ({ packageReferences: [] })),
         ])
+
+        setPackageReferences(pkgRefRes.packageReferences ?? [])
 
         const projectChannels = channelRes.channels
           .filter((c) => c.projectId === foundProject.id)
@@ -177,19 +183,14 @@ const ReleasesCreate: React.FC = () => {
   }, [latestVersionLabel, versionTouched])
 
   const packageTargets = useMemo<PackageTarget[]>(() => {
-    const rows: PackageTarget[] = []
-    for (const step of steps) {
-      for (const action of step.actions ?? []) {
-        if (!action.packageId) continue
-        rows.push({
-          key: String(action.id),
-          actionName: action.name || step.name,
-          packageReferenceName: action.packageId,
-        })
-      }
-    }
-    return rows
-  }, [steps])
+    return packageReferences.map((ref, index) => ({
+      key: `${ref.actionName}-${ref.packageReferenceName}-${index}`,
+      actionName: ref.actionName,
+      packageReferenceName: ref.packageReferenceName,
+      packageId: ref.packageId,
+      feedName: ref.feedName,
+    }))
+  }, [packageReferences])
 
   useEffect(() => {
     setPackageModeByKey((prev) => {
@@ -265,7 +266,7 @@ const ReleasesCreate: React.FC = () => {
 
     setSaving(true)
     try {
-      await createRelease({
+      const createdRelease = await createRelease({
         version: version.trim(),
         channelId: selectedChannelId,
         projectId: project.id,
@@ -273,7 +274,8 @@ const ReleasesCreate: React.FC = () => {
         selectedPackages,
       })
       message.success('Release created.')
-      navigate(basePath)
+      const createdVersion = (createdRelease?.version ?? version.trim()).trim()
+      navigate(`${basePath}/${encodeURIComponent(createdVersion)}`)
     } catch (error: any) {
       message.error(error?.message || 'Failed to create release.')
     } finally {
@@ -282,7 +284,7 @@ const ReleasesCreate: React.FC = () => {
   }
 
   return (
-    <div className="min-h-full bg-white">
+    <div className="rounded-xl border border-slate-200 overflow-hidden min-h-full bg-white">
       <div className="max-w-[1320px] mx-auto px-4 lg:px-8 py-4">
         <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
           <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 pt-4 pb-2">
@@ -394,7 +396,7 @@ const ReleasesCreate: React.FC = () => {
                   Most recent release:{' '}
                   <a
                     className="text-squid-blue hover:underline"
-                    href={`/${spaceId}/projects/${projectName}/deployments/releases/${encodeURIComponent(
+                    href={`/${spaceId}/projects/${projectName}/releases/${encodeURIComponent(
                       latestRelease.version,
                     )}`}
                   >
@@ -486,8 +488,11 @@ const ReleasesCreate: React.FC = () => {
                         return (
                           <tr key={target.key} className="border-b border-slate-100 last:border-b-0">
                             <td className="align-top px-3 py-3">
-                              <div className="font-medium text-slate-700">{target.actionName}</div>
-                              <div className="text-xs text-slate-500">{target.packageReferenceName}</div>
+                              <div className="font-medium text-slate-700">
+                                {target.actionName}
+                                <span className="text-slate-400">/{target.packageReferenceName}</span>
+                              </div>
+                              <div className="text-xs text-slate-500">{target.packageId}</div>
                             </td>
                             <td className="align-top px-3 py-3">
                               <label className="inline-flex items-center gap-2">

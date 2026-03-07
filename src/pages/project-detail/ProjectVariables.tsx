@@ -719,7 +719,7 @@ const ProjectVariables: React.FC = () => {
   ];
 
   return (
-    <div className="bg-white">
+    <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
       <div className="px-6 pt-4 pb-4 border-b border-gray-200 flex items-center justify-between">
         <h1 className="text-2xl font-semibold m-0">Project Variables</h1>
         <div className="flex items-center gap-2">

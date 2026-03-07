@@ -96,8 +96,8 @@ const Environments = () => {
         envRes.environments.forEach((e) => envTargets.set(e.id, { healthy: [], disabled: [] }));
 
         machineRes.machines.forEach((m) => {
-          const envIds = m.environmentIds ? m.environmentIds.split(',').map((id) => parseInt(id.trim(), 10)).filter((id) => !isNaN(id)) : [];
-          envIds.forEach((envId) => {
+          const envIds = m.environmentIds ?? [];
+          envIds.forEach((envId: number) => {
             const bucket = envTargets.get(envId);
             if (bucket) {
               if (m.isDisabled) {
@@ -110,8 +110,8 @@ const Environments = () => {
         });
 
         const mapMachine = (m: MachineDto, status: string) => {
-          const mEnvIds = m.environmentIds ? m.environmentIds.split(',').filter(Boolean) : [];
-          const roles = m.roles ? m.roles.split(',').map((r) => r.trim()).filter(Boolean) : [];
+          const mEnvIds = (m.environmentIds ?? []).map(String);
+          const roles = m.roles ?? [];
           return {
             name: m.name,
             type: m.endpoint || 'Unknown',

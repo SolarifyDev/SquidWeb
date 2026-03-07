@@ -203,10 +203,10 @@ const Releases: React.FC = () => {
 
   const hasMore = releases.length < totalCount
 
-  const releaseBasePath = `/${spaceId}/projects/${projectName}/project-detail/releases`
+  const releaseBasePath = `/${spaceId}/projects/${projectName}/releases`
 
   return (
-    <div className="flex flex-col min-h-full p-6 gap-4">
+    <div className="rounded-xl border border-slate-200 overflow-hidden flex flex-col min-h-full p-6 gap-4">
       <div className="rounded-lg border border-slate-200 bg-white px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-slate-800 m-0">Releases</h1>
@@ -283,11 +283,16 @@ const Releases: React.FC = () => {
       <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
         <Spin spinning={loading}>
           <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse">
+            <table className="min-w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{ width: '38%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '44%' }} />
+              </colgroup>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/60">
-                  <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Release</th>
-                  <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Channel</th>
+                  <th className="text-left text-xs font-semibold text-slate-600 pl-5 pr-2 py-3">Release</th>
+                  <th className="text-left text-xs font-semibold text-slate-600 px-3 py-3">Channel</th>
                   <th className="text-left text-xs font-semibold text-slate-600 px-5 py-3">Release Notes</th>
                 </tr>
               </thead>
@@ -300,31 +305,25 @@ const Releases: React.FC = () => {
                   </tr>
                 ) : (
                   filteredReleases.map((release) => {
-                    const isCurrent = currentDeployedReleaseIds.includes(release.id)
                     const releaseNote = release.releaseNote ?? ''
 
                     return (
                       <tr key={release.id} className="border-b border-slate-100 last:border-b-0">
-                        <td className="align-top px-5 py-4">
+                        <td className="align-top pl-5 pr-2 py-4">
                           <Link
-                            to={`/${spaceId}/projects/${projectName}/deployments/releases/${encodeURIComponent(
+                            to={`/${spaceId}/projects/${projectName}/releases/${encodeURIComponent(
                               release.version,
                             )}`}
                             className="no-underline text-squid-blue hover:text-blue-700"
                           >
                             <h3 className="m-0 text-lg font-semibold break-all inline-flex items-center gap-2">
                               <span>{release.version}</span>
-                              {isCurrent && (
-                                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                                  Current
-                                </span>
-                              )}
                             </h3>
                             <div className="mt-1 text-xs text-slate-500">{formatAssembled(release.assembled)}</div>
                           </Link>
                         </td>
-                        <td className="align-top px-5 py-4">
-                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        <td className="align-top px-3 py-4">
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                             {channelNameById.get(release.channelId) || `Channel #${release.channelId}`}
                           </span>
                         </td>

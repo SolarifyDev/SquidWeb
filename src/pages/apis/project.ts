@@ -11,7 +11,7 @@ export interface ProjectDto {
   lifecycleId: number
   autoCreateRelease: boolean
   json: string
-  includedLibraryVariableSetIds: string
+  includedLibraryVariableSetIds: number[]
   discreteChannelRelease: boolean
   clonedFromProjectId: number | null
   spaceId: number
@@ -119,6 +119,7 @@ export function createProject(command: CreateProjectCommand) {
 }
 
 export interface UpdateProjectCommand {
+  id: number
   project: ProjectDto
 }
 

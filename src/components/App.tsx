@@ -205,7 +205,7 @@ function App() {
   const isTasksActive = location.pathname.startsWith("/tasks");
 
   const isDeploySection = isDeployActive;
-  const isProjectDetailPage = location.pathname.includes("/project-detail");
+  const isProjectDetailPage = /^\/Spaces-\d+\/projects\/[^/]+(?:\/.*)?$/.test(location.pathname);
   const showSidebarInline = isDeploySection && !isProjectDetailPage;
   const showSidebarOverlay = isDeploySection && isProjectDetailPage && isProjectHovered;
 

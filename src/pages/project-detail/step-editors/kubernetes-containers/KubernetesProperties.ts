@@ -210,6 +210,7 @@ export class KubernetesContainerPayloadKeys {
   static readonly Name = 'Name' // Container name.
   static readonly Image = 'Image' // Container image reference.
   static readonly PackageId = 'PackageId' // Selected package id.
+  static readonly FeedId = 'FeedId' // External feed id (number).
   static readonly CreateFeedSecrets = 'CreateFeedSecrets' // "True" | "False".
   static readonly IsInitContainer = 'IsInitContainer' // "True" | "False".
 

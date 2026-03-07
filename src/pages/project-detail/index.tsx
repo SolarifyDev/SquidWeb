@@ -41,7 +41,7 @@ const navSections: NavItemDef[][] = [
   [
     { label: "Deployments", path: "deployments" },
     { label: "Process", path: "process" },
-    { label: "Channels", path: "channels" },
+    { label: "Channels", path: "deployments/channels" },
     { label: "Releases", path: "releases" },
     { label: "Triggers", path: "triggers" },
     { label: "Settings", path: "deployments/settings" },
@@ -92,13 +92,21 @@ const ProjectDetail: React.FC = () => {
       .catch(() => {});
   }, [projectName]);
 
-  const base = `/${spaceId}/projects/${projectName}/project-detail`;
+  const encodedProjectName = encodeURIComponent(projectName ?? "");
+  const base = `/${spaceId}/projects/${encodedProjectName}`;
 
   const currentSubPath = (() => {
-    const marker = "/project-detail/";
-    const idx = location.pathname.indexOf(marker);
-    if (idx === -1) return "";
-    return location.pathname.slice(idx + marker.length);
+    const segments = location.pathname.split("/").filter(Boolean);
+    const projectsIndex = segments.indexOf("projects");
+
+    if (projectsIndex < 0 || projectsIndex + 1 >= segments.length) return "";
+
+    let rest = segments.slice(projectsIndex + 2);
+    if (rest[0] === "project-detail") {
+      rest = rest.slice(1);
+    }
+
+    return rest.join("/");
   })();
 
   const activeNavPath = navSections
@@ -106,6 +114,8 @@ const ProjectDetail: React.FC = () => {
     .map((item) => item.path)
     .filter((path) => currentSubPath === path || currentSubPath.startsWith(`${path}/`))
     .sort((a, b) => b.length - a.length)[0];
+
+  const isDeployCreatePath = /^releases\/[^/]+\/deploy(?:ments\/create)?$/.test(currentSubPath);
 
   const isActive = (path: string) => {
     return activeNavPath === path;
@@ -236,11 +246,9 @@ const ProjectDetail: React.FC = () => {
           <div className="h-4 flex-shrink-0" />
         </nav>
 
-        {/* ── Main content — white bg + bordered rounded card ──────────────── */}
-        <div className="flex-1 min-h-0 overflow-auto pt-[10px] px-4 pb-4">
-          <div className="rounded-xl border border-slate-200 inline-block min-w-full h-full overflow-hidden">
-            <Outlet />
-          </div>
+        {/* ── Main content ──────────────────────────────────────────────── */}
+        <div className={`flex-1 min-h-0 overflow-auto ${isDeployCreatePath ? 'pt-0' : 'pt-[10px]'} px-4 pb-4`}>
+          <Outlet />
         </div>
       </div>
     </div>

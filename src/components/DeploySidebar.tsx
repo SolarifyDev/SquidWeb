@@ -17,7 +17,7 @@ function buildMenu(spaceSlug: string): MenuItem[] {
 
     { type: 'divider' },
 
-    { type: 'link', label: 'Variable Sets', path: `/${spaceSlug}/variable` },
+    { type: 'link', label: 'Variable Sets', path: `/${spaceSlug}/library/variables` },
 
     { type: 'divider' },
 

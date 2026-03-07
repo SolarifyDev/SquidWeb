@@ -1,4 +1,5 @@
-import { get, post } from 'utils/request'
+import { axiosInstance, get, post } from 'utils/request'
+import type { VariableDto } from './variableSet'
 
 export interface ReleaseDto {
   id: number
@@ -59,4 +60,32 @@ export async function getReleases(params?: GetReleasesRequest) {
 
 export async function createRelease(command: CreateReleaseCommand) {
   return post<ReleaseDto>('/releases/create', command)
+}
+
+export interface UpdateReleaseVariablesCommand {
+  releaseId: number
+}
+
+export async function updateReleaseVariables(command: UpdateReleaseVariablesCommand) {
+  // Backend returns bare 200 OK (no { code, msg, data } envelope) for this endpoint.
+  await axiosInstance.post('/releases/update-variables', command)
+}
+
+export interface VariableSetSnapshotDataDto {
+  variables: VariableDto[]
+}
+
+export interface VariableSetSnapshotDto {
+  id: number
+  data: VariableSetSnapshotDataDto
+  createdAt: string
+  createdBy: string
+}
+
+export interface GetReleaseVariableSnapshotResponseData {
+  variableSnapshot: VariableSetSnapshotDto
+}
+
+export async function getReleaseVariableSnapshot(releaseId: number) {
+  return get<GetReleaseVariableSnapshotResponseData>(`/releases/${releaseId}/variable-snapshot`)
 }

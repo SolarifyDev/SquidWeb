@@ -1,11 +1,11 @@
-import { get } from 'utils/request'
+import { get, post } from 'utils/request'
 
 export interface ChannelDto {
   id: number
   name: string
   description: string
   projectId: number
-  lifecycleId: number
+  lifecycleId: number | null
   spaceId: number
   slug: string
   isDefault: boolean
@@ -23,6 +23,11 @@ export interface GetChannelsResponseData {
   channels: ChannelDto[]
 }
 
+export interface UpdateChannelCommand {
+  id: number
+  channel: ChannelDto
+}
+
 export async function getChannels(params?: GetChannelsRequest) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
@@ -37,5 +42,21 @@ export async function getChannels(params?: GetChannelsRequest) {
   } catch {
     // Backward-compatible endpoint
     return get<GetChannelsResponseData>('/channel', { params: query })
+  }
+}
+
+export async function updateChannel(command: UpdateChannelCommand) {
+  try {
+    const res = await post<ChannelDto | { channel: ChannelDto }>('/channels/update', command)
+    if (res && typeof res === 'object' && 'channel' in res) {
+      return (res as { channel: ChannelDto }).channel
+    }
+    return res as ChannelDto
+  } catch {
+    const res = await post<ChannelDto | { channel: ChannelDto }>('/channel/update', command)
+    if (res && typeof res === 'object' && 'channel' in res) {
+      return (res as { channel: ChannelDto }).channel
+    }
+    return res as ChannelDto
   }
 }

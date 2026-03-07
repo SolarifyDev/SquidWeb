@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Spin, message } from 'antd'
+import { Modal, Spin, message } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
 import { getProjects } from 'pages/apis/project'
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjectProgression } from 'pages/apis/projectProgression'
 import {
   getDeploymentSteps,
+  deleteDeploymentSteps,
   DeploymentStepDto,
 } from 'pages/apis/deploymentProcess'
 import { KubernetesContainersEditor, type KubernetesContainersEditorHandle } from './step-editors/kubernetes-containers/KubernetesContainersEditor'
@@ -611,7 +612,7 @@ function StepItem({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
-      className={`flex items-stretch cursor-pointer select-none outline-none transition-colors border-l-[3px] ${
+      className={`flex items-center cursor-pointer select-none outline-none transition-colors border-l-[3px] ${
         selected ? 'bg-blue-50 border-l-blue-600' : 'border-l-transparent hover:bg-slate-50'
       }`}
     >
@@ -659,7 +660,7 @@ function DraftStepItem({
   const displayName = stepName.trim() || 'Configure and apply Kubernetes resources'
 
   return (
-    <div className="flex items-stretch border-l-[3px] border-l-blue-600 bg-blue-50">
+    <div className="flex items-center border-l-[3px] border-l-blue-600 bg-blue-50">
       <div className="flex-shrink-0 flex items-center py-2.5 pl-2 pr-2">
         <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
           <StepLogoImg actionType={actionType} spaceId={spaceId} name={displayName} />
@@ -802,7 +803,7 @@ function ProcessOverview({
     : steps
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
         <h1 className="text-xl font-semibold text-slate-800 m-0">Process</h1>
@@ -1063,14 +1064,32 @@ const Process: React.FC = () => {
 
   const handleDeleteStep = () => {
     if (!overflowStep) return
-    setSteps((prev) => prev.filter((s) => s.id !== overflowStep.id))
-    if (selectedStepId === overflowStep.id) {
-      setSelectedStepId(null)
-      setEditingTemplate(null)
-      setDraftStepName('')
-    }
+    const stepToDelete = overflowStep
     closeStepOverflowMenu()
-    message.success('Step removed')
+    Modal.confirm({
+      title: 'Delete Step',
+      content: `Are you sure you want to delete "${stepToDelete.name}"?`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await deleteDeploymentSteps([stepToDelete.id])
+          if (res.failIds?.length) {
+            message.error('Failed to delete step')
+            return
+          }
+          setSteps((prev) => prev.filter((s) => s.id !== stepToDelete.id))
+          if (selectedStepId === stepToDelete.id) {
+            setSelectedStepId(null)
+            setEditingTemplate(null)
+            setDraftStepName('')
+          }
+          message.success('Step deleted')
+        } catch {
+          message.error('Failed to delete step')
+        }
+      },
+    })
   }
 
   if (mode === 'overview') {
@@ -1089,7 +1108,7 @@ const Process: React.FC = () => {
 
   // ── Editor mode ────────────────────────────────────────────────────────────
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-slate-200">
         {/* Breadcrumb row */}

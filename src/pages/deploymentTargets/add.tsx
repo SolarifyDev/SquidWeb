@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Checkbox, Input, Modal, Radio, Select, message } from 'antd'
-import { CheckCircleFilled, CopyOutlined, DoubleLeftOutlined, DoubleRightOutlined, DownOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { CheckCircleFilled, CopyOutlined, DoubleLeftOutlined, DoubleRightOutlined, DownOutlined, ExclamationCircleOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
@@ -239,7 +239,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
   const [agentFormView, setAgentFormView] = useState<'kubernetes-agent' | 'kubernetes-api' | null>(null)
   const [agentName, setAgentName] = useState('')
-  const [agentEnvironments, setAgentEnvironments] = useState<number[]>([])
+  const [agentEnvironments, setAgentEnvironments] = useState<string[]>([])
   const [agentTags, setAgentTags] = useState<string[]>([])
   const [agentNamespace, setAgentNamespace] = useState('')
   const [agentStorageClass, setAgentStorageClass] = useState('')
@@ -251,6 +251,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [showOptional, setShowOptional] = useState(true)
   const [helpPanelVisible, setHelpPanelVisible] = useState(true)
   const [environmentOptions, setEnvironmentOptions] = useState<{ value: number; label: string }[]>([])
+  const [agentEnvironmentOptions, setAgentEnvironmentOptions] = useState<{ value: string; label: string }[]>([])
   const [loadingEnvironmentOptions, setLoadingEnvironmentOptions] = useState(false)
   const [targetTagOptions, setTargetTagOptions] = useState<{ value: string; label: string }[]>([])
   const [loadingTargetTagOptions, setLoadingTargetTagOptions] = useState(false)
@@ -280,6 +281,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
   const [agentStep, setAgentStep] = useState<'form' | 'script' | 'connected'>('form')
+  const [agentTimedOut, setAgentTimedOut] = useState(false)
   const [agentLoading, setAgentLoading] = useState(false)
   const [scriptData, setScriptData] = useState<GenerateKubernetesAgentInstallScriptData | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -307,9 +309,38 @@ const AddDeploymentTargetPage: React.FC = () => {
 
   const closeAddModal = () => {
     stopPolling()
+    setAgentTimedOut(false)
     setAgentFormView(null)
     setAgentStep('form')
     setScriptData(null)
+    // Reset Kubernetes Agent form
+    setAgentName('')
+    setAgentEnvironments([])
+    setAgentTags([])
+    setAgentNamespace('')
+    setAgentStorageClass('')
+    setAgentServerUrl(window.location.origin)
+    const url = new URL(window.location.origin)
+    setAgentCommsUrl(`${url.protocol}//${url.hostname}:10943`)
+    setAgentLoading(false)
+    setScriptShell('bash')
+    // Reset Kubernetes API form
+    setApiDisplayName('')
+    setApiEnvironments([])
+    setApiTargetTags([])
+    setApiAuthType(undefined)
+    setApiSelectedAccountId(undefined)
+    setApiSelectedClientCertificateId(undefined)
+    setApiToken('')
+    setApiUsername('')
+    setApiPassword('')
+    setApiClusterUrl('')
+    setApiClusterCertificate(undefined)
+    setApiSkipTlsVerification(false)
+    setApiDefaultNamespace('')
+    setApiContainerOptions('')
+    setApiTenantedMode('untenanted')
+    setApiSaving(false)
   }
 
   const normalizeTagValues = useCallback((values: string[]) => {
@@ -406,6 +437,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
   const startPolling = useCallback((subscriptionId: string) => {
     stopPolling()
+    setAgentTimedOut(false)
 
     pollingRef.current = setInterval(async () => {
       try {
@@ -419,7 +451,8 @@ const AddDeploymentTargetPage: React.FC = () => {
 
     pollingTimeoutRef.current = setTimeout(() => {
       stopPolling()
-    }, 5 * 60 * 1000)
+      setAgentTimedOut(true)
+    }, 15 * 60 * 1000)
   }, [stopPolling])
 
   const handleAgentNext = async () => {
@@ -435,9 +468,10 @@ const AddDeploymentTargetPage: React.FC = () => {
         agentName: agentName.trim(),
         serverUrl: agentServerUrl.trim(),
         serverCommsUrl: agentCommsUrl.trim(),
-        environmentIds: agentEnvironments,
+        environments: agentEnvironments,
         tags: agentTags,
         spaceId: space.id,
+        defaultNamespace: agentNamespace.trim() || undefined,
       })
 
       setScriptData(data)
@@ -531,8 +565,8 @@ const AddDeploymentTargetPage: React.FC = () => {
       await registerKubernetesApi({
         machineName: apiDisplayName.trim(),
         spaceId: space.id,
-        roles: apiTargetTags.join(','),
-        environmentIds: apiEnvironments.join(','),
+        roles: apiTargetTags,
+        environmentIds: apiEnvironments,
         clusterUrl: apiClusterUrl.trim(),
         namespace: apiDefaultNamespace.trim() || 'default',
         skipTlsVerification: apiSkipTlsVerification,
@@ -555,16 +589,14 @@ const AddDeploymentTargetPage: React.FC = () => {
     getEnvironments({ pageSize: 1000, spaceId: space.id })
       .then((res) => {
         if (!mounted) return
-        setEnvironmentOptions(
-          (res.environments ?? []).map((env) => ({
-            value: env.id,
-            label: env.name,
-          }))
-        )
+        const envs = res.environments ?? []
+        setEnvironmentOptions(envs.map((env) => ({ value: env.id, label: env.name })))
+        setAgentEnvironmentOptions(envs.map((env) => ({ value: env.name, label: env.name })))
       })
       .catch(() => {
         if (!mounted) return
         setEnvironmentOptions([])
+        setAgentEnvironmentOptions([])
       })
       .finally(() => {
         if (mounted) setLoadingEnvironmentOptions(false)
@@ -760,6 +792,7 @@ const AddDeploymentTargetPage: React.FC = () => {
         title={null}
         open={!!agentFormView}
         onCancel={closeAddModal}
+        maskClosable={false}
         footer={null}
         width={agentFormView === 'kubernetes-agent' ? 1080 : 1120}
         styles={{ body: { padding: 0 } }}
@@ -782,7 +815,7 @@ const AddDeploymentTargetPage: React.FC = () => {
                     <MultiSelectField
                       label="Environments"
                       helper="Select at least one environment"
-                      options={environmentOptions}
+                      options={agentEnvironmentOptions}
                       loading={loadingEnvironmentOptions}
                       value={agentEnvironments}
                       onChange={setAgentEnvironments}
@@ -920,14 +953,21 @@ const AddDeploymentTargetPage: React.FC = () => {
                       </pre>
                     </div>
 
-                    <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-md">
-                      <LoadingOutlined className="text-squid-blue text-lg" />
-                      <span className="text-sm text-gray-700">Waiting for agent to connect...</span>
-                    </div>
+                    {agentTimedOut ? (
+                      <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-md">
+                        <ExclamationCircleOutlined className="text-orange-500 text-lg" />
+                        <span className="text-sm text-orange-700">Connection timed out. Please check that the agent is running and try again.</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-md">
+                        <LoadingOutlined className="text-squid-blue text-lg" />
+                        <span className="text-sm text-gray-700">Waiting for agent to connect...</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="border-t border-gray-200 px-10 py-4 flex justify-end gap-3 flex-shrink-0">
-                    <Button size="large" onClick={() => { stopPolling(); setAgentStep('form') }}>Back</Button>
+                    <Button size="large" onClick={() => { stopPolling(); setAgentTimedOut(false); setAgentStep('form') }}>Back</Button>
                     <Button size="large" onClick={closeAddModal}>Close</Button>
                   </div>
                 </>

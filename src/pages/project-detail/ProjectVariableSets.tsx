@@ -25,36 +25,46 @@ const getDisplayName = (set: VariableSetDto) => {
 
 const getDescription = (set: VariableSetDto) => (set.description ?? set.Description ?? '').trim()
 
-const parseIncludedIds = (includedRaw: string) =>
-  Array.from(
-    new Set(
-      (includedRaw ?? '')
-        .trim()
-        .split(',')
-        .map((id) => Number(id.trim()))
-        .filter((id) => Number.isInteger(id) && id > 0),
-    ),
-  )
+const parseIncludedIds = (includedRaw: number[] | undefined | null) =>
+  Array.from(new Set((includedRaw ?? []).filter((id) => Number.isInteger(id) && id > 0)))
 
 const getIncludeId = (set: VariableSetDto) =>
   Number.isInteger(set.ownerId) && set.ownerId > 0 ? set.ownerId : set.id
 
-const getScopeLabel = (variable: VariableDto) => {
-  if (!variable.scopes || variable.scopes.length === 0) return '-'
-  return Array.from(
+const getScopeValues = (variable: VariableDto) =>
+  Array.from(
     new Set(
       variable.scopes
         .map((s) => s.scopeValue?.trim())
         .filter((value): value is string => !!value),
     ),
-  ).join(', ')
-}
+  )
 
-const sanitizeVariables = (variables: VariableDto[]) =>
-  (variables ?? []).filter((item) => {
+const sanitizeVariables = (
+  variables: VariableDto[],
+  variableSetName?: string,
+  variableSetDescription?: string,
+) => {
+  const normalizedName = (variableSetName ?? '').trim()
+  const normalizedDescription = (variableSetDescription ?? '').trim()
+
+  return (variables ?? []).filter((item) => {
     const key = (item.name ?? '').trim().toLowerCase()
-    return key !== 'name' && key !== 'description'
+    const value = (item.value ?? '').trim()
+    const hasScopes = (item.scopes ?? []).length > 0
+
+    // Only hide metadata rows that mirror VariableSet top-level Name/Description.
+    if (key === 'name' && normalizedName && value === normalizedName && !hasScopes) {
+      return false
+    }
+
+    if (key === 'description' && normalizedDescription && value === normalizedDescription && !hasScopes) {
+      return false
+    }
+
+    return true
   })
+}
 
 const ProjectVariableSets: React.FC = () => {
   const { projectName, spaceId } = useParams<{ projectName: string; spaceId: string }>()
@@ -103,8 +113,12 @@ const ProjectVariableSets: React.FC = () => {
       }).catch(() => ({ variableSets: [] as VariableSetDto[], count: 0 }))
       const librarySets = librarySetsRes.variableSets ?? []
 
+      const librarySetByOwnerId = new Map<number, VariableSetDto>(
+        librarySets
+          .filter((set) => Number.isInteger(set.ownerId) && set.ownerId > 0)
+          .map((set) => [set.ownerId, set]),
+      )
       const librarySetById = new Map<number, VariableSetDto>(librarySets.map((set) => [set.id, set]))
-      const librarySetByOwnerId = new Map<number, VariableSetDto>(librarySets.map((set) => [set.ownerId, set]))
 
       const resolvedSetLinks = includedIds.map((includeId) => {
         const byOwnerId = librarySetByOwnerId.get(includeId)
@@ -131,7 +145,11 @@ const ProjectVariableSets: React.FC = () => {
           includeId: result.includeId,
           id: result.detail.id,
           name: getDisplayName(result.detail),
-          variables: sanitizeVariables(result.detail.variables ?? []),
+          variables: sanitizeVariables(
+            result.detail.variables ?? [],
+            result.detail.name ?? result.detail.Name,
+            result.detail.description ?? result.detail.Description,
+          ),
         }))
 
       setSections(nextSections)
@@ -189,20 +207,7 @@ const ProjectVariableSets: React.FC = () => {
       setLibraryVariableSets(allSets)
 
       const includedIds = parseIncludedIds(project.includedLibraryVariableSetIds)
-      const byId = new Map<number, VariableSetDto>(allSets.map((set) => [set.id, set]))
-      const byOwnerId = new Map<number, VariableSetDto>(allSets.map((set) => [set.ownerId, set]))
-      const normalizedIncludeIds = Array.from(
-        new Set(
-          includedIds.map((id) => {
-            const byOwner = byOwnerId.get(id)
-            if (byOwner) return getIncludeId(byOwner)
-            const bySetId = byId.get(id)
-            if (bySetId) return getIncludeId(bySetId)
-            return id
-          }),
-        ),
-      )
-      setSelectedIncludeIds(normalizedIncludeIds)
+      setSelectedIncludeIds(includedIds)
     } catch (error) {
       console.error('Failed to load library variable sets', error)
       message.error('Failed to load variable sets')
@@ -227,9 +232,10 @@ const ProjectVariableSets: React.FC = () => {
     try {
       const nextIncludedIds = Array.from(new Set(selectedIncludeIds)).filter((id) => id > 0)
       await updateProject({
+        id: project.id,
         project: {
           ...project,
-          includedLibraryVariableSetIds: nextIncludedIds.join(','),
+          includedLibraryVariableSetIds: nextIncludedIds,
           lastModified: new Date().toISOString(),
         },
       })
@@ -251,9 +257,10 @@ const ProjectVariableSets: React.FC = () => {
       const includedIds = parseIncludedIds(project.includedLibraryVariableSetIds)
       const nextIncludedIds = includedIds.filter((id) => id !== section.includeId && id !== section.id)
       await updateProject({
+        id: project.id,
         project: {
           ...project,
-          includedLibraryVariableSetIds: nextIncludedIds.join(','),
+          includedLibraryVariableSetIds: nextIncludedIds,
           lastModified: new Date().toISOString(),
         },
       })
@@ -283,7 +290,7 @@ const ProjectVariableSets: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col min-h-full p-6 gap-4 bg-white">
+    <div className="rounded-xl border border-slate-200 overflow-hidden flex flex-col min-h-full p-6 gap-4 bg-white">
       <div className="rounded-lg border border-slate-200 bg-white px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-slate-800 m-0">Variable Sets</h1>
@@ -345,7 +352,7 @@ const ProjectVariableSets: React.FC = () => {
                   {
                     key: 'edit',
                     label: (
-                      <RouterLink to={spaceId ? `/${spaceId}/variable/${section.id}` : '/'} target="_self">
+                      <RouterLink to={spaceId ? `/${spaceId}/library/variables/${section.id}` : '/'} target="_self">
                         Edit Variable Set
                       </RouterLink>
                     ),
@@ -406,25 +413,82 @@ const ProjectVariableSets: React.FC = () => {
                       <div>
                         {section.variables.length === 0 ? (
                           <div className="px-3 py-6 text-sm text-slate-400">No variables in this set.</div>
-                        ) : (
-                          section.variables.map((variable) => (
-                            <div
-                              key={variable.id}
-                              className="grid grid-cols-[24%_38%_23%_15%] border-t border-slate-100 text-sm"
-                            >
-                              <div className="px-3 py-2 font-mono text-slate-700 break-all">
-                                {variable.name || '-'}
+                        ) : (() => {
+                          const orderedVariables = [...section.variables].sort((a, b) => {
+                            const aName = (a.name ?? '').trim().toLowerCase()
+                            const bName = (b.name ?? '').trim().toLowerCase()
+                            const byName = aName.localeCompare(bName)
+                            if (byName !== 0) return byName
+
+                            const bySortOrder = (a.sortOrder ?? 0) - (b.sortOrder ?? 0)
+                            if (bySortOrder !== 0) return bySortOrder
+
+                            return (a.id ?? 0) - (b.id ?? 0)
+                          })
+
+                          return orderedVariables.map((variable, variableIndex) => {
+                            const currentName = variable.name || '-'
+                            const previousName = variableIndex > 0
+                              ? (orderedVariables[variableIndex - 1].name || '-')
+                              : null
+                            const showName = variableIndex === 0 || previousName !== currentName
+                            const scopeValues = getScopeValues(variable)
+
+                            return (
+                              <div
+                                key={variable.id}
+                                className="grid grid-cols-[24%_38%_23%_15%] border-t border-gray-100 text-sm min-h-[48px]"
+                              >
+                                <div className="px-3 py-2 font-mono text-slate-700 break-all flex items-center">
+                                  <div className="w-full">
+                                    {showName ? currentName : <div className="h-5" />}
+                                  </div>
+                                </div>
+                                <div className="px-3 py-2 font-mono text-slate-700 break-all flex items-center">
+                                  <div className="w-full">
+                                    {variable.isSensitive ? '********' : (variable.value || '-')}
+                                  </div>
+                                </div>
+                                <div className="px-3 py-2 text-slate-600 break-all flex items-center">
+                                  <div className="w-full">
+                                    {scopeValues.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {scopeValues.map((scope, scopeIndex) => (
+                                          <span
+                                            key={`${section.id}-${variable.id}-scope-${scopeIndex}`}
+                                            className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 max-w-full"
+                                          >
+                                            <span className="mr-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-300 text-slate-700">
+                                              <svg
+                                                className="h-3 w-3 fill-current"
+                                                viewBox="0 0 200 200"
+                                                aria-hidden="true"
+                                              >
+                                                <path d="M14 30v35h172V30zm26 26H23V39h17zM14 83v35h95V83zm26 26H23V92h17zM14 134v35h172v-35zm26 26H23v-17h17z" />
+                                              </svg>
+                                            </span>
+                                            <span className="break-all">{scope}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="px-3 py-2 text-slate-500 break-all flex items-center">
+                                  {spaceId ? (
+                                    <RouterLink className="text-squid-blue hover:underline" to={`/${spaceId}/library/variables/${section.id}`} target="_self">
+                                      {section.name}
+                                    </RouterLink>
+                                  ) : (
+                                    section.name
+                                  )}
+                                </div>
                               </div>
-                              <div className="px-3 py-2 font-mono text-slate-700 break-all">
-                                {variable.value || '-'}
-                              </div>
-                              <div className="px-3 py-2 text-slate-600 break-all">
-                                {getScopeLabel(variable)}
-                              </div>
-                              <div className="px-3 py-2 text-slate-500 break-all">{section.name}</div>
-                            </div>
-                          ))
-                        )}
+                            )
+                          })
+                        })()}
                       </div>
                     ) : null}
                   </div>
@@ -450,7 +514,7 @@ const ProjectVariableSets: React.FC = () => {
       >
         <div className="mb-3 text-sm text-slate-500">
           Manage your{' '}
-          <RouterLink className="text-squid-blue hover:underline" to={spaceId ? `/${spaceId}/variable` : '/'} target="_self">
+          <RouterLink className="text-squid-blue hover:underline" to={spaceId ? `/${spaceId}/library/variables` : '/'} target="_self">
             variable sets
           </RouterLink>
           .

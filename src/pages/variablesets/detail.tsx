@@ -291,13 +291,19 @@ const RowControlActions: React.FC<{
   rowMenuItems: { key: string; label: string; danger?: boolean }[];
   onMenuAction: (key: string) => void;
 }> = ({ isModified, rowMenuItems, onMenuAction }) => (
-  <div className="relative w-full h-full flex items-center justify-center">
+  <div className="relative w-full h-full flex items-center justify-end">
     {isModified && <EditOutlined className="absolute left-0 text-gray-400 text-xs" />}
     <Dropdown
       menu={{ items: rowMenuItems, onClick: ({ key }) => onMenuAction(String(key)) }}
       trigger={['click']}
     >
-      <Button icon={<MoreOutlined />} type="text" size="small" aria-label="OverflowMenu" className="!inline-flex !items-center !justify-center" />
+      <Button
+        icon={<MoreOutlined />}
+        type="text"
+        size="small"
+        aria-label="OverflowMenu"
+        className="!inline-flex !items-center !justify-center !w-8 !h-8"
+      />
     </Dropdown>
   </div>
 );
@@ -340,7 +346,7 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
         editorContent={scopeEditorContent}
       />
     </div>
-    <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 flex items-center justify-center">
+    <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 flex items-center justify-end">
       <RowControlActions
         isModified={isModified}
         rowMenuItems={rowMenuItems}
@@ -382,10 +388,10 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
       <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
         <span className="text-gray-400 text-xs">Multiple values</span>
       </div>
-      <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 flex items-center justify-between">
+      <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
         <span className="text-gray-400 text-xs">Multiple scopes</span>
       </div>
-      <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 flex items-center justify-center">
+      <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 flex items-center justify-end">
         {firstEntry && (
           <RowControlActions
             isModified={isVariableModified(firstEntry)}
@@ -410,7 +416,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
               editorContent={scopeEditorContent}
             />
           </div>
-          <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 border-t border-gray-200 flex items-center justify-center">
+          <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center justify-end">
             <RowControlActions
               isModified={isVariableModified(entry)}
               rowMenuItems={getRowMenuItems(entry, false)}
@@ -780,50 +786,18 @@ const VariableSetDetail: React.FC = () => {
   };
 
   const scopeEditorContent = (
-    <div className="w-[560px]">
-      <div className="space-y-3">
-        <div>
-          <label className="block text-sm text-gray-700 mb-1.5">Select environments</label>
-          <Select
-            mode="multiple"
-            value={scopeEditor.environments}
-            onChange={(values) => handleScopeEditorChange({ environments: values })}
-            options={environmentOptions}
-            loading={scopeOptionsLoading}
-            placeholder="Select environments"
-            className="w-full"
-            allowClear
-            showSearch
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-700 mb-1.5">Select target tags</label>
-          <Select
-            mode="multiple"
-            value={scopeEditor.targetTags}
-            onChange={(values) => handleScopeEditorChange({ targetTags: values })}
-            options={targetTagOptions}
-            loading={scopeOptionsLoading}
-            placeholder="Select target tags"
-            className="w-full"
-            allowClear
-            showSearch
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-700 mb-1.5">Select targets</label>
-          <Select
-            mode="multiple"
-            value={scopeEditor.targets}
-            onChange={(values) => handleScopeEditorChange({ targets: values })}
-            options={targetOptions}
-            loading={scopeOptionsLoading}
-            placeholder="Select targets"
-            className="w-full"
-            allowClear
-            showSearch
-          />
-        </div>
+    <div className="w-[560px] space-y-3">
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select environments</label>
+        <Select mode="multiple" value={scopeEditor.environments} onChange={(v) => handleScopeEditorChange({ environments: v })} options={environmentOptions} loading={scopeOptionsLoading} placeholder="Select environments" className="w-full" allowClear showSearch />
+      </div>
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select target tags</label>
+        <Select mode="multiple" value={scopeEditor.targetTags} onChange={(v) => handleScopeEditorChange({ targetTags: v })} options={targetTagOptions} loading={scopeOptionsLoading} placeholder="Select target tags" className="w-full" allowClear showSearch />
+      </div>
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select targets</label>
+        <Select mode="multiple" value={scopeEditor.targets} onChange={(v) => handleScopeEditorChange({ targets: v })} options={targetOptions} loading={scopeOptionsLoading} placeholder="Select targets" className="w-full" allowClear showSearch />
       </div>
     </div>
   );
@@ -901,22 +875,29 @@ const VariableSetDetail: React.FC = () => {
                   </div>
                 </Popover>
               </div>
-              <div style={{ width: CONTROL_COL_WIDTH }} className="px-1" />
+              <div style={{ width: CONTROL_COL_WIDTH }} className="px-3" />
             </div>
           ))}
-          <div className="flex justify-end gap-2 px-3 pb-2">
-            <Button size="small" disabled={!canAddAnotherValue} onClick={handleAddAnotherValue}>
-              Add another value
-            </Button>
-            <Button
-              size="small"
-              type="primary"
-              disabled={!canAddToList}
-              onClick={handleAddToList}
-              className="!bg-green-600 !border-green-600"
-            >
-              Add to list
-            </Button>
+          <div className="border-t border-gray-200 bg-gray-50/60">
+            <div className="flex justify-end gap-2 px-3 py-2.5">
+              <Button
+                size="middle"
+                disabled={!canAddAnotherValue}
+                onClick={handleAddAnotherValue}
+                className="!h-9 !px-4 !text-sm !font-medium"
+              >
+                Add another value
+              </Button>
+              <Button
+                size="middle"
+                type="primary"
+                disabled={!canAddToList}
+                onClick={handleAddToList}
+                className="!h-9 !px-4 !text-sm !font-medium !bg-green-600 !border-green-600 hover:!bg-green-700 hover:!border-green-700"
+              >
+                Add to list
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -998,7 +979,7 @@ const VariableSetDetail: React.FC = () => {
               <ol>
                 <li>
                   <button
-                    onClick={() => navigate(`/${space.slug}/variable`)}
+                    onClick={() => navigate(`/${space.slug}/library/variables`)}
                     className="text-squid-blue hover:underline text-sm bg-transparent border-0 p-0 cursor-pointer"
                   >
                     Variable Sets

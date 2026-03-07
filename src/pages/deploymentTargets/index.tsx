@@ -3,8 +3,8 @@ import { Button, Checkbox, Collapse, Modal, Tabs, Spin, Input, Select, message }
 import { SearchOutlined, FilterOutlined, MoreOutlined, PlusOutlined, DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { getMachines, MachineDto } from 'pages/apis/machine'
-import { getEnvironments } from 'pages/apis/environment'
-import { createTargetTag, getTargetTags } from 'pages/apis/targetTag'
+import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
+import { createTargetTag, getTargetTags, TargetTagDto } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
 
 const { Panel } = Collapse
@@ -74,10 +74,88 @@ function endpointSummary(ep: MachineEndpoint | null): string {
   return ''
 }
 
-function mapMachineToTarget(m: MachineDto, envMap: Map<string, string>): DeploymentTarget {
-  const envIds = m.environmentIds ? m.environmentIds.split(',').filter(Boolean) : []
-  const envNames = envIds.map((id) => envMap.get(id) ?? id)
-  const rolesList = m.roles ? m.roles.split(',').map((r) => r.trim()).filter(Boolean) : []
+function buildTargetTagLookup(tags: TargetTagDto[]): Map<string, string> {
+  const lookup = new Map<string, string>()
+  tags.forEach((tag) => {
+    lookup.set(String(tag.id), tag.name)
+    lookup.set(tag.name, tag.name)
+    lookup.set(tag.name.toLowerCase(), tag.name)
+  })
+  return lookup
+}
+
+function addEnvironmentLookupKey(lookup: Map<string, string>, rawKey: string | number | undefined, name: string) {
+  const key = String(rawKey ?? '').trim()
+  if (!key) return
+
+  lookup.set(key, name)
+  lookup.set(key.toLowerCase(), name)
+
+  const prefixed = /^environments?-(.+)$/i.exec(key)
+  if (prefixed?.[1]) {
+    const tail = prefixed[1].trim()
+    if (tail) {
+      lookup.set(tail, name)
+      lookup.set(tail.toLowerCase(), name)
+    }
+  }
+
+  if (/^\d+$/.test(key)) {
+    const prefixedKey = `Environments-${key}`
+    lookup.set(prefixedKey, name)
+    lookup.set(prefixedKey.toLowerCase(), name)
+  }
+}
+
+function buildEnvironmentLookup(environments: EnvironmentDto[]): Map<string, string> {
+  const lookup = new Map<string, string>()
+  environments.forEach((env) => {
+    addEnvironmentLookupKey(lookup, env.id, env.name)
+    addEnvironmentLookupKey(lookup, env.slug, env.name)
+    addEnvironmentLookupKey(lookup, env.name, env.name)
+  })
+  return lookup
+}
+
+function resolveEnvironmentName(raw: string, envLookup: Map<string, string>): string {
+  const value = raw.trim()
+  if (!value) return ''
+
+  const direct = envLookup.get(value) ?? envLookup.get(value.toLowerCase())
+  if (direct) return direct
+
+  const prefixed = /^environments?-(.+)$/i.exec(value)
+  if (prefixed) {
+    const byId = envLookup.get(prefixed[1]) ?? envLookup.get(prefixed[1].toLowerCase())
+    if (byId) return byId
+  }
+
+  if (/^\d+$/.test(value)) {
+    const prefixedNumeric = `Environments-${value}`
+    const byNumericPrefixed = envLookup.get(prefixedNumeric) ?? envLookup.get(prefixedNumeric.toLowerCase())
+    if (byNumericPrefixed) return byNumericPrefixed
+  }
+
+  // Only show names resolved from environment list API.
+  return ''
+}
+
+function unique(items: string[]): string[] {
+  return Array.from(new Set(items))
+}
+
+function mapMachineToTarget(m: MachineDto, envLookup: Map<string, string>, targetTagLookup: Map<string, string>): DeploymentTarget {
+  const envIds = (m.environmentIds ?? []).map(String)
+  const envNames = unique(envIds.map((id) => resolveEnvironmentName(id, envLookup)).filter(Boolean))
+  const roleValues = m.roles ?? []
+  const rolesList = unique(roleValues
+    .map((role) => {
+      const mapped = targetTagLookup.get(role) ?? targetTagLookup.get(role.toLowerCase())
+      if (mapped) return mapped
+      // Keep non-numeric free-form tags, hide unresolved numeric ids.
+      return /^\d+$/.test(role) ? '' : role
+    })
+    .filter(Boolean))
   const ep = parseEndpointJson(m.endpoint || '{}')
   const style = ep?.CommunicationStyle || 'Unknown'
   return {
@@ -317,16 +395,15 @@ const DeploymentTargets: React.FC = () => {
     Promise.all([
       getMachines({ pageSize: 1000, spaceId: space.id }),
       getEnvironments({ pageSize: 1000, spaceId: space.id }),
+      getTargetTags(),
     ])
-      .then(([machinesRes, envsRes]) => {
-        const envMap = new Map<string, string>()
-        ;(envsRes.environments ?? []).forEach((env) => {
-          envMap.set(String(env.id), env.name)
-        })
+      .then(([machinesRes, envsRes, tagsRes]) => {
+        const envLookup = buildEnvironmentLookup(envsRes.environments ?? [])
+        const targetTagLookup = buildTargetTagLookup(tagsRes.targetTags ?? [])
         const healthy: DeploymentTarget[] = []
         const disabled: DeploymentTarget[] = []
         machinesRes.machines.forEach((m) => {
-          const target = mapMachineToTarget(m, envMap)
+          const target = mapMachineToTarget(m, envLookup, targetTagLookup)
           if (m.isDisabled) disabled.push(target)
           else healthy.push(target)
         })

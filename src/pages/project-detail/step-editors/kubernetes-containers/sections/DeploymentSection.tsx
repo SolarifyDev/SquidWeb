@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { Input, Radio, Button, Modal, message } from 'antd'
 import { CopyOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { KeyValueListEditor } from '../../shared/KeyValueListEditor'
 import { VolumesSection } from './VolumesSection'
 import { ContainersSection } from './ContainersSection'
-import { generateAllYaml } from '../generateYaml'
+import { generateDeploymentYaml, getRegistryHost } from '../generateYaml'
 import { parseYamlToState } from '../parseYamlToState'
+import { getExternalFeeds, type ExternalFeedDto } from 'pages/apis/externalFeed'
 import type { ContainersEditorState, HostAlias } from '../types'
 
 interface DeploymentSectionProps {
@@ -18,8 +19,14 @@ function EditYamlSubSection({ state, onApply }: { state: ContainersEditorState; 
   const [modalOpen, setModalOpen] = useState(false)
   const [yamlText, setYamlText] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
+  const [feeds, setFeeds] = useState<ExternalFeedDto[]>([])
 
-  const generatedYaml = useMemo(() => generateAllYaml(state), [state])
+  useEffect(() => {
+    getExternalFeeds().then((res) => setFeeds(res.externalFeeds ?? [])).catch(() => {})
+  }, [])
+
+  const registryHost = useMemo(() => getRegistryHost(feeds.find((f) => f.id === state.feedId)), [feeds, state.feedId])
+  const generatedYaml = useMemo(() => generateDeploymentYaml(state, registryHost), [state, registryHost])
 
   const openModal = () => {
     setYamlText(generatedYaml)

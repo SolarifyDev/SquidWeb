@@ -28,18 +28,13 @@ import {
 import { getEnvironments } from 'pages/apis/environment';
 import { useSpace } from 'contexts/SpaceContext';
 
-interface Phase {
-  name: string;
-  type?: 'active' | 'default';
-}
-
 interface Lifecycle {
   id: number;
   name: string;
   slug: string;
   description: string | null;
   retentionPolicy: string;
-  phases: Phase[];
+  phaseNames: string[];
   apiPhases: LifecyclePhaseDto[];
   apiLifecycle: LifecycleDto['lifecycle'] | null;
   projectCount?: number;
@@ -180,7 +175,19 @@ function PhaseCard({ phase, index, environmentOptions, allowDelete = true, onTog
     <>
     <div className="border border-gray-200 rounded-md shadow-sm mb-3">
       {/* Card header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white rounded-t-md">
+      <div
+        className="flex items-center justify-between px-4 py-3 bg-white rounded-t-md cursor-pointer"
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={phase.isExpanded}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+      >
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-gray-900 text-sm">Phase {index + 1}</div>
           <div className="text-xs text-gray-400 mt-0.5">
@@ -199,7 +206,10 @@ function PhaseCard({ phase, index, environmentOptions, allowDelete = true, onTog
             </Dropdown>
           )}
           <button
-            onClick={onToggle}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
             className="p-1.5 rounded hover:bg-gray-100 border-0 bg-transparent cursor-pointer"
             style={{ transition: 'transform 0.2s', transform: phase.isExpanded ? 'rotate(180deg)' : 'none' }}
           >
@@ -621,6 +631,9 @@ const Lifecycles: React.FC = () => {
   const updateDetailPhase = (id: number, updates: Partial<NewPhase>) => {
     setDetailPhases(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
   };
+  const addDetailPhase = () => {
+    setDetailPhases(prev => [...prev, makeNewPhase(Date.now())]);
+  };
   const deleteDetailPhase = (id: number) => {
     setDetailPhases(prev => prev.filter(p => p.id !== id));
   };
@@ -681,18 +694,15 @@ const Lifecycles: React.FC = () => {
     try {
       const res = await getLifecycles();
       const mapped: Lifecycle[] = res.lifecycles.map((lc: LifecycleDto) => {
-        const phases: Phase[] = (lc.phases ?? []).map((phase) => ({
-          name: phase.name || '',
-          type: phase.isOptionalPhase ? 'default' : 'active',
-        }));
+        const sortedPhases = (lc.phases ?? []).slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
           return {
             id: lc.id,
             name: lc.name,
             slug: lc.slug,
             description: lc.description ?? null,
             retentionPolicy: 'Releases: Keep all. Files on Tentacle: Keep all.',
-            phases,
-            apiPhases: lc.phases ?? [],
+            phaseNames: sortedPhases.map((phase) => phase.name || ''),
+            apiPhases: sortedPhases,
             apiLifecycle: lc.lifecycle ?? null,
           };
       });
@@ -714,26 +724,33 @@ const Lifecycles: React.FC = () => {
     return lifecyclesData.filter(
       (item) =>
         item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-        (item.description ?? '').toLowerCase().includes(searchText.toLowerCase())
+        (item.description ?? '').toLowerCase().includes(searchText.toLowerCase()) ||
+        item.phaseNames.some((phaseName) => phaseName.toLowerCase().includes(searchText.toLowerCase()))
     );
   }, [searchText, lifecyclesData]);
 
-  const renderPhaseWithLine = (phase: Phase, index: number, totalPhases: number) => {
+  const renderPhaseWithLine = (phase: LifecyclePhaseDto, index: number, totalPhases: number) => {
     const isLast = index === totalPhases - 1;
+    const displayName = phase.name || `Phase ${index + 1}`;
+    const hasAutoDeployment = (phase.automaticDeploymentTargetIds?.length ?? 0) > 0;
+
     return (
-      <div key={`${phase.name}-${index}`} className="flex">
-        <div className="flex flex-col items-center" style={{ width: '20px' }}>
-          {phase.type === 'active' ? (
+      <div key={phase.id || `${phase.name}-${index}`} className="flex items-center min-h-[22px]">
+        <div className="relative flex items-center justify-center shrink-0" style={{ width: '18px', height: '18px' }}>
+          {hasAutoDeployment ? (
             <ThunderboltFilled className="text-orange-600" style={{ fontSize: '14px' }} />
           ) : (
             <span className="inline-block bg-gray-400" style={{ width: '12px', height: '12px', borderRadius: '2px' }} />
           )}
           {!isLast && (
-            <div className="bg-gray-300" style={{ width: '2px', height: '24px', marginTop: '4px', marginBottom: '4px' }} />
+            <div
+              className="absolute bg-gray-300"
+              style={{ width: '2px', height: '12px', top: '16px' }}
+            />
           )}
         </div>
-        <div className={`ml-3 leading-5 ${phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'}`}>
-          {phase.name}
+        <div className={`ml-2 leading-5 ${hasAutoDeployment ? 'text-orange-600 font-medium' : 'text-gray-600'}`}>
+          {displayName}
         </div>
       </div>
     );
@@ -950,6 +967,7 @@ const Lifecycles: React.FC = () => {
   const moreMenuItems = [{ key: '1', label: 'Audit Trail' }];
   const stickyBoxShadow = '0 1px 1px 0 rgba(0,0,0,0.12), 0 1px 8px 0 rgba(0,0,0,0.06)';
 
+  const detailPreviewPhases = detailPhases;
   const createPreviewPhases = newPhases.filter(p => p.name.trim() || p.environments.length > 0);
 
   // ── Detail view ───────────────────────────────────────────────────────────────
@@ -1157,18 +1175,34 @@ const Lifecycles: React.FC = () => {
                     <div className="grid pl-6 pr-10 pb-5" style={{ gridTemplateColumns: '220px 1fr' }}>
                       <div />
                       <div>
+                        {detailPhases.length === 0 && (
+                          <div className="text-sm text-gray-500 mb-4">
+                            This lifecycle will use the default conventions. Use the{' '}
+                            <span className="italic">Add phase</span> button to explicitly define phases or restrict
+                            deployments to specific environments.
+                          </div>
+                        )}
                         {detailPhases.map((phase, index) => (
                           <PhaseCard
                             key={phase.id}
                             phase={phase}
                             index={index}
                             environmentOptions={environmentOptions}
-                            allowDelete={false}
+                            allowDelete
                             onToggle={() => toggleDetailPhase(phase.id)}
                             onUpdate={(updates) => updateDetailPhase(phase.id, updates)}
                             onDelete={() => deleteDetailPhase(phase.id)}
                           />
                         ))}
+                        <Button
+                          type="primary"
+                          ghost
+                          icon={<PlusOutlined />}
+                          onClick={addDetailPhase}
+                          className="mt-1"
+                        >
+                          Add Phase
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -1191,16 +1225,95 @@ const Lifecycles: React.FC = () => {
           {/* Lifecycle Preview */}
           {activeTab === 'details' && (
             <div className="mt-6 border border-gray-200 rounded-md overflow-hidden">
-              <div className="bg-gray-50 py-3 px-4 font-semibold text-gray-700 border-b border-gray-200">
-                Lifecycle Preview
+              <div className="bg-gray-50 py-3 px-4 font-semibold text-gray-700 border-b border-gray-200 flex items-center justify-between gap-3">
+                <span>Lifecycle Preview</span>
+                <span className="text-xs font-normal text-gray-500">
+                  {detailPreviewPhases.length === 0 ? 'Default conventions' : `${detailPreviewPhases.length} phase${detailPreviewPhases.length > 1 ? 's' : ''}`}
+                </span>
               </div>
-              <div className="bg-white p-6">
-                {selectedLifecycle.phases.map((phase, index) => (
-                  <div key={index} className="flex items-center gap-2 mb-2">
-                    <span className="inline-block bg-gray-400" style={{ width: '12px', height: '12px', borderRadius: '2px' }} />
-                    <span className="text-gray-700">{phase.name}</span>
+              <div className="bg-white p-6 space-y-4">
+                {detailPreviewPhases.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-gray-300 bg-white px-4 py-4">
+                    <div className="text-sm font-medium text-gray-700">Uses default conventions</div>
+                    <div className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Deployments can progress through environments in their configured order unless explicit phases are added.
+                    </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="rounded-md border border-gray-200 bg-white px-4 py-3">
+                    <ul className="m-0 list-none p-0">
+                      {detailPreviewPhases.map((phase, index) => {
+                        const isLast = index === detailPreviewPhases.length - 1;
+                        const displayName = phase.name.trim() || `Phase ${index + 1}`;
+                        const isOptionalPhase = phase.requiredToProgress === 'optional';
+                        const progressionText =
+                          phase.requiredToProgress === 'minimum'
+                            ? `Progress after ${phase.minimumCount} environment${phase.minimumCount > 1 ? 's' : ''}`
+                            : phase.requiredToProgress === 'optional'
+                              ? 'Optional phase'
+                              : 'Progress after all environments';
+
+                        return (
+                          <li key={phase.id} className={isLast ? '' : 'pb-3'}>
+                            <div className="flex">
+                              <div className="flex flex-col items-center pt-1" style={{ width: 18 }}>
+                                <span
+                                  className={[
+                                    'inline-block',
+                                    isOptionalPhase ? 'border border-slate-400 bg-white' : 'bg-slate-500',
+                                  ].join(' ')}
+                                  style={{ width: '8px', height: '8px', borderRadius: '999px' }}
+                                />
+                                {!isLast && (
+                                  <div className="bg-gray-300 mt-1" style={{ width: '1px', height: '100%' }} />
+                                )}
+                              </div>
+
+                              <div className="ml-2.5 flex-1">
+                                <div className="text-sm text-gray-800">
+                                  <span className="font-semibold">{displayName}</span>
+                                  {isOptionalPhase && <span className="text-gray-500"> (optional)</span>}
+                                  {phase.priority && (
+                                    <span className="ml-2 text-[11px] rounded-full bg-orange-50 text-orange-700 border border-orange-100 px-2 py-0.5 align-middle">
+                                      Priority
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">{progressionText}</div>
+
+                                {phase.environments.length === 0 ? (
+                                  <div className="mt-2 text-xs text-gray-500">
+                                    Any environment (not explicitly named in another phase)
+                                  </div>
+                                ) : (
+                                  <ul className="mt-2 mb-0 list-none p-0 space-y-1">
+                                    {phase.environments.map((env) => (
+                                      <li
+                                        key={env.key}
+                                        className="flex items-center gap-2 text-sm text-gray-700"
+                                        title={env.auto ? 'Automatically deploy to this environment' : 'Manually deploy to this environment'}
+                                      >
+                                        <span
+                                          className={[
+                                            'inline-block',
+                                            env.auto ? 'bg-squid-blue' : 'border border-slate-400 bg-white',
+                                          ].join(' ')}
+                                          style={{ width: '7px', height: '7px', borderRadius: '999px' }}
+                                        />
+                                        <span>{env.name}</span>
+                                        <span className="text-xs text-gray-500">{env.auto ? '(auto)' : '(manual)'}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1558,11 +1671,15 @@ const Lifecycles: React.FC = () => {
                     {lifecycle.description && (
                       <p className="text-gray-500 text-sm mb-2">{lifecycle.description}</p>
                     )}
-                    {lifecycle.phases.length > 0 && (
-                      <div className="mt-2">
-                        {lifecycle.phases.map((phase, index) =>
-                          renderPhaseWithLine(phase, index, lifecycle.phases.length)
+                    {lifecycle.apiPhases.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {lifecycle.apiPhases.map((phase, index) =>
+                          renderPhaseWithLine(phase, index, lifecycle.apiPhases.length)
                         )}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-gray-500">
+                        Uses default conventions
                       </div>
                     )}
                   </div>

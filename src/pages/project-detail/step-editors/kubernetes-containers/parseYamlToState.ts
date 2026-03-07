@@ -79,6 +79,7 @@ function parseContainer(c: Record<string, unknown>, isInitContainer = false): Co
     Name: str(c.name),
     Image: str(c.image),
     PackageId: '',
+    FeedId: null,
     CreateFeedSecrets: 'False',
     IsInitContainer: isInitContainer ? 'True' : 'False',
     Ports: ports,

@@ -69,10 +69,16 @@ const Channels: React.FC = () => {
     return channels.filter((channel) => channel.name.toLowerCase().includes(keyword))
   }, [channels, filterText])
 
-  const basePath = `/${spaceId}/projects/${projectName}/project-detail/channels`
+  const getChannelLifecycleName = (channel: ChannelDto) => {
+    const effectiveLifecycleId = channel.lifecycleId ?? project?.lifecycleId ?? null
+    if (effectiveLifecycleId == null) return 'Default'
+    return lifecycleNameById.get(effectiveLifecycleId) || `Lifecycle #${effectiveLifecycleId}`
+  }
+
+  const basePath = `/${spaceId}/projects/${projectName}/deployments/channels`
 
   return (
-    <div className="flex flex-col min-h-full p-6 gap-4">
+    <div className="rounded-xl border border-slate-200 overflow-hidden flex flex-col min-h-full p-6 gap-4">
       <div className="rounded-lg border border-slate-200 bg-white px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-slate-800 m-0">Channels</h1>
@@ -121,7 +127,7 @@ const Channels: React.FC = () => {
                     <div className="mt-2 text-xs text-slate-500">
                       <span className="font-medium text-slate-600">Lifecycle</span>
                       <span className="mx-1">:</span>
-                      <span>{lifecycleNameById.get(channel.lifecycleId) || `Lifecycle #${channel.lifecycleId}`}</span>
+                      <span>{getChannelLifecycleName(channel)}</span>
                     </div>
                   </Link>
                 </li>

@@ -429,7 +429,7 @@ const Project: React.FC = () => {
             deployTarget,
             manageWith,
           }),
-          includedLibraryVariableSetIds: '',
+          includedLibraryVariableSetIds: [],
           discreteChannelRelease: false,
           clonedFromProjectId: null,
           spaceId: space.id,
@@ -529,8 +529,8 @@ const Project: React.FC = () => {
     if (!item) {
       return (
         <div className="flex items-center text-gray-400">
-          <MinusCircleOutlined className="text-gray-300 mr-2 text-lg flex-shrink-0" />
-          <Text type="secondary" className="text-xs font-medium">No data</Text>
+          <MinusCircleOutlined className="text-gray-300 mr-2 text-xl flex-shrink-0" />
+          <Text type="secondary" className="text-sm font-medium">No data</Text>
         </div>
       );
     }
@@ -571,8 +571,8 @@ const Project: React.FC = () => {
         >
           <div className="px-4 py-2.5" />
           {group.environments.map((env) => (
-            <div key={env.id} className="px-3 py-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+            <div key={env.id} className="px-3 py-3">
+              <span className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
                 {env.name}
               </span>
             </div>
@@ -585,12 +585,12 @@ const Project: React.FC = () => {
             key={row.key}
             className={`grid items-center hover:bg-slate-50 transition-colors cursor-pointer ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
             style={{ gridTemplateColumns: gridCols }}
-            onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}/project-detail`)}
+            onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}`)}
           >
-            <div className="px-4 py-3 flex items-center gap-2 min-w-0">
-              <ProjectOutlined className="text-gray-400 text-base flex-shrink-0" />
+            <div className="px-4 py-3.5 flex items-center gap-3 min-w-0">
+              <ProjectOutlined className="text-gray-400 text-xl flex-shrink-0" />
               <Tooltip title={row.name}>
-                <Text className="text-sm text-squid-blue font-medium truncate hover:underline">{row.name}</Text>
+                <Text className="text-[15px] text-squid-blue font-medium truncate hover:underline">{row.name}</Text>
               </Tooltip>
             </div>
             {group.environments.map((env) => (

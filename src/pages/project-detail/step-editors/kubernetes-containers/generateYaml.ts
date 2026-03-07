@@ -1,5 +1,6 @@
 import type { ContainersEditorState, ContainerSpec, ProbeConfig } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
+import type { ExternalFeedDto } from 'pages/apis/externalFeed'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,16 @@ function jsonToYaml(obj: unknown, level: number): string {
   return String(obj)
 }
 
+export function getRegistryHost(feed: ExternalFeedDto | null | undefined): string {
+  if (!feed) return ''
+  if (feed.registryPath) return feed.registryPath
+  if (!feed.feedUri) return ''
+  try {
+    const u = new URL(feed.feedUri)
+    return u.port && u.port !== '443' ? `${u.hostname}:${u.port}` : u.hostname
+  } catch { return feed.feedUri }
+}
+
 // ── Probe YAML ───────────────────────────────────────────────────────────────
 
 function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
@@ -103,12 +114,20 @@ function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
 
 // ── Container YAML ───────────────────────────────────────────────────────────
 
-function emitContainer(container: ContainerSpec, indentLevel: number): string {
+function resolveContainerImage(container: ContainerSpec, registryHost?: string, statePackageId?: string): string {
+  if (container.Image) return container.Image
+  const pkgId = container.PackageId || statePackageId
+  if (pkgId && registryHost) return `${registryHost}/${pkgId}`
+  if (pkgId) return pkgId
+  return 'nginx:latest'
+}
+
+function emitContainer(container: ContainerSpec, indentLevel: number, registryHost?: string, statePackageId?: string): string {
   const pad = ' '.repeat(indentLevel)
   const lines: string[] = []
 
   lines.push(`${pad}- name: ${container.Name || 'unnamed'}`)
-  lines.push(`${pad}  image: ${container.Image || 'nginx:latest'}`)
+  lines.push(`${pad}  image: ${resolveContainerImage(container, registryHost, statePackageId)}`)
 
   // Ports
   const ports = container.Ports.filter((p) => p.value)
@@ -223,6 +242,7 @@ function appendPodTemplate(
   state: ContainersEditorState,
   selectorLabels: Record<string, string>,
   templateIndent: number,
+  registryHost?: string,
 ): void {
   const podAnnotations = kvToMap(state.podAnnotations)
   const at = (offset: number) => ' '.repeat(templateIndent + offset)
@@ -423,21 +443,21 @@ function appendPodTemplate(
   if (initContainers.length > 0) {
     lines.push(`${at(4)}initContainers:`)
     for (const container of initContainers) {
-      lines.push(emitContainer(container, containerItemIndent))
+      lines.push(emitContainer(container, containerItemIndent, registryHost, state.packageId))
     }
   }
 
   if (workloadContainers.length > 0) {
     lines.push(`${at(4)}containers:`)
     for (const container of workloadContainers) {
-      lines.push(emitContainer(container, containerItemIndent))
+      lines.push(emitContainer(container, containerItemIndent, registryHost, state.packageId))
     }
   } else {
     lines.push(`${at(4)}containers: []`)
   }
 }
 
-export function generateDeploymentYaml(state: ContainersEditorState): string {
+export function generateDeploymentYaml(state: ContainersEditorState, registryHost?: string): string {
   const resourceType = state.resourceType || 'Deployment'
   const deploymentName = state.deploymentName || 'my-deployment'
   const namespace = state.namespace || 'default'
@@ -472,7 +492,7 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
   lines.push('spec:')
 
   if (resourceType === 'Job') {
-    appendPodTemplate(lines, state, selectorLabels, 2)
+    appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
     return lines.filter((l) => l !== '').join('\n')
   }
 
@@ -483,7 +503,7 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
     const updateStrategyType = state.deploymentStyle === 'OnDelete' ? 'OnDelete' : 'RollingUpdate'
     lines.push('  updateStrategy:')
     lines.push(`    type: ${updateStrategyType}`)
-    appendPodTemplate(lines, state, selectorLabels, 2)
+    appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
     return lines.filter((l) => l !== '').join('\n')
   }
 
@@ -497,7 +517,7 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
       if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
       if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
     }
-    appendPodTemplate(lines, state, selectorLabels, 2)
+    appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
     return lines.filter((l) => l !== '').join('\n')
   }
 
@@ -514,7 +534,7 @@ export function generateDeploymentYaml(state: ContainersEditorState): string {
     if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
     if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
   }
-  appendPodTemplate(lines, state, selectorLabels, 2)
+  appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
 
   return lines.filter((l) => l !== '').join('\n')
 }
@@ -664,10 +684,10 @@ export function generateSecretYaml(state: ContainersEditorState): string | null 
   return lines.join('\n')
 }
 
-export function generateAllYaml(state: ContainersEditorState): string {
+export function generateAllYaml(state: ContainersEditorState, registryHost?: string): string {
   const parts: string[] = []
 
-  const deployment = generateDeploymentYaml(state)
+  const deployment = generateDeploymentYaml(state, registryHost)
   if (deployment) parts.push(deployment)
 
   const service = generateServiceYaml(state)

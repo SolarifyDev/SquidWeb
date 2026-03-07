@@ -23,8 +23,6 @@ export interface DeploymentActionDto {
   name: string
   actionType: string
   workerPoolId: number | null
-  feedId: number | null
-  packageId: string
   isDisabled: boolean
   isRequired: boolean
   canBeUsedForProjectVersioning: boolean
@@ -161,4 +159,22 @@ export function updateDeploymentStep(command: UpdateDeploymentStepCommand) {
 
 export function deleteDeploymentSteps(ids: number[]) {
   return post<DeleteDeploymentStepResponseData>('/deployment-steps/delete', { ids })
+}
+
+// --- Package References ---
+
+export interface PackageReferenceItem {
+  actionName: string
+  packageReferenceName: string
+  packageId: string
+  feedId: number
+  feedName: string
+}
+
+export interface GetPackageReferencesResponseData {
+  packageReferences: PackageReferenceItem[]
+}
+
+export function getPackageReferences(projectId: number) {
+  return get<GetPackageReferencesResponseData>(`/deployment-processes/${projectId}/package-references`)
 }

@@ -287,7 +287,13 @@ const AccountsPage: React.FC = () => {
   }, [accounts]);
 
   const handleAddMenuClick: MenuProps['onClick'] = ({ key }) => {
-    const label = addAccountMenuLabelByKey[String(key)] ?? 'Account';
+    const accountTypeKey = String(key);
+    if (accountTypeKey === '1' || accountTypeKey === '3' || accountTypeKey === '4') {
+      navigate(`/${space.slug}/infrastructure/accounts/create?accountType=${accountTypeKey}`);
+      return;
+    }
+
+    const label = addAccountMenuLabelByKey[accountTypeKey] ?? 'Account';
     message.info(`Add ${label} is not implemented yet.`);
   };
 

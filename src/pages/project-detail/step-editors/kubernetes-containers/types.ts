@@ -49,6 +49,7 @@ export interface ContainerSpec {
   Name: string
   Image: string
   PackageId: string
+  FeedId: number | null
   CreateFeedSecrets: string
   IsInitContainer: string  // 'False' = regular, 'True' = init container
   Ports: ContainerPort[]
@@ -234,6 +235,7 @@ export function defaultContainer(): ContainerSpec {
     Name: '',
     Image: '',
     PackageId: '',
+    FeedId: null,
     CreateFeedSecrets: 'False',
     IsInitContainer: 'False',
     Ports: [],

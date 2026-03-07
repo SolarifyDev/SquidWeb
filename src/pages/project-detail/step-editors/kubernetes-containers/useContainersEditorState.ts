@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { DeploymentStepDto, DeploymentActionDto, DeploymentActionPropertyDto } from 'pages/apis/deploymentProcess'
 import { KubernetesProperties } from './KubernetesProperties'
-import { type ContainersEditorState, defaultEditorState } from './types'
+import { type ContainersEditorState, type ContainerSpec, defaultEditorState } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
 
 function safeJsonParse<T>(value: string | undefined, fallback: T): T {
@@ -109,11 +109,11 @@ function serializeIngressRules(rules: ContainersEditorState['ingressRules']): st
   return JSON.stringify(mapped)
 }
 
-function serializeContainers(containers: ContainersEditorState['containers'], packageId: string): string {
+function serializeContainers(containers: ContainersEditorState['containers'], packageId: string, feedId: number | null): string {
   const mapped = containers.map((container) => ({
     ...container,
-    // Keep UI behavior (single package selector) but ensure per-container payload stays populated.
     PackageId: container.PackageId || packageId,
+    FeedId: container.FeedId ?? feedId,
   }))
   return JSON.stringify(mapped)
 }
@@ -125,6 +125,8 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
   const get = (key: string) => getActionProp(action, key)
 
   const targetRoles = step.properties.find((p) => p.propertyName === KubernetesProperties.TargetRoles)?.propertyValue ?? ''
+  const containers = safeJsonParse<ContainerSpec[]>(get(KubernetesProperties.Containers), [])
+  const firstContainer = containers[0]
 
   return {
     stepName: step.name,
@@ -159,9 +161,9 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     deploymentLabels: kvFromJson(get(KubernetesProperties.DeploymentLabels)),
     deploymentAnnotations: kvFromJson(get(KubernetesProperties.DeploymentAnnotations)),
     podAnnotations: kvFromJson(get(KubernetesProperties.PodAnnotations)),
-    feedId: action.feedId ?? null,
-    packageId: action.packageId ?? '',
-    containers: safeJsonParse(get(KubernetesProperties.Containers), []),
+    feedId: firstContainer?.FeedId ?? null,
+    packageId: firstContainer?.PackageId ?? '',
+    containers,
     volumes: safeJsonParse(get(KubernetesProperties.CombinedVolumes), []),
     serviceName: get(KubernetesProperties.ServiceName) ?? '',
     serviceType: get(KubernetesProperties.ServiceType) ?? 'ClusterIP',
@@ -229,7 +231,7 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KubernetesProperties.DeploymentLabels, kvToJson(state.deploymentLabels))
   add(KubernetesProperties.DeploymentAnnotations, kvToJson(state.deploymentAnnotations))
   add(KubernetesProperties.PodAnnotations, kvToJson(state.podAnnotations))
-  add(KubernetesProperties.Containers, serializeContainers(state.containers, state.packageId))
+  add(KubernetesProperties.Containers, serializeContainers(state.containers, state.packageId, state.feedId))
   add(KubernetesProperties.CombinedVolumes, JSON.stringify(state.volumes))
   add(KubernetesProperties.ServiceName, state.serviceName)
   add(KubernetesProperties.ServiceType, state.serviceType)
@@ -269,8 +271,6 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
     name: state.stepName || 'Deploy Kubernetes Containers',
     actionType: resolvedActionType,
     workerPoolId: null,
-    feedId: state.feedId,
-    packageId: state.packageId,
     isDisabled: false,
     isRequired: false,
     canBeUsedForProjectVersioning: false,

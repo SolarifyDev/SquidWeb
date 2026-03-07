@@ -178,17 +178,87 @@ function resolveVariableSetDescription(variableSet: Pick<VariableSetDto, 'descri
 function normalizeVariableSet(variableSet: VariableSetDto): VariableSetDto {
   const name = resolveVariableSetName(variableSet)
   const description = resolveVariableSetDescription(variableSet)
-  const variables = Array.isArray(variableSet.variables)
+  const rawVariables = Array.isArray(variableSet.variables)
     ? variableSet.variables
     : Array.isArray(variableSet.Variables)
       ? variableSet.Variables
       : []
+  const variables = rawVariables.map((variable, index) => normalizeVariable(variable, variableSet.id, index))
 
   return {
     ...variableSet,
     name,
     description,
     variables,
+  }
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function normalizeVariableType(value: unknown): VariableType {
+  const fromNumber = toNumber(value)
+  if (fromNumber && VariableType[fromNumber as VariableType] !== undefined) {
+    return fromNumber as VariableType
+  }
+
+  if (typeof value === 'string') {
+    const fromName = VariableType[value as keyof typeof VariableType]
+    if (typeof fromName === 'number') return fromName as VariableType
+  }
+
+  return VariableType.String
+}
+
+function normalizeScopeType(value: unknown): VariableScopeType {
+  const fromNumber = toNumber(value)
+  if (fromNumber && VariableScopeType[fromNumber as VariableScopeType] !== undefined) {
+    return fromNumber as VariableScopeType
+  }
+
+  if (typeof value === 'string') {
+    const fromName = VariableScopeType[value as keyof typeof VariableScopeType]
+    if (typeof fromName === 'number') return fromName as VariableScopeType
+  }
+
+  return VariableScopeType.Environment
+}
+
+function normalizeVariableScope(scope: any, variableId: number): VariableScopeDto {
+  return {
+    id: toNumber(scope?.id ?? scope?.Id) ?? 0,
+    variableId: toNumber(scope?.variableId ?? scope?.VariableId) ?? variableId,
+    scopeType: normalizeScopeType(scope?.scopeType ?? scope?.ScopeType),
+    scopeValue: String(scope?.scopeValue ?? scope?.ScopeValue ?? '').trim(),
+  }
+}
+
+function normalizeVariable(variable: any, variableSetId: number, index: number): VariableDto {
+  const id = toNumber(variable?.id ?? variable?.Id) ?? 0
+  const rawScopes = Array.isArray(variable?.scopes)
+    ? variable.scopes
+    : Array.isArray(variable?.Scopes)
+      ? variable.Scopes
+      : []
+
+  return {
+    id,
+    variableSetId: toNumber(variable?.variableSetId ?? variable?.VariableSetId) ?? variableSetId,
+    name: String(variable?.name ?? variable?.Name ?? '').trim(),
+    value: String(variable?.value ?? variable?.Value ?? ''),
+    description: String(variable?.description ?? variable?.Description ?? ''),
+    type: normalizeVariableType(variable?.type ?? variable?.Type),
+    isSensitive: Boolean(variable?.isSensitive ?? variable?.IsSensitive),
+    sortOrder: toNumber(variable?.sortOrder ?? variable?.SortOrder) ?? index,
+    lastModifiedOn: (variable?.lastModifiedOn ?? variable?.LastModifiedOn ?? null) as string | null,
+    lastModifiedBy: String(variable?.lastModifiedBy ?? variable?.LastModifiedBy ?? ''),
+    scopes: rawScopes.map((scope: any) => normalizeVariableScope(scope, id)),
   }
 }
 

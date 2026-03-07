@@ -1,9 +1,16 @@
-import React, { useEffect, useState } from 'react'
-import { Button, Dropdown, Modal, Spin, Switch, message } from 'antd'
+import React, { useEffect, useState, useCallback } from 'react'
+import { Button, Dropdown, Modal, Spin, Switch, Tooltip, message } from 'antd'
 import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { deleteMachines, getMachines, MachineDto } from 'pages/apis/machine'
+import {
+  deleteMachines,
+  generateKubernetesAgentUpgradeScript,
+  GenerateKubernetesAgentUpgradeScriptData,
+  getLatestKubernetesAgentVersion,
+  getMachines,
+  MachineDto,
+} from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
 import { useSpace } from 'contexts/SpaceContext'
@@ -28,6 +35,9 @@ interface KubernetesAgentEndpoint {
   SubscriptionId: string
   Thumbprint: string
   Namespace: string
+  ReleaseName?: string
+  HelmNamespace?: string
+  ChartRef?: string
 }
 
 type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint
@@ -217,6 +227,47 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+function isNotFoundError(error: unknown): boolean {
+  const status = (error as any)?.response?.status
+  if (status === 404) return true
+
+  if (error instanceof Error && error.message.includes('404'))
+    return true
+
+  return false
+}
+
+function buildLegacyUpgradeData(
+  machine: MachineDto,
+  endpoint: KubernetesAgentEndpoint,
+  latestVersion: string,
+): GenerateKubernetesAgentUpgradeScriptData {
+  const chartRef = endpoint.ChartRef || 'oci://registry-1.docker.io/squidcd/kubernetes-agent'
+  const helmNamespace = endpoint.HelmNamespace || 'squid-agent'
+  const releaseName = endpoint.ReleaseName
+    || (endpoint.SubscriptionId ? `squid-agent-${endpoint.SubscriptionId.slice(0, 8)}` : 'squid-agent')
+
+  const upgradeScript = [
+    'helm upgrade --install --rollback-on-failure',
+    '--version "1.*.*"',
+    '--reuse-values',
+    `--namespace ${helmNamespace}`,
+    releaseName,
+    chartRef,
+  ].join(' \\\n')
+
+  return {
+    machineId: machine.id,
+    currentVersion: machine.agentVersion ?? '',
+    latestVersion,
+    needsUpgrade: machine.agentVersion ? machine.agentVersion !== latestVersion : true,
+    releaseName,
+    helmNamespace,
+    chartRef,
+    upgradeScript,
+  }
+}
+
 function communicationStyleLabel(style: string): string {
   const map: Record<string, string> = {
     KubernetesApi: 'Kubernetes API',
@@ -226,6 +277,79 @@ function communicationStyleLabel(style: string): string {
     Ssh: 'SSH Connection',
   }
   return map[style] || style
+}
+
+// ── Agent Version Info ────────────────────────────────────────────────────────
+
+function AgentVersionInfo({
+  agentVersion,
+  upgradeData,
+  upgradeError,
+}: {
+  agentVersion: string | null
+  upgradeData: GenerateKubernetesAgentUpgradeScriptData | null
+  upgradeError: string | null
+}) {
+  const [copied, setCopied] = useState(false)
+  const latestVersion = upgradeData?.latestVersion ?? null
+  const upgradeAvailable = upgradeData?.needsUpgrade ?? false
+  const upgradeCommand = upgradeData?.upgradeScript ?? ''
+
+  const handleCopy = useCallback(() => {
+    if (!upgradeCommand) return
+    navigator.clipboard.writeText(upgradeCommand).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [upgradeCommand])
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-gray-700">Agent Version:</span>
+        <span className="text-sm font-mono text-gray-600">{agentVersion ?? 'Unknown'}</span>
+        {upgradeAvailable && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800">
+            Update available: {latestVersion}
+          </span>
+        )}
+        {agentVersion && latestVersion && !upgradeAvailable && (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">
+            Up to date
+          </span>
+        )}
+      </div>
+      {latestVersion && (
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-sm font-medium text-gray-700">Latest Version:</span>
+          <span className="text-sm font-mono text-gray-600">{latestVersion}</span>
+        </div>
+      )}
+      {upgradeAvailable && (
+        <div className="mt-3 bg-gray-50 border border-gray-200 rounded-md p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Upgrade Command</span>
+            <Tooltip title={copied ? 'Copied!' : 'Copy to clipboard'}>
+              <button
+                onClick={handleCopy}
+                className="text-xs text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer font-medium"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </Tooltip>
+          </div>
+          <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap break-all m-0 leading-relaxed">
+            {upgradeCommand}
+          </pre>
+        </div>
+      )}
+      {upgradeError && (
+        <div className="mt-2 text-xs text-amber-700">
+          Upgrade command unavailable: {upgradeError}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -240,6 +364,8 @@ const DeploymentTargetDetailPage: React.FC = () => {
 
   const [loading, setLoading] = useState(true)
   const [machine, setMachine] = useState<MachineDto | null>(null)
+  const [agentUpgradeData, setAgentUpgradeData] = useState<GenerateKubernetesAgentUpgradeScriptData | null>(null)
+  const [agentUpgradeError, setAgentUpgradeError] = useState<string | null>(null)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
   const [accounts, setAccounts] = useState<DeploymentAccountDto[]>([])
 
@@ -297,6 +423,43 @@ const DeploymentTargetDetailPage: React.FC = () => {
         setEnabled(!found.isDisabled)
         setEnvironments(envData.environments ?? [])
         setAccounts(accountData.deploymentAccounts ?? [])
+        setAgentUpgradeData(null)
+        setAgentUpgradeError(null)
+
+        // Fetch upgrade info only for KubernetesAgent targets
+        try {
+          const ep = JSON.parse(found.endpoint || '{}')
+          if (ep.CommunicationStyle === 'KubernetesAgent') {
+            generateKubernetesAgentUpgradeScript({ machineId: found.id })
+              .then((data) => {
+                if (!mounted) return
+                setAgentUpgradeData(data)
+                setAgentUpgradeError(null)
+              })
+              .catch(async (err: unknown) => {
+                if (!mounted) return
+
+                if (isNotFoundError(err)) {
+                  try {
+                    const latest = await getLatestKubernetesAgentVersion()
+                    if (!mounted) return
+
+                    if (latest.latestVersion) {
+                      const fallbackData = buildLegacyUpgradeData(found, ep as KubernetesAgentEndpoint, latest.latestVersion)
+                      setAgentUpgradeData(fallbackData)
+                      setAgentUpgradeError('Backend upgrade API not available; showing compatibility command.')
+                      return
+                    }
+                  } catch {
+                    // fall through to unified error display
+                  }
+                }
+
+                setAgentUpgradeData(null)
+                setAgentUpgradeError(err instanceof Error ? err.message : 'Failed to generate upgrade command')
+              })
+          }
+        } catch { /* ignore parse errors */ }
       })
       .catch(() => {
         if (!mounted) return
@@ -344,12 +507,12 @@ const DeploymentTargetDetailPage: React.FC = () => {
   }
 
   // Derived data
-  const envIds = machine.environmentIds ? machine.environmentIds.split(',').filter(Boolean) : []
+  const envIds = (machine.environmentIds ?? []).map(String)
   const envNames = envIds.map((id) => {
     const env = environments.find((e) => String(e.id) === id)
     return env?.name ?? id
   })
-  const roles = machine.roles ? machine.roles.split(',').map((r) => r.trim()).filter(Boolean) : []
+  const roles = machine.roles ?? []
   const ep = parseEndpointJson(machine.endpoint || '{}')
   const endpointLabel = communicationStyleLabel(ep?.CommunicationStyle || 'Unknown')
   const isK8sApi = ep?.CommunicationStyle === 'KubernetesApi'
@@ -399,6 +562,15 @@ const DeploymentTargetDetailPage: React.FC = () => {
                   bgColor="var(--colorChipFilledBackgroundPrimary, #e0e7ff)"
                   textColor="var(--colorChipFilledTextPrimary, #3730a3)"
                 />
+                {ep?.CommunicationStyle === 'KubernetesAgent' && agentUpgradeData && (() => {
+                  if (agentUpgradeData.needsUpgrade) {
+                    return <FilledChip label={`Update available: ${agentUpgradeData.latestVersion}`} bgColor="#fef3c7" textColor="#92400e" />
+                  }
+                  if (machine.agentVersion) {
+                    return <FilledChip label="Up to date" bgColor="#d1fae5" textColor="#065f46" />
+                  }
+                  return null
+                })()}
               </div>
             </div>
           </div>
@@ -430,6 +602,8 @@ const DeploymentTargetDetailPage: React.FC = () => {
             {activeTab === 'settings' && (
               <SettingsTab
                 machine={machine}
+                agentUpgradeData={agentUpgradeData}
+                agentUpgradeError={agentUpgradeError}
                 name={name}
                 setName={(v) => { setName(v); setDirty(true) }}
                 enabled={enabled}
@@ -468,6 +642,8 @@ const DeploymentTargetDetailPage: React.FC = () => {
 
 function SettingsTab({
   machine,
+  agentUpgradeData,
+  agentUpgradeError,
   name,
   setName,
   enabled,
@@ -486,6 +662,8 @@ function SettingsTab({
   navigate,
 }: {
   machine: MachineDto
+  agentUpgradeData: GenerateKubernetesAgentUpgradeScriptData | null
+  agentUpgradeError: string | null
   name: string
   setName: (v: string) => void
   enabled: boolean
@@ -762,6 +940,11 @@ function SettingsTab({
             onToggle={() => toggleCard('kubernetesDetails')}
           >
             <div className="pt-3 space-y-3">
+              <AgentVersionInfo
+                agentVersion={machine.agentVersion ?? null}
+                upgradeData={agentUpgradeData}
+                upgradeError={agentUpgradeError}
+              />
               {agentEp.Thumbprint && (
                 <div>
                   <span className="text-sm font-medium text-gray-700">Thumbprint:</span>

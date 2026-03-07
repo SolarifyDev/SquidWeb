@@ -4,8 +4,8 @@ export interface MachineDto {
   id: number
   name: string
   isDisabled: boolean
-  roles: string
-  environmentIds: string
+  roles: string[]
+  environmentIds: number[]
   json: string
   machinePolicyId: number | null
   thumbprint: string
@@ -17,6 +17,7 @@ export interface MachineDto {
   shellName: string
   shellVersion: string
   slug: string
+  agentVersion: string | null
 }
 
 export interface GetMachinesRequest {
@@ -52,15 +53,47 @@ export function deleteMachines(command: DeleteMachinesCommand) {
   return post<DeleteMachinesResponseData>('/machines/delete', command)
 }
 
+// --- Latest Agent Version ---
+
+export interface GetLatestKubernetesAgentVersionData {
+  latestVersion: string | null
+}
+
+export function getLatestKubernetesAgentVersion() {
+  return get<GetLatestKubernetesAgentVersionData>('/machines/latest-agent-version')
+}
+
+// --- Kubernetes Agent Upgrade Script ---
+
+export interface GenerateKubernetesAgentUpgradeScriptCommand {
+  machineId: number
+}
+
+export interface GenerateKubernetesAgentUpgradeScriptData {
+  machineId: number
+  currentVersion: string
+  latestVersion: string
+  needsUpgrade: boolean
+  releaseName: string
+  helmNamespace: string
+  chartRef: string
+  upgradeScript: string
+}
+
+export function generateKubernetesAgentUpgradeScript(command: GenerateKubernetesAgentUpgradeScriptCommand) {
+  return post<GenerateKubernetesAgentUpgradeScriptData>('/machines/generate-kubernetes-agent-upgrade-script', command)
+}
+
 // --- Kubernetes Agent Install Script ---
 
 export interface GenerateKubernetesAgentInstallScriptCommand {
   agentName: string
   serverUrl: string
   serverCommsUrl: string
-  environmentIds: number[]
+  environments: string[]
   tags: string[]
   spaceId?: number
+  defaultNamespace?: string
 }
 
 export interface GenerateKubernetesAgentInstallScriptData {
@@ -78,8 +111,8 @@ export function generateKubernetesAgentInstallScript(command: GenerateKubernetes
 export interface RegisterKubernetesApiCommand {
   machineName: string
   spaceId: number
-  roles: string
-  environmentIds: string
+  roles: string[]
+  environmentIds: number[]
   clusterUrl: string
   namespace: string
   skipTlsVerification: boolean

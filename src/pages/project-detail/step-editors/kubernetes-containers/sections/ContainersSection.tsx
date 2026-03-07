@@ -4,6 +4,7 @@ import { PlusOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { type ContainerSpec, type ProbeConfig, defaultContainer } from '../types'
 import { getExternalFeeds, type ExternalFeedDto } from 'pages/apis/externalFeed'
+import { getRegistryHost } from '../generateYaml'
 
 interface ContainersSectionProps {
   containers: ContainerSpec[]
@@ -145,13 +146,7 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
   packageId: string
   onFeedChange: (feedId: number | null, packageId: string) => void
 }) {
-  const selectedFeed = feeds.find((f) => f.id === feedId) ?? null
-  const registryHost = selectedFeed?.registryPath || (selectedFeed?.feedUri ? (() => {
-    try {
-      const u = new URL(selectedFeed.feedUri)
-      return u.port && u.port !== '443' ? `${u.hostname}:${u.port}` : u.hostname
-    } catch { return selectedFeed.feedUri }
-  })() : '')
+  const registryHost = getRegistryHost(feeds.find((f) => f.id === feedId))
   const imagePreview = registryHost && packageId ? `${registryHost}/${packageId}` : packageId
 
   return (
@@ -652,9 +647,9 @@ export function ContainersSection({ containers, onChange, feedId, packageId, onF
           feeds={feeds}
           feedsLoading={feedsLoading}
           onRefreshFeeds={loadFeeds}
-          feedId={feedId}
-          packageId={packageId}
-          onFeedChange={onFeedChange}
+          feedId={draft.FeedId ?? feedId}
+          packageId={draft.PackageId || packageId}
+          onFeedChange={(fid, pid) => setDraft({ ...draft, FeedId: fid, PackageId: pid })}
         />
       </Modal>
     </CollapsibleSection>

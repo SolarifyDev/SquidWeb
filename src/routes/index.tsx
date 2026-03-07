@@ -3,6 +3,7 @@ import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
 import VariableSetDetail from 'pages/variablesets/detail'
+import LegacyVariableSetsRedirect from 'pages/variablesets/LegacyVariableSetsRedirect'
 import ExternalFeeds from 'pages/externalfeeds'
 import CertificatesPage from 'pages/certificates'
 import Lifecycles from 'pages/lifecycles'
@@ -12,14 +13,21 @@ import DeploymentTargetDetailPage from 'pages/deploymentTargets/detail'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
 import Accounts from 'pages/accounts'
+import AccountsCreatePage from 'pages/accounts/create'
+import AccountsDetailPage from 'pages/accounts/detail'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
 import ProjectVariables from "pages/project-detail/ProjectVariables";
 import ProjectVariableSets from "pages/project-detail/ProjectVariableSets";
+import ProjectAllVariables from "pages/project-detail/ProjectAllVariables";
 import Channels from "pages/project-detail/Channels";
+import ChannelDetail from "pages/project-detail/ChannelDetail";
 import Releases from "pages/project-detail/Releases";
 import ReleasesCreate from "pages/project-detail/ReleasesCreate";
+import ReleaseDetail from "pages/project-detail/ReleaseDetail";
+import DeployCreate from "pages/project-detail/DeployCreate";
+import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
 
 const routes = [
   {
@@ -42,14 +50,24 @@ const routes = [
             name: "Project",
           },
           {
-            path: "variable",
+            path: "library/variables",
             component: VariableSets,
             name: "Variable Sets",
           },
           {
-            path: "variable/:id",
+            path: "library/variables/:id",
             component: VariableSetDetail,
             name: "Variable Set Detail",
+          },
+          {
+            path: "variable",
+            component: LegacyVariableSetsRedirect,
+            name: "VariableSetsLegacyRedirect",
+          },
+          {
+            path: "variable/:id",
+            component: LegacyVariableSetsRedirect,
+            name: "VariableSetLegacyRedirect",
           },
           {
             path: "deployment/targets/add",
@@ -82,6 +100,16 @@ const routes = [
             name: "Accounts",
           },
           {
+            path: "infrastructure/accounts/create",
+            component: AccountsCreatePage,
+            name: "AccountsCreate",
+          },
+          {
+            path: "infrastructure/accounts/:accountSlug",
+            component: AccountsDetailPage,
+            name: "AccountsDetail",
+          },
+          {
             path: "external/feeds",
             component: ExternalFeeds,
             name: "External Feeds",
@@ -97,7 +125,12 @@ const routes = [
             name: "Lifecycles",
           },
           {
-            path: "projects/:projectName/project-detail",
+            path: "projects/:projectName/project-detail/*",
+            component: LegacyProjectDetailRedirect,
+            name: "ProjectDetailLegacyRedirect",
+          },
+          {
+            path: "projects/:projectName",
             component: ProjectDetail,
             name: "ProjectDetail",
             children: [
@@ -117,8 +150,23 @@ const routes = [
               },
               {
                 path: "channels",
+                redirect: "deployments/channels",
+                name: "ChannelsLegacy",
+              },
+              {
+                path: "channels/edit/:channelId",
+                component: ChannelDetail,
+                name: "ChannelDetailLegacy",
+              },
+              {
+                path: "deployments/channels",
                 component: Channels,
                 name: "Channels",
+              },
+              {
+                path: "deployments/channels/edit/:channelId",
+                component: ChannelDetail,
+                name: "ChannelDetail",
               },
               {
                 path: "releases",
@@ -131,6 +179,22 @@ const routes = [
                 name: "ReleasesCreate",
               },
               {
+                path: "releases/:version/deployments/create",
+                component: DeployCreate,
+                name: "DeployCreate",
+              },
+              {
+                // Backward-compatible route
+                path: "releases/:version/deploy",
+                component: DeployCreate,
+                name: "DeployCreateLegacy",
+              },
+              {
+                path: "releases/:version",
+                component: ReleaseDetail,
+                name: "ReleaseDetail",
+              },
+              {
                 path: "variables",
                 component: ProjectVariables,
                 name: "ProjectVariables",
@@ -139,6 +203,11 @@ const routes = [
                 path: "variables/library",
                 component: ProjectVariableSets,
                 name: "ProjectVariableSets",
+              },
+              {
+                path: "variables/all",
+                component: ProjectAllVariables,
+                name: "ProjectAllVariables",
               },
             ],
           },

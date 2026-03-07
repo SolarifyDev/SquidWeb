@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Button, Select, Spin } from "antd";
 import { FilterOutlined, MoreOutlined } from "@ant-design/icons";
 import { getProjects } from "pages/apis/project";
@@ -110,7 +110,7 @@ function DeploymentCell({
 }) {
   return (
     <div
-      className="flex items-center gap-2.5 px-5 py-3 w-full h-full cursor-pointer hover:bg-slate-50 transition-colors"
+      className="flex items-center gap-2.5 pl-0 pr-5 py-3 w-full h-full cursor-pointer hover:bg-slate-50 transition-colors"
       style={{ opacity: isCurrent ? 1 : 0.45 }}
     >
       <span
@@ -135,38 +135,42 @@ const RELEASE_COL = 260;
 const ENV_COL = 260;
 const HEADER_H = 70;
 const ROW_MIN_H = 70;
+const GRID_TRAILING_GAP = 16;
 
 function ChannelGrid({
   channel,
   releases,
   allEnvironments,
   channelEnvIds,
+  basePath,
 }: {
   channel: ProgressionChannel;
   releases: ReleaseProgression[];
   allEnvironments: ProgressionEnvironment[];
   channelEnvIds: number[];
+  basePath: string;
 }) {
   // Show only environments belonging to this channel's lifecycle
   const envIdSet = new Set(channelEnvIds);
   const environments = allEnvironments.filter((e) => envIdSet.has(e.id));
+  const gridWidth = RELEASE_COL + ENV_COL * environments.length + GRID_TRAILING_GAP;
 
   if (releases.length === 0) return null;
 
   return (
     <div
-      className="mb-4 border border-slate-200 rounded bg-white shadow-sm"
+      className="mb-4"
       style={{ overflowX: "auto" }}
     >
       {/* ── Header row ── */}
       <div
-        className="flex border-b border-slate-200 bg-slate-50"
-        style={{ minWidth: RELEASE_COL + ENV_COL * environments.length }}
+        className="flex"
+        style={{ width: gridWidth }}
       >
         {/* Channel label cell */}
         <div
-          className="shrink-0 flex items-center px-5 border-r border-slate-200"
-          style={{ width: RELEASE_COL, height: HEADER_H, background: "rgba(13,128,216,0.05)" }}
+          className="shrink-0 flex items-center pl-0 pr-5"
+          style={{ width: RELEASE_COL, height: HEADER_H }}
         >
           <span className="text-sm font-semibold text-slate-700">
             Channel: {channel.name}
@@ -177,15 +181,10 @@ function ChannelGrid({
         {environments.map((env) => (
           <div
             key={env.id}
-            className="shrink-0 flex items-center justify-center px-5 border-r border-slate-200 last:border-r-0"
+            className="shrink-0 flex items-center pl-0 pr-5"
             style={{ width: ENV_COL, height: HEADER_H }}
           >
-            <span
-              className="text-[11px] font-bold tracking-widest uppercase px-3 py-1 rounded-sm"
-              style={{ color: "#64748b", backgroundColor: "rgba(100,116,139,0.12)" }}
-            >
-              {env.name}
-            </span>
+            <span className="text-sm font-medium text-slate-700">{env.name}</span>
           </div>
         ))}
       </div>
@@ -194,20 +193,20 @@ function ChannelGrid({
       {releases.map((item) => (
         <div
           key={item.release.id}
-          className="flex border-b border-slate-100 last:border-b-0"
-          style={{ minWidth: RELEASE_COL + ENV_COL * environments.length, minHeight: ROW_MIN_H }}
+          className="flex border-b border-dashed border-slate-300"
+          style={{ width: gridWidth, minHeight: ROW_MIN_H }}
         >
           {/* Release version */}
           <div
-            className="shrink-0 flex items-center px-5 border-r border-slate-100"
+            className="shrink-0 flex items-center pl-0 pr-5"
             style={{ width: RELEASE_COL, minHeight: ROW_MIN_H }}
           >
-            <a
-              href="#"
-              className="text-squid-blue text-sm font-medium hover:underline break-all leading-snug"
+            <Link
+              to={`${basePath}/releases/${encodeURIComponent(item.release.version)}`}
+              className="text-squid-blue text-base font-medium no-underline hover:no-underline break-all leading-snug"
             >
               {item.release.version}
-            </a>
+            </Link>
           </div>
 
           {/* Environment cells */}
@@ -221,7 +220,7 @@ function ChannelGrid({
             return (
               <div
                 key={env.id}
-                className="shrink-0 border-r border-slate-100 last:border-r-0 flex items-stretch"
+                className="shrink-0 flex items-stretch"
                 style={{ width: ENV_COL, minHeight: ROW_MIN_H }}
               >
                 {latest ? (
@@ -233,10 +232,13 @@ function ChannelGrid({
                     isCurrent={latest.isCurrent}
                   />
                 ) : canDeploy ? (
-                  <div className="flex items-center px-5 py-3">
-                    <a href="#" className="text-sm text-squid-blue hover:underline font-medium">
+                  <div className="flex items-center pl-0 pr-5 py-3">
+                    <Link
+                      to={`${basePath}/releases/${encodeURIComponent(item.release.version)}/deployments/create?environmentIds=Environments-${env.id}`}
+                      className="inline-flex items-center justify-center h-8 px-3 rounded border border-squid-blue bg-white text-squid-blue text-sm font-medium no-underline hover:bg-blue-50 hover:text-squid-blue"
+                    >
                       Deploy...
-                    </a>
+                    </Link>
                   </div>
                 ) : (
                   <div />
@@ -253,7 +255,8 @@ function ChannelGrid({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const Deployments: React.FC = () => {
-  const { projectName } = useParams<{ projectName: string }>();
+  const { spaceId, projectName } = useParams<{ spaceId: string; projectName: string }>();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [progression, setProgression] = useState<ProjectProgression | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
@@ -304,7 +307,7 @@ const Deployments: React.FC = () => {
       : channelGroups.filter(({ channel }) => channel.id === selectedChannelId);
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="rounded-xl border border-slate-200 min-h-full overflow-hidden flex flex-col bg-white">
       {/* ── Page header ── */}
       <div className="flex items-center justify-between px-6 pt-6 pb-2">
         <h1 className="text-2xl font-semibold text-slate-800 m-0">Deployments</h1>
@@ -312,6 +315,7 @@ const Deployments: React.FC = () => {
           <Button
             type="primary"
             className="!bg-green-600 hover:!bg-green-700 !border-green-600 !font-medium !shadow-none !text-sm"
+            onClick={() => navigate(`/${spaceId}/projects/${projectName}/releases/create`)}
           >
             Create Release
           </Button>
@@ -324,10 +328,11 @@ const Deployments: React.FC = () => {
       </div>
 
       {/* ── Filter bar ── */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-slate-100">
+      <div className="flex items-center gap-3 px-6 py-3">
         <Select
           style={{ width: 200 }}
           placeholder="Channel"
+          variant="borderless"
           allowClear
           value={selectedChannelId ?? undefined}
           onChange={(val) => setSelectedChannelId(val ?? null)}
@@ -353,6 +358,7 @@ const Deployments: React.FC = () => {
                 releases={releases}
                 allEnvironments={progression!.environments}
                 channelEnvIds={progression!.channelEnvironments[channel.id] ?? []}
+                basePath={`/${spaceId}/projects/${projectName}`}
               />
             ))
           ) : (
