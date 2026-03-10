@@ -224,13 +224,20 @@ function ChannelGrid({
                 style={{ width: ENV_COL, minHeight: ROW_MIN_H }}
               >
                 {latest ? (
-                  <DeploymentCell
-                    state={latest.state}
-                    hasWarnings={latest.hasWarningsOrErrors}
-                    version={latest.releaseVersion}
-                    date={formatDate(latest.completedTime ?? latest.created)}
-                    isCurrent={latest.isCurrent}
-                  />
+                  <Link
+                    to={`${basePath}/releases/${encodeURIComponent(item.release.version)}/deployments/${latest.deploymentId}`}
+                    className="block w-full h-full text-inherit no-underline hover:no-underline"
+                    state={{ environmentId: env.id }}
+                    aria-label={`View deployment for ${item.release.version} in ${env.name}`}
+                  >
+                    <DeploymentCell
+                      state={latest.state}
+                      hasWarnings={latest.hasWarningsOrErrors}
+                      version={latest.releaseVersion}
+                      date={formatDate(latest.completedTime ?? latest.created)}
+                      isCurrent={latest.isCurrent}
+                    />
+                  </Link>
                 ) : canDeploy ? (
                   <div className="flex items-center pl-0 pr-5 py-3">
                     <Link
@@ -257,6 +264,7 @@ function ChannelGrid({
 const Deployments: React.FC = () => {
   const { spaceId, projectName } = useParams<{ spaceId: string; projectName: string }>();
   const navigate = useNavigate();
+  const encodedProjectName = encodeURIComponent(projectName ?? '');
   const [loading, setLoading] = useState(false);
   const [progression, setProgression] = useState<ProjectProgression | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
@@ -315,7 +323,7 @@ const Deployments: React.FC = () => {
           <Button
             type="primary"
             className="!bg-green-600 hover:!bg-green-700 !border-green-600 !font-medium !shadow-none !text-sm"
-            onClick={() => navigate(`/${spaceId}/projects/${projectName}/releases/create`)}
+            onClick={() => navigate(`/${spaceId}/projects/${encodedProjectName}/releases/create`)}
           >
             Create Release
           </Button>
@@ -358,7 +366,7 @@ const Deployments: React.FC = () => {
                 releases={releases}
                 allEnvironments={progression!.environments}
                 channelEnvIds={progression!.channelEnvironments[channel.id] ?? []}
-                basePath={`/${spaceId}/projects/${projectName}`}
+                basePath={`/${spaceId}/projects/${encodedProjectName}`}
               />
             ))
           ) : (

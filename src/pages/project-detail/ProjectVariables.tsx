@@ -293,6 +293,7 @@ const SingleVariableRow: React.FC<{
 
 const MultiVariableGroup: React.FC<{
   group: VariableGroup;
+  onGroupNameChange: (entryIds: number[], name: string) => void;
   onValueChange: (id: number, value: string) => void;
   isVariableModified: (entry: VariableDto) => boolean;
   getRowMenuItems: (entry: VariableDto, allowAddValue: boolean) => { key: string; label: string; danger?: boolean }[];
@@ -300,13 +301,26 @@ const MultiVariableGroup: React.FC<{
   scopeEditorTarget: ScopeEditorTarget;
   onScopeEditorOpenChange: (entry: VariableDto, open: boolean) => void;
   scopeEditorContent: React.ReactNode;
-}> = ({ group, onValueChange, isVariableModified, getRowMenuItems, onRowMenuAction, scopeEditorTarget, onScopeEditorOpenChange, scopeEditorContent }) => {
+}> = ({
+  group,
+  onGroupNameChange,
+  onValueChange,
+  isVariableModified,
+  getRowMenuItems,
+  onRowMenuAction,
+  scopeEditorTarget,
+  onScopeEditorOpenChange,
+  scopeEditorContent,
+}) => {
   const firstEntry = group.entries[0];
   return (
     <div className="border-b border-gray-200">
       <div className="flex items-center bg-white hover:bg-gray-50" style={{ minHeight: GROUP_ROW_HEIGHT }}>
         <div style={{ width: NAME_COL_WIDTH }} className="px-3">
-          <span className="font-mono text-sm text-gray-800">{group.name}</span>
+          <InlineVariableInput
+            value={group.name}
+            onChange={(next) => onGroupNameChange(group.entries.map((entry) => entry.id), next)}
+          />
         </div>
         <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
           <span className="text-gray-400 text-xs">Multiple values</span>
@@ -478,6 +492,11 @@ const ProjectVariables: React.FC = () => {
 
   const handleNameChange = (varId: number, name: string) =>
     applyLocalVariables((prev) => prev.map((v) => (v.id === varId ? { ...v, name } : v)));
+
+  const handleGroupNameChange = (entryIds: number[], name: string) => {
+    const idSet = new Set(entryIds);
+    applyLocalVariables((prev) => prev.map((v) => (idSet.has(v.id) ? { ...v, name } : v)));
+  };
 
   const handleScopeEditorOpenChange = (entry: VariableDto, open: boolean) => {
     if (!open) { if (scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id) setScopeEditorTarget(null); return; }
@@ -690,8 +709,9 @@ const ProjectVariables: React.FC = () => {
                 />
               ) : (
                 <MultiVariableGroup
-                  key={group.name}
+                  key={group.entries[0].id}
                   group={group}
+                  onGroupNameChange={handleGroupNameChange}
                   onValueChange={handleValueChange}
                   isVariableModified={isVariableModified}
                   getRowMenuItems={getRowMenuItems}

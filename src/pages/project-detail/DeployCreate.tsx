@@ -195,7 +195,8 @@ const DeployCreate: React.FC = () => {
   const [previewExpanded, setPreviewExpanded] = useState(true)
   const [expandedPreviewRows, setExpandedPreviewRows] = useState<number[]>([])
 
-  const basePath = `/${spaceId}/projects/${projectName}`
+  const encodedProjectName = encodeURIComponent(projectName ?? '')
+  const basePath = `/${spaceId}/projects/${encodedProjectName}`
 
   useEffect(() => {
     if (!projectName || !version) {
@@ -585,7 +586,7 @@ const DeployCreate: React.FC = () => {
         const env = envMap.get(envId)
         const payload = buildDeploymentRequestPayloadForEnvironment(envId)
 
-        await createDeployment({
+        const result = await createDeployment({
           releaseId: payload.releaseId,
           environmentId: payload.environmentId,
           name: `Deploy to ${env?.name ?? envId}`,
@@ -601,29 +602,46 @@ const DeployCreate: React.FC = () => {
           skipActionIds: payload.skipActionIds,
         })
 
-        return envId
+        return {
+          environmentId: envId,
+          deploymentId: result.deployment.id,
+          taskId: result.taskId,
+        }
       })
 
       const settled = await Promise.allSettled(createTasks)
-      const succeededEnvironmentIds: number[] = []
+      const succeededDeployments: Array<{
+        environmentId: number
+        deploymentId: number
+        taskId: number
+      }> = []
       const failedEnvironmentIds: number[] = []
 
       settled.forEach((item, index) => {
         const environmentId = selectedEnvIds[index]
         if (item.status === 'fulfilled') {
-          succeededEnvironmentIds.push(environmentId)
+          succeededDeployments.push(item.value)
         } else {
           failedEnvironmentIds.push(environmentId)
         }
       })
 
       if (failedEnvironmentIds.length === 0) {
-        const envNames = succeededEnvironmentIds
-          .map((id) => envMap.get(id)?.name)
+        const envNames = succeededDeployments
+          .map((item) => envMap.get(item.environmentId)?.name)
           .filter(Boolean)
           .join(', ')
 
         message.success(`Deployment to ${envNames} created.`)
+        if (succeededDeployments.length === 1) {
+          const only = succeededDeployments[0]
+          navigate(
+            `${basePath}/releases/${encodeURIComponent(release.version)}/deployments/${only.deploymentId}`,
+            { state: { taskId: only.taskId, environmentId: only.environmentId } },
+          )
+          return
+        }
+
         navigate(`${basePath}/releases/${encodeURIComponent(release.version)}`)
         return
       }
@@ -632,10 +650,10 @@ const DeployCreate: React.FC = () => {
         .map((id) => envMap.get(id)?.name ?? `Environment ${id}`)
         .join(', ')
 
-      if (succeededEnvironmentIds.length > 0) {
+      if (succeededDeployments.length > 0) {
         setSelectedEnvIds(failedEnvironmentIds)
         message.warning(
-          `Created ${succeededEnvironmentIds.length} deployment(s), failed ${failedEnvironmentIds.length}: ${failedEnvironmentNames}.`,
+          `Created ${succeededDeployments.length} deployment(s), failed ${failedEnvironmentIds.length}: ${failedEnvironmentNames}.`,
         )
         return
       }
@@ -992,8 +1010,37 @@ const DeployCreate: React.FC = () => {
                         : targetMode === 'ExcludeSpecific'
                           ? (excludedMachineIdsForEnvironment.length > 0 ? `${excludedMachineIdsForEnvironment.length} excluded target(s)` : 'Excluded targets')
                           : 'All included'
+                      const candidateTargets = preview?.candidateTargets ?? []
+                      const uniqueCandidateTargets = candidateTargets.filter(
+                        (target, targetIndex, allTargets) => allTargets.findIndex((item) => item.machineId === target.machineId) === targetIndex,
+                      )
+                      const matchedTargetsAcrossSteps = preview
+                        ? preview.steps
+                          .filter((step) => step.isApplicable)
+                          .flatMap((step) => step.matchedTargets)
+                        : []
+                      const uniqueMatchedTargetsAcrossSteps = matchedTargetsAcrossSteps.filter(
+                        (target, targetIndex, allTargets) => allTargets.findIndex((item) => item.machineId === target.machineId) === targetIndex,
+                      )
+                      const effectiveAvailableTargets = uniqueMatchedTargetsAcrossSteps.length > 0
+                        ? uniqueMatchedTargetsAcrossSteps
+                        : uniqueCandidateTargets
+                      const availableMachineCount = preview
+                        ? (effectiveAvailableTargets.length > 0
+                          ? effectiveAvailableTargets.length
+                          : preview.availableMachineCount)
+                        : 0
+                      const availableMachineNames = effectiveAvailableTargets
+                        .map((target) => target.machineName)
+                        .filter((name): name is string => Boolean(name))
+                      const previewTargetNames = availableMachineNames.slice(0, 5)
+                      const hiddenPreviewTargetNameCount = Math.max(availableMachineNames.length - previewTargetNames.length, 0)
                       const statusText = preview
-                        ? `${preview.availableMachineCount} available`
+                        ? availableMachineCount > 0
+                          ? `${availableMachineCount} available`
+                          : preview.canDeploy
+                            ? 'No targets required'
+                            : 'No available targets'
                         : validationLoading
                           ? 'Checking...'
                           : '-'
@@ -1122,6 +1169,20 @@ const DeployCreate: React.FC = () => {
 
                                   <div className="border border-gray-200 bg-white px-4 py-3">
                                     <div className="text-sm font-semibold text-slate-800 mb-2">Deployment steps preview</div>
+                                    {preview && (
+                                      <div className="mb-3 text-xs text-slate-600">
+                                        {availableMachineNames.length > 0
+                                          ? (
+                                              <>
+                                                Available targets for this deployment: {previewTargetNames.join(', ')}
+                                                {hiddenPreviewTargetNameCount > 0 ? ` +${hiddenPreviewTargetNameCount} more` : ''}
+                                              </>
+                                            )
+                                          : (preview.canDeploy
+                                            ? 'No deployment targets required for selected steps.'
+                                            : 'No available targets for this environment.')}
+                                      </div>
+                                    )}
                                     <div className="space-y-1">
                                       {preview?.steps.map((step: DeploymentPreviewStepResult) => {
                                         const matchedTargetNames = step.matchedTargets

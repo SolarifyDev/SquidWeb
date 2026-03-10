@@ -1,4 +1,5 @@
-import { ApiError, axiosInstance, post, type RequestConfig } from 'utils/request'
+import { ApiError, axiosInstance, get, post, type RequestConfig } from 'utils/request'
+import type { ServerTaskDetailsDto } from './serverTask'
 
 export interface CreateDeploymentCommand {
   releaseId: number
@@ -76,8 +77,40 @@ export interface CreateDeploymentResponseData {
   taskId: number
 }
 
+export interface DeploymentDto {
+  id: number
+  name: string
+  taskId: number | null
+  spaceId: number
+  channelId: number
+  projectId: number
+  releaseId: number
+  machineId: number
+  environmentId: number
+  json: string
+  deployedBy: number
+  deployedToMachineIds: string | null
+  processSnapshotId: number | null
+  variableSnapshotId: number | null
+  created: string
+}
+
+export interface GetDeploymentResponseData {
+  deployment: DeploymentDto
+  taskDetails: ServerTaskDetailsDto | null
+}
+
+export interface GetDeploymentRequest {
+  verbose?: boolean
+  tail?: number
+}
+
 export function createDeployment(command: CreateDeploymentCommand, config?: RequestConfig<CreateDeploymentCommand>) {
   return post<CreateDeploymentResponseData, CreateDeploymentCommand>('/deployments/create', command, config)
+}
+
+export function getDeployment(id: number, params?: GetDeploymentRequest) {
+  return get<GetDeploymentResponseData>(`/deployments/${id}`, { params })
 }
 
 export function previewDeployment(

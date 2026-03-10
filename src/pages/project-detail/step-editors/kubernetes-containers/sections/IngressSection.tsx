@@ -10,6 +10,7 @@ import type { ContainersEditorState } from '../types'
 interface IngressSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
+  showNamespaceSection?: boolean
 }
 
 function EditIngressYamlSubSection({
@@ -131,7 +132,7 @@ function EditIngressYamlSubSection({
   )
 }
 
-export function IngressSection({ state, updateField }: IngressSectionProps) {
+export function IngressSection({ state, updateField, showNamespaceSection = false }: IngressSectionProps) {
   const [tlsModalOpen, setTlsModalOpen] = useState(false)
   const [tlsMode, setTlsMode] = useState<'IngressDefault' | 'Octopus' | 'Secret'>('IngressDefault')
   const [tlsSecretName, setTlsSecretName] = useState('')
@@ -493,6 +494,19 @@ export function IngressSection({ state, updateField }: IngressSectionProps) {
           </div>
         </Modal>
       </CollapsibleSection>
+
+      {showNamespaceSection ? (
+        <CollapsibleSection
+          title="Namespace"
+          subtitle={<span>The Kubernetes context with be set with the namespace <strong>{state.namespace || '#{K8SNameSpace}'}</strong></span>}
+          defaultOpen={false}
+        >
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Namespace</label>
+            <Input value={state.namespace} onChange={(e) => updateField('namespace', e.target.value)} placeholder="default" />
+          </div>
+        </CollapsibleSection>
+      ) : null}
     </CollapsibleSection>
   )
 }

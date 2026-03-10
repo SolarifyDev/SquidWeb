@@ -27,6 +27,7 @@ import Releases from "pages/project-detail/Releases";
 import ReleasesCreate from "pages/project-detail/ReleasesCreate";
 import ReleaseDetail from "pages/project-detail/ReleaseDetail";
 import DeployCreate from "pages/project-detail/DeployCreate";
+import DeploymentDetail from "pages/project-detail/DeploymentDetail";
 import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
 
 const routes = [
@@ -182,6 +183,11 @@ const routes = [
                 path: "releases/:version/deployments/create",
                 component: DeployCreate,
                 name: "DeployCreate",
+              },
+              {
+                path: "releases/:version/deployments/:deploymentId",
+                component: DeploymentDetail,
+                name: "DeploymentDetail",
               },
               {
                 // Backward-compatible route

@@ -4,11 +4,13 @@ import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  checkMachineHealth,
   deleteMachines,
   generateKubernetesAgentUpgradeScript,
   GenerateKubernetesAgentUpgradeScriptData,
   getLatestKubernetesAgentVersion,
   getMachines,
+  MachineHealthCheckData,
   MachineDto,
 } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
@@ -59,6 +61,40 @@ function HealthyIcon({ size = 14 }: { size?: number }) {
         <circle fill="#53B953" cx="8" cy="8" r="8" />
         <path stroke="#FFF" strokeWidth=".5" fill="#FFF" d="M6.88804 11.083024L12.12 5.851064 11.296838 5 6.88804 9.42275 4.823163 7.343916 4 8.16708z" />
       </g>
+    </svg>
+  )
+}
+
+function UnhealthyIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <g fill="none" fillRule="evenodd">
+        <circle fill="#d14343" cx="8" cy="8" r="8" />
+        <path d="M5 5l6 6M11 5L5 11" stroke="#FFF" strokeWidth="1.4" strokeLinecap="round" />
+      </g>
+    </svg>
+  )
+}
+
+function UnknownHealthIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <g fill="none" fillRule="evenodd">
+        <circle fill="#9ca3af" cx="8" cy="8" r="8" />
+        <circle fill="#FFF" cx="8" cy="11.5" r="0.9" />
+        <path d="M6.9 6.3A1.5 1.5 0 0 1 8 5.8c.9 0 1.6.6 1.6 1.5 0 .6-.3 1-.8 1.3-.4.2-.6.5-.6.9v.2" stroke="#FFF" strokeWidth="1.1" strokeLinecap="round" />
+      </g>
+    </svg>
+  )
+}
+
+function UnavailableIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <path
+        d="M20.0312 7C15.3438 7 11.0938 9.5 8.71875 13.5C6.40625 17.5625 6.40625 22.5 8.71875 26.5C11.0938 30.5625 15.3438 33 20.0312 33C24.6562 33 28.9062 30.5625 31.2812 26.5C33.5938 22.5 33.5938 17.5625 31.2812 13.5C28.9062 9.5 24.6562 7 20.0312 7ZM20.0312 36C14.2812 36 9.03125 33 6.15625 28C3.28125 23.0625 3.28125 17 6.15625 12C9.03125 7.0625 14.2812 4 20.0312 4C25.7188 4 30.9688 7.0625 33.8438 12C36.7188 17 36.7188 23.0625 33.8438 28C30.9688 33 25.7188 36 20.0312 36ZM14.9688 14.9375C15.5312 14.375 16.4688 14.375 17.0312 14.9375L19.9688 17.875L22.9062 14.9375C23.5312 14.375 24.4688 14.375 25.0312 14.9375C25.6562 15.5625 25.6562 16.5 25.0312 17.0625L22.0938 20L25.0312 22.9375C25.6562 23.5625 25.6562 24.5 25.0312 25.0625C24.4688 25.6875 23.5312 25.6875 22.9062 25.0625L19.9688 22.125L17.0312 25.0625C16.4688 25.6875 15.5312 25.6875 14.9688 25.0625C14.3438 24.5 14.3438 23.5625 14.9688 22.9375L17.9062 20L14.9688 17.0625C14.3438 16.5 14.3438 15.5625 14.9688 14.9375Z"
+        fill="#b42318"
+      />
     </svg>
   )
 }
@@ -279,6 +315,135 @@ function communicationStyleLabel(style: string): string {
   return map[style] || style
 }
 
+type ConnectivityHealthState = 'Healthy' | 'Unhealthy' | 'Unavailable' | 'Disabled' | 'Unknown'
+
+function getHealthStatusValue(healthData: MachineHealthCheckData | null): string | null {
+  if (!healthData) return null
+  const candidates: unknown[] = [
+    healthData.HealthStatus,
+    healthData.healthStatus,
+    (healthData as any).MachineHealthStatus,
+    (healthData as any).machineHealthStatus,
+    (healthData as any).Status,
+    (healthData as any).status,
+    (healthData as any).Health,
+    (healthData as any).health,
+  ]
+  const value = candidates.find((v) => v !== undefined && v !== null)
+  if (value === undefined || value === null) return null
+
+  if (typeof value === 'number') {
+    // Compatibility for enum-like numeric status values.
+    if (value === 1) return 'Healthy'
+    if (value === 2) return 'Unhealthy'
+    if (value === 3) return 'Unavailable'
+    if (value === 4) return 'Disabled'
+    return 'Unknown'
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Healthy' : 'Unhealthy'
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim()
+  }
+
+  return null
+}
+
+function getHealthDetailValue(healthData: MachineHealthCheckData | null): string | null {
+  if (!healthData) return null
+  const value = healthData.HealthDetail ?? healthData.healthDetail
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function getHealthLastCheckedValue(healthData: MachineHealthCheckData | null): string | null {
+  if (!healthData) return null
+  const candidates: unknown[] = [
+    healthData.HealthLastChecked,
+    healthData.healthLastChecked,
+    (healthData as any).LastChecked,
+    (healthData as any).lastChecked,
+    (healthData as any).HealthCheckTime,
+    (healthData as any).healthCheckTime,
+  ]
+  const value = candidates.find((v) => v !== undefined && v !== null)
+  if (value === undefined || value === null) return null
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const millis = value > 1_000_000_000_000 ? value : value * 1000
+    return new Date(millis).toISOString()
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim()
+  }
+
+  return null
+}
+
+function resolveConnectivityHealthState(machine: MachineDto, healthData: MachineHealthCheckData | null): ConnectivityHealthState {
+  if (machine.isDisabled) return 'Disabled'
+  const statusRaw = getHealthStatusValue(healthData)
+  if (!statusRaw) return 'Healthy'
+
+  const normalized = statusRaw.toLowerCase()
+  if (normalized.includes('disabled')) return 'Disabled'
+  if (normalized.includes('unavailable')) {
+    return 'Unavailable'
+  }
+  if (
+    normalized.includes('unhealthy')
+    || normalized.includes('fail')
+    || normalized.includes('error')
+    || normalized.includes('warning')
+  ) {
+    return 'Unhealthy'
+  }
+  if (normalized.includes('healthy') || normalized.includes('success') || normalized.includes('ok')) {
+    return 'Healthy'
+  }
+
+  return 'Healthy'
+}
+
+function formatHealthLastCheckedRelative(healthLastChecked: string | null): string {
+  if (!healthLastChecked) return 'Last health check unknown'
+  const raw = healthLastChecked.trim()
+  if (!raw) return 'Last health check unknown'
+
+  // If backend already returns relative text, display it directly.
+  const relativeTextPattern = /(ago|just now|minute|hour|day|week|month|year|分鐘前|小時前|小时前|天前|剛剛|刚刚)/i
+  if (relativeTextPattern.test(raw)) return `Last health check ${raw}`
+
+  // Only convert to relative time when timezone is explicit to avoid local/UTC drift.
+  const hasExplicitTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(raw)
+  if (!hasExplicitTimezone) return `Last health check ${raw}`
+
+  const ts = Date.parse(raw)
+  if (Number.isNaN(ts)) return `Last health check ${healthLastChecked}`
+
+  const diffMs = Math.max(0, Date.now() - ts)
+  const diffMinutes = Math.floor(diffMs / (60 * 1000))
+  if (diffMinutes < 1) return 'Last health check just now'
+  if (diffMinutes < 60) {
+    return `Last health check ${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) {
+    return `Last health check ${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+  }
+
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 30) {
+    return `Last health check ${diffDays} day${diffDays > 1 ? 's' : ''} ago`
+  }
+
+  return `Last health check ${new Date(ts).toLocaleString()}`
+}
+
 // ── Agent Version Info ────────────────────────────────────────────────────────
 
 function AgentVersionInfo({
@@ -368,6 +533,9 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const [agentUpgradeError, setAgentUpgradeError] = useState<string | null>(null)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
   const [accounts, setAccounts] = useState<DeploymentAccountDto[]>([])
+  const [manualHealthCheckData, setManualHealthCheckData] = useState<MachineHealthCheckData | null>(null)
+  const [healthCheckError, setHealthCheckError] = useState<string | null>(null)
+  const [healthCheckLoading, setHealthCheckLoading] = useState(false)
 
   // Editable state
   const [name, setName] = useState('')
@@ -472,6 +640,31 @@ const DeploymentTargetDetailPage: React.FC = () => {
     return () => { mounted = false }
   }, [targetId, space.id])
 
+  useEffect(() => {
+    setManualHealthCheckData(null)
+    setHealthCheckError(null)
+    setHealthCheckLoading(false)
+  }, [machine?.id])
+
+  const runMachineHealthCheck = useCallback(async () => {
+    if (!machine) return
+
+    setHealthCheckLoading(true)
+    setHealthCheckError(null)
+    try {
+      const data = await checkMachineHealth(machine.id)
+      setManualHealthCheckData(data ?? null)
+    } catch (error) {
+      const status = (error as any)?.response?.status
+      const errorText = status
+        ? `Health check failed (${status})`
+        : (error instanceof Error ? error.message : 'Health check failed')
+      setHealthCheckError(errorText)
+    } finally {
+      setHealthCheckLoading(false)
+    }
+  }, [machine])
+
   const handleSave = async () => {
     if (!machine) return
     setSaving(true)
@@ -520,13 +713,31 @@ const DeploymentTargetDetailPage: React.FC = () => {
     ? (ep as KubernetesApiEndpoint).ResourceReferences?.find((r) => r.Type === 1)?.ResourceId
     : undefined
   const account = accountId ? accounts.find((a) => a.id === accountId) ?? null : null
+  const machineHealthData: MachineHealthCheckData = {
+    HealthStatus: machine.HealthStatus ?? machine.healthStatus ?? null,
+    HealthDetail: machine.HealthDetail ?? machine.healthDetail ?? null,
+    HealthLastChecked: machine.HealthLastChecked ?? machine.healthLastChecked ?? null,
+  }
+  const effectiveHealthData: MachineHealthCheckData = healthCheckError
+    ? {
+      ...machineHealthData,
+      HealthStatus: 'Unavailable',
+      HealthDetail: healthCheckError,
+    }
+    : (manualHealthCheckData ?? machineHealthData)
+  const connectivityState = resolveConnectivityHealthState(machine, effectiveHealthData)
 
   const tabs: { key: TabKey; label: string; extra?: React.ReactNode }[] = [
     { key: 'settings', label: 'Settings' },
     {
       key: 'connectivity',
       label: 'Connectivity',
-      extra: <HealthyIcon size={14} />,
+      extra: (
+        connectivityState === 'Healthy' ? <HealthyIcon size={14} />
+          : connectivityState === 'Unavailable' ? <UnavailableIcon size={14} />
+            : connectivityState === 'Unhealthy' ? <UnhealthyIcon size={14} />
+            : <UnknownHealthIcon size={14} />
+      ),
     },
     { key: 'deployments', label: 'Deployments' },
     { key: 'events', label: 'Events' },
@@ -623,7 +834,12 @@ const DeploymentTargetDetailPage: React.FC = () => {
               />
             )}
             {activeTab === 'connectivity' && (
-              <ConnectivityTab machine={machine} />
+              <ConnectivityTab
+                healthCheckData={effectiveHealthData}
+                healthState={connectivityState}
+                healthCheckLoading={healthCheckLoading}
+                onCheckHealth={runMachineHealthCheck}
+              />
             )}
             {activeTab === 'deployments' && (
               <PlaceholderTab title="Deployments" />
@@ -932,8 +1148,8 @@ function SettingsTab({
           <ExpandableCard
             title="Kubernetes Agent Details"
             summary={
-              agentEp.Thumbprint
-                ? <span>Thumbprint: <strong>{agentEp.Thumbprint}</strong></span>
+              agentEp.Namespace
+                ? <span>Namespace: <strong>{agentEp.Namespace}</strong></span>
                 : <span className="text-gray-400 italic">Not configured</span>
             }
             expanded={expandedCards.has('kubernetesDetails')}
@@ -945,12 +1161,6 @@ function SettingsTab({
                 upgradeData={agentUpgradeData}
                 upgradeError={agentUpgradeError}
               />
-              {agentEp.Thumbprint && (
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Thumbprint:</span>
-                  <div className="text-sm text-gray-600 mt-0.5 font-mono text-xs break-all">{agentEp.Thumbprint}</div>
-                </div>
-              )}
               {agentEp.Namespace && (
                 <div>
                   <span className="text-sm font-medium text-gray-700">Namespace:</span>
@@ -1016,43 +1226,81 @@ function SettingsTab({
 
 // ── Connectivity Tab ──────────────────────────────────────────────────────────
 
-function ConnectivityTab({ machine }: { machine: MachineDto }) {
+function ConnectivityTab({
+  healthCheckData,
+  healthState,
+  healthCheckLoading,
+  onCheckHealth,
+}: {
+  healthCheckData: MachineHealthCheckData | null
+  healthState: ConnectivityHealthState
+  healthCheckLoading: boolean
+  onCheckHealth: () => void
+}) {
+  const mappedHealthStatus = getHealthStatusValue(healthCheckData) ?? healthState
+  const mappedHealthDetail = getHealthDetailValue(healthCheckData)
+  const mappedHealthLastChecked = getHealthLastCheckedValue(healthCheckData)
+  const healthDetailText = mappedHealthDetail ?? (healthCheckData ? 'No health check detail available' : 'No health check has been run yet')
+  const healthLastCheckedText = formatHealthLastCheckedRelative(mappedHealthLastChecked)
+  const isFailureState = ['Unavailable', 'Unhealthy'].includes(String(mappedHealthStatus))
+  const stateLabelClass = healthState === 'Healthy'
+    ? 'text-emerald-700'
+    : healthState === 'Unavailable'
+      ? 'text-rose-700'
+    : healthState === 'Unhealthy'
+      ? 'text-rose-700'
+      : healthState === 'Disabled'
+        ? 'text-gray-700'
+        : 'text-slate-700'
+
+  const stateIcon = healthState === 'Healthy'
+    ? <HealthyIcon size={20} />
+    : healthState === 'Unavailable'
+      ? <UnavailableIcon size={20} />
+    : healthState === 'Unhealthy'
+      ? <UnhealthyIcon size={20} />
+      : <UnknownHealthIcon size={20} />
+
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-gray-900 m-0 mb-6">Connectivity</h1>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900 m-0">Connectivity</h1>
+        <Button
+          type="primary"
+          loading={healthCheckLoading}
+          onClick={onCheckHealth}
+          className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+        >
+          Check health
+        </Button>
+      </div>
 
       <div className="border border-gray-200 rounded-md bg-white p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <HealthyIcon size={20} />
-          <span className="text-lg font-medium text-gray-900">Healthy</span>
-        </div>
+        {isFailureState ? (
+          <div className="mb-5 rounded border border-rose-200 bg-rose-50 px-4 py-3" role="alert">
+            <div className="flex items-start gap-3">
+              <div className="pt-0.5">
+                <UnavailableIcon size={24} />
+              </div>
+              <div>
+                <div className="text-base font-semibold text-rose-800">{mappedHealthStatus}</div>
+                <div className="text-sm text-rose-700 mt-1">{healthLastCheckedText}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              {stateIcon}
+              <span className={`text-lg font-medium ${stateLabelClass}`}>{mappedHealthStatus}</span>
+            </div>
+            <div className="mb-5 text-sm text-gray-600">
+              <div>{healthDetailText}</div>
+              <div className="mt-2">{healthLastCheckedText}</div>
+            </div>
+          </>
+        )}
 
-        <div className="space-y-3 text-sm text-gray-600">
-          {machine.uri && (
-            <div>
-              <span className="font-medium text-gray-700">URI:</span>
-              <span className="ml-2 break-all">{machine.uri}</span>
-            </div>
-          )}
-          {machine.thumbprint && (
-            <div>
-              <span className="font-medium text-gray-700">Thumbprint:</span>
-              <span className="ml-2 font-mono text-xs">{machine.thumbprint}</span>
-            </div>
-          )}
-          {machine.operatingSystem && (
-            <div>
-              <span className="font-medium text-gray-700">Operating System:</span>
-              <span className="ml-2">{machine.operatingSystem}</span>
-            </div>
-          )}
-          {machine.shellName && (
-            <div>
-              <span className="font-medium text-gray-700">Shell:</span>
-              <span className="ml-2">{machine.shellName} {machine.shellVersion}</span>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   )

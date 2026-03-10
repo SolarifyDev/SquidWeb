@@ -10,6 +10,7 @@ import type { ContainersEditorState, ServicePort } from '../types'
 interface ServiceSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
+  showNamespaceSection?: boolean
 }
 
 function EditServiceYamlSubSection({
@@ -131,7 +132,7 @@ function EditServiceYamlSubSection({
   )
 }
 
-export function ServiceSection({ state, updateField }: ServiceSectionProps) {
+export function ServiceSection({ state, updateField, showNamespaceSection = false }: ServiceSectionProps) {
   const emptyPort: ServicePort = { name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }
   const [addPortModalOpen, setAddPortModalOpen] = useState(false)
   const [newPort, setNewPort] = useState<ServicePort>(emptyPort)
@@ -378,6 +379,19 @@ export function ServiceSection({ state, updateField }: ServiceSectionProps) {
           </div>
         </Modal>
       </CollapsibleSection>
+
+      {showNamespaceSection ? (
+        <CollapsibleSection
+          title="Namespace"
+          subtitle={<span>The Kubernetes context with be set with the namespace <strong>{state.namespace || '#{K8SNameSpace}'}</strong></span>}
+          defaultOpen={false}
+        >
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Namespace</label>
+            <Input value={state.namespace} onChange={(e) => updateField('namespace', e.target.value)} placeholder="default" />
+          </div>
+        </CollapsibleSection>
+      ) : null}
     </CollapsibleSection>
   )
 }

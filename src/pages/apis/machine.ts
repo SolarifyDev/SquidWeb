@@ -18,6 +18,12 @@ export interface MachineDto {
   shellVersion: string
   slug: string
   agentVersion: string | null
+  healthStatus?: string | null
+  healthDetail?: string | null
+  healthLastChecked?: string | null
+  HealthStatus?: string | null
+  HealthDetail?: string | null
+  HealthLastChecked?: string | null
 }
 
 export interface GetMachinesRequest {
@@ -146,4 +152,45 @@ export interface ConnectionStatusData {
 
 export function getConnectionStatus(subscriptionId: string) {
   return get<ConnectionStatusData>('/machines/connection-status', { params: { subscriptionId } })
+}
+
+// --- Machine Health Check ---
+
+export interface MachineHealthCheckData {
+  HealthStatus?: string | null
+  HealthDetail?: string | null
+  HealthLastChecked?: string | null
+  [key: string]: unknown
+}
+
+function shouldTryNextHealthRoute(error: unknown): boolean {
+  const status = (error as any)?.response?.status ?? (error as any)?.status
+  return status === 400 || status === 404 || status === 405 || status === 415 || status === 422
+}
+
+export async function checkMachineHealth(machineId: number) {
+  const candidates: Array<() => Promise<MachineHealthCheckData>> = [
+    () => post<MachineHealthCheckData>(`/machines/${machineId}/health-check`),
+    () => get<MachineHealthCheckData>(`/machines/${machineId}/health-check`),
+    () => post<MachineHealthCheckData>(`/machine/${machineId}/health-check`),
+    () => get<MachineHealthCheckData>(`/machine/${machineId}/health-check`),
+    () => post<MachineHealthCheckData>(`/machines/health-check`, { machineId }),
+    () => get<MachineHealthCheckData>(`/machines/health-check`, { params: { machineId } }),
+    () => post<MachineHealthCheckData>(`/machine/health-check`, { machineId }),
+    () => get<MachineHealthCheckData>(`/machine/health-check`, { params: { machineId } }),
+  ]
+
+  let lastError: unknown = null
+  for (const attempt of candidates) {
+    try {
+      return await attempt()
+    } catch (error) {
+      lastError = error
+      if (!shouldTryNextHealthRoute(error)) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Health check endpoint not found')
 }

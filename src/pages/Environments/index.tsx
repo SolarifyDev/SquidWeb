@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Input, Checkbox, Button, Badge, Tag, Modal, Tabs, Spin, Select, message } from 'antd';
+import { Input, Checkbox, Button, Tag, Modal, Tabs, Spin, Select, message } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
@@ -11,7 +11,7 @@ import {
   CloseCircleOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
-import { getEnvironments, createEnvironment, EnvironmentDto } from 'pages/apis/environment';
+import { getEnvironments, createEnvironment } from 'pages/apis/environment';
 import { getMachines, MachineDto } from 'pages/apis/machine';
 import { useSpace } from 'contexts/SpaceContext';
 
@@ -21,6 +21,50 @@ const toEnvironmentSlug = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'environment';
+
+interface KubernetesApiEndpoint {
+  CommunicationStyle: string;
+  ClusterUrl: string;
+  Namespace: string;
+}
+
+interface KubernetesAgentEndpoint {
+  CommunicationStyle: string;
+  Thumbprint: string;
+  Namespace: string;
+}
+
+type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint;
+
+function parseEndpointJson(json: string): MachineEndpoint | null {
+  try {
+    return JSON.parse(json) as MachineEndpoint;
+  } catch {
+    return null;
+  }
+}
+
+function communicationStyleLabel(style: string): string {
+  const map: Record<string, string> = {
+    KubernetesApi: 'Kubernetes API',
+    KubernetesAgent: 'Kubernetes Agent',
+    TentaclePassive: 'Listening Tentacle',
+    TentacleActive: 'Polling Tentacle',
+    Ssh: 'SSH Connection',
+  };
+  return map[style] || style;
+}
+
+function endpointSummary(ep: MachineEndpoint | null): string {
+  if (!ep) return '';
+  if (ep.CommunicationStyle === 'KubernetesApi') return (ep as KubernetesApiEndpoint).ClusterUrl || '';
+  if (ep.CommunicationStyle === 'KubernetesAgent') return (ep as KubernetesAgentEndpoint).Thumbprint || '';
+  return '';
+}
+
+function unique(items: string[]): string[] {
+  return Array.from(new Set(items));
+}
 
 const Environments = () => {
   const navigate = useNavigate();
@@ -70,8 +114,8 @@ const Environments = () => {
     targets: number;
     healthy: number;
     disabled: number;
-    deployments: { name: string; type: string; url: string; status: string; environments: number; tags: string[] }[];
-    disabledTargets: { name: string; type: string; url: string; status: string; environments: number; tags: string[] }[];
+    deployments: { name: string; type: string; url: string; status: string; environmentNames: string[]; tags: string[] }[];
+    disabledTargets: { name: string; type: string; url: string; status: string; environmentNames: string[]; tags: string[] }[];
   }
 
   const [environments, setEnvironments] = useState<EnvironmentWithTargets[]>([]);
@@ -88,8 +132,8 @@ const Environments = () => {
       }),
     ])
       .then(([envRes, machineRes]) => {
-        const envMap = new Map<number, EnvironmentDto>();
-        envRes.environments.forEach((e) => envMap.set(e.id, e));
+        const envNameLookup = new Map<string, string>();
+        envRes.environments.forEach((e) => envNameLookup.set(String(e.id), e.name));
 
         // Group machines by environment
         const envTargets = new Map<number, { healthy: MachineDto[]; disabled: MachineDto[] }>();
@@ -111,13 +155,21 @@ const Environments = () => {
 
         const mapMachine = (m: MachineDto, status: string) => {
           const mEnvIds = (m.environmentIds ?? []).map(String);
+          const mEnvNames = unique(
+            mEnvIds
+              .map((envId) => envNameLookup.get(envId) || '')
+              .filter(Boolean),
+          );
           const roles = m.roles ?? [];
+          const ep = parseEndpointJson(m.endpoint || '{}');
+          const style = ep?.CommunicationStyle || 'Unknown';
+          const summary = endpointSummary(ep);
           return {
             name: m.name,
-            type: m.endpoint || 'Unknown',
-            url: m.uri,
+            type: communicationStyleLabel(style),
+            url: summary || m.uri || '',
             status,
-            environments: mEnvIds.length,
+            environmentNames: mEnvNames,
             tags: roles,
           };
         };
@@ -185,7 +237,7 @@ const Environments = () => {
     if (
       deploymentTargetSearch &&
       ![...env.deployments, ...env.disabledTargets].some((d) =>
-        `${d.name} ${d.type} ${d.url}`.toLowerCase().includes(deploymentTargetSearch.toLowerCase())
+        `${d.name} ${d.type} ${d.url} ${d.environmentNames.join(' ')} ${d.tags.join(' ')}`.toLowerCase().includes(deploymentTargetSearch.toLowerCase())
       )
     ) {
       return false;
@@ -543,7 +595,16 @@ const Environments = () => {
                                           )}
                                           <div className="flex flex-wrap items-center gap-2 mt-2">
                                             <CheckCircleFilled className="text-green-500" />
-                                            <Badge count={deployment.environments} style={{ backgroundColor: '#e5e7eb', color: '#111' }} />
+                                            {deployment.environmentNames.slice(0, 3).map((envName, i) => (
+                                              <Tag key={`healthy-env-${i}`} color="blue" className="!m-0">
+                                                {envName}
+                                              </Tag>
+                                            ))}
+                                            {deployment.environmentNames.length > 3 && (
+                                              <Button type="link" size="small" className="!px-0">
+                                                +{deployment.environmentNames.length - 3} envs
+                                              </Button>
+                                            )}
                                             {deployment.tags.slice(0, 4).map((tag, i) => (
                                               <Tag key={i} color={tag === 'Normal' ? 'black' : 'default'} className="!m-0">
                                                 {tag}
@@ -591,7 +652,16 @@ const Environments = () => {
                                           )}
                                           <div className="flex flex-wrap items-center gap-2 mt-2">
                                             <CloseCircleOutlined className="text-gray-400" />
-                                            <Badge count={deployment.environments} style={{ backgroundColor: '#e5e7eb', color: '#111' }} />
+                                            {deployment.environmentNames.slice(0, 3).map((envName, i) => (
+                                              <Tag key={`disabled-env-${i}`} color="blue" className="!m-0">
+                                                {envName}
+                                              </Tag>
+                                            ))}
+                                            {deployment.environmentNames.length > 3 && (
+                                              <Button type="link" size="small" className="!px-0">
+                                                +{deployment.environmentNames.length - 3} envs
+                                              </Button>
+                                            )}
                                             {deployment.tags.slice(0, 4).map((tag, i) => (
                                               <Tag key={i} className="!m-0">{tag}</Tag>
                                             ))}

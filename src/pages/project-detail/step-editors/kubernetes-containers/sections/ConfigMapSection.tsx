@@ -10,6 +10,7 @@ import type { ContainersEditorState } from '../types'
 interface ConfigMapSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
+  showNamespaceSection?: boolean
 }
 
 function EditConfigMapYamlSubSection({
@@ -131,7 +132,7 @@ function EditConfigMapYamlSubSection({
   )
 }
 
-export function ConfigMapSection({ state, updateField }: ConfigMapSectionProps) {
+export function ConfigMapSection({ state, updateField, showNamespaceSection = false }: ConfigMapSectionProps) {
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
     const fields: (keyof ContainersEditorState)[] = ['namespace', 'configMapName', 'configMapValues']
     for (const field of fields) {
@@ -166,6 +167,19 @@ export function ConfigMapSection({ state, updateField }: ConfigMapSectionProps) 
           addLabel="Add Config map item"
         />
       </CollapsibleSection>
+
+      {showNamespaceSection ? (
+        <CollapsibleSection
+          title="Namespace"
+          subtitle={<span>The Kubernetes context with be set with the namespace <strong>{state.namespace || '#{K8SNameSpace}'}</strong></span>}
+          defaultOpen={false}
+        >
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Namespace</label>
+            <Input value={state.namespace} onChange={(e) => updateField('namespace', e.target.value)} placeholder="default" />
+          </div>
+        </CollapsibleSection>
+      ) : null}
     </CollapsibleSection>
   )
 }

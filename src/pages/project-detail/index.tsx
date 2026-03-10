@@ -218,14 +218,15 @@ const ProjectDetail: React.FC = () => {
                     <hr className="border-slate-200" />
                   </div>
                 )}
-                {section.map((item) => {
+                {section.map((item, itemIdx) => {
                   const active = isActive(item.path);
                   return (
                     <Link
                       key={item.path}
                       to={`${base}/${item.path}`}
                       className={[
-                        "relative flex items-center mx-3 my-0.5 rounded-lg px-3 py-2 text-sm transition-all select-none",
+                        "relative flex items-center mx-3 rounded-lg px-3 py-2 text-sm transition-all select-none",
+                        sectionIdx > 0 && itemIdx === 0 ? "mt-2 mb-0.5" : "my-0.5",
                         active
                           ? "text-squid-blue bg-blue-50/80 font-semibold shadow-sm ring-1 ring-blue-100"
                           : "text-slate-700 hover:bg-slate-50 hover:text-slate-900",

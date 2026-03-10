@@ -68,7 +68,7 @@ function formatDate(iso: string | null | undefined): string {
 
 function stateColor(state: DeploymentState): string {
   switch (state) {
-    case 'Success':    return '#22c55e'
+    case 'Success':    return '#00874d'
     case 'Failed':
     case 'TimedOut':   return '#ef4444'
     case 'Executing':  return '#3b82f6'
@@ -79,24 +79,11 @@ function stateColor(state: DeploymentState): string {
   }
 }
 
-function stateLabel(state: DeploymentState): string {
-  switch (state) {
-    case 'Success':    return 'Success'
-    case 'Failed':     return 'Failed'
-    case 'TimedOut':   return 'Timed out'
-    case 'Executing':  return 'Executing...'
-    case 'Pending':    return 'Pending...'
-    case 'Cancelling': return 'Cancelling...'
-    case 'Cancelled':  return 'Cancelled'
-    default:           return state
-  }
-}
-
 type PhaseStatus = 'done' | 'current' | 'pending'
 
 function phaseStatusColor(status: PhaseStatus): string {
   switch (status) {
-    case 'done':    return '#22c55e'
+    case 'done':    return '#00874d'
     case 'current': return '#3b82f6'
     case 'pending': return '#d1d5db'
   }
@@ -134,15 +121,15 @@ function formatTaskSummaryDate(iso: string | null | undefined): string {
 
 function renderTaskStatusIcon(state: DeploymentState) {
   if (state === 'Success') {
-    return <CheckOutlined style={{ fontSize: 10 }} />
+    return <CheckOutlined style={{ fontSize: 14 }} />
   }
   if (state === 'Executing' || state === 'Pending' || state === 'Cancelling') {
-    return <LoadingOutlined style={{ fontSize: 10 }} />
+    return <LoadingOutlined style={{ fontSize: 14 }} />
   }
   if (state === 'Failed' || state === 'TimedOut' || state === 'Cancelled') {
-    return <CloseOutlined style={{ fontSize: 10 }} />
+    return <CloseOutlined style={{ fontSize: 14 }} />
   }
-  return <CheckOutlined style={{ fontSize: 10 }} />
+  return <CheckOutlined style={{ fontSize: 14 }} />
 }
 
 // ── Section heading (matches CollapsibleSection header style) ────────────────
@@ -196,7 +183,8 @@ const ReleaseDetail: React.FC = () => {
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
 
-  const basePath = `/${spaceId}/projects/${projectName}`
+  const encodedProjectName = encodeURIComponent(projectName ?? '')
+  const basePath = `/${spaceId}/projects/${encodedProjectName}`
 
   useEffect(() => {
     if (!projectName || !version) {
@@ -309,24 +297,71 @@ const ReleaseDetail: React.FC = () => {
   const phaseRows = useMemo(() => {
     if (!progression || phases.length === 0) return []
 
+    let previousBlockingPhasesCompleted = true
+
     return phases.map((phase) => {
-      const envIds = [...phase.automaticDeploymentTargetIds, ...phase.optionalDeploymentTargetIds]
+      const envIds = Array.from(
+        new Set([...phase.automaticDeploymentTargetIds, ...phase.optionalDeploymentTargetIds]),
+      )
       const envNames = envIds.map((id) => envMap.get(id)?.name ?? `Env #${id}`).join(', ')
 
       const deployments = envIds.flatMap((envId) => {
         const deps = progression.deployments[envId] ?? []
-        return deps.map((d) => ({ ...d, environmentId: envId }))
+        return deps
+          .filter((d) => d.releaseVersion === progression.release.version)
+          .map((d) => ({ ...d, environmentId: envId }))
       })
 
-      const latestDeployment = deployments[0] ?? null
-      const hasSuccessfulDeploy = deployments.some((d) => d.state === 'Success')
-      const canDeploy = envIds.some((id) => progression.nextDeployments.includes(id))
+      const deploymentsSorted = [...deployments].sort((a, b) => {
+        const aTs = Date.parse(a.completedTime ?? a.created)
+        const bTs = Date.parse(b.completedTime ?? b.created)
+        const safeATs = Number.isFinite(aTs) ? aTs : 0
+        const safeBTs = Number.isFinite(bTs) ? bTs : 0
+        return safeBTs - safeATs
+      })
+
+      const latestDeployment = deploymentsSorted[0] ?? null
+      const latestByEnvironment = new Map<number, (typeof deploymentsSorted)[number]>()
+      deploymentsSorted.forEach((deployment) => {
+        if (!latestByEnvironment.has(deployment.environmentId)) {
+          latestByEnvironment.set(deployment.environmentId, deployment)
+        }
+      })
+
+      const successfulEnvironmentCount = envIds.reduce((count, envId) => {
+        const latest = latestByEnvironment.get(envId)
+        return latest?.state === 'Success' ? count + 1 : count
+      }, 0)
+
+      const minimumRequired = phase.minimumEnvironmentsBeforePromotion ?? 0
+      const requiredSuccessCount = phase.isOptionalPhase
+        ? 0
+        : minimumRequired > 0
+          ? Math.min(minimumRequired, envIds.length)
+          : envIds.length
+      const phaseCompleted = phase.isOptionalPhase
+        ? successfulEnvironmentCount > 0
+        : requiredSuccessCount > 0 && successfulEnvironmentCount >= requiredSuccessCount
+
+      const deployableEnvIds = previousBlockingPhasesCompleted
+        ? envIds.filter((id) => progression.nextDeployments.includes(id))
+        : []
+      const canDeploy = deployableEnvIds.length > 0
+      const hasActiveDeployment = Boolean(
+        latestDeployment && (latestDeployment.state === 'Executing' || latestDeployment.state === 'Pending' || latestDeployment.state === 'Cancelling'),
+      )
 
       let status: PhaseStatus = 'pending'
-      if (hasSuccessfulDeploy) status = 'done'
-      else if (latestDeployment || canDeploy) status = 'current'
+      if (phaseCompleted) status = 'done'
+      else if (canDeploy || hasActiveDeployment) {
+        status = 'current'
+      }
 
-      return { phase, envIds, envNames, latestDeployment, canDeploy, status }
+      if (!phase.isOptionalPhase) {
+        previousBlockingPhasesCompleted = previousBlockingPhasesCompleted && phaseCompleted
+      }
+
+      return { phase, envIds, envNames, latestDeployment, deployableEnvIds, canDeploy, status, phaseCompleted }
     })
   }, [progression, phases, envMap])
 
@@ -741,19 +776,28 @@ const ReleaseDetail: React.FC = () => {
                 </tr>
               </tbody>
             ) : (
-              phaseRows.map(({ phase, envNames, latestDeployment, canDeploy, status }) => (
+              phaseRows.map(({ phase, envNames, latestDeployment, deployableEnvIds, canDeploy, status }) => (
                 <tbody key={phase.id} className="border-b border-slate-100 last:border-b-0">
                   <tr>
                     {/* Phase name + icon */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
-                        <span
-                          className="inline-block w-3 h-3 rounded-full flex-shrink-0 border-2"
-                          style={{
-                            borderColor: phaseStatusColor(status),
-                            backgroundColor: status === 'done' ? phaseStatusColor(status) : 'transparent',
-                          }}
-                        />
+                        {status === 'done' ? (
+                          <span
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-white flex-shrink-0"
+                            style={{ backgroundColor: phaseStatusColor(status) }}
+                          >
+                            <CheckOutlined style={{ fontSize: 9 }} />
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-block w-3 h-3 rounded-full flex-shrink-0 border-2"
+                            style={{
+                              borderColor: phaseStatusColor(status),
+                              backgroundColor: 'transparent',
+                            }}
+                          />
+                        )}
                         <span className="text-sm font-medium text-slate-800">
                           {phase.name}
                           {phase.isOptionalPhase && (
@@ -767,13 +811,13 @@ const ReleaseDetail: React.FC = () => {
                     <td className="px-5 py-3">
                       {latestDeployment ? (
                         <Link
-                          to={spaceId ? `/${spaceId}/tasks` : '/'}
+                          to={`${basePath}/releases/${encodeURIComponent(release.version)}/deployments/${latestDeployment.deploymentId}`}
                           className="inline-flex items-center rounded-md px-1 py-0.5 text-inherit hover:bg-slate-50 transition-colors"
                           aria-label={`View deployment task for ${phase.name}`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span
-                              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-white flex-shrink-0"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-[2px] text-white flex-shrink-0"
                               style={{ backgroundColor: stateColor(latestDeployment.state) }}
                             >
                               {renderTaskStatusIcon(latestDeployment.state)}
@@ -807,14 +851,12 @@ const ReleaseDetail: React.FC = () => {
                           type="button"
                           className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue text-squid-blue bg-white hover:bg-blue-50 transition-colors"
                           onClick={() => {
-                            const envId = phase.automaticDeploymentTargetIds[0]
-                              ?? phase.optionalDeploymentTargetIds[0]
-                            if (envId == null) return
-                            const query = buildEnvironmentIdsQuery([envId])
-                            navigate(`${deployCreatePath}?${query}`)
+                            if (deployableEnvIds.length === 0) return
+                            const query = buildEnvironmentIdsQuery(deployableEnvIds)
+                            navigate(query ? `${deployCreatePath}?${query}` : deployCreatePath)
                           }}
                         >
-                          {latestDeployment ? 'Redeploy...' : 'Deploy...'}
+                          {latestDeployment && deployableEnvIds.length === 1 ? 'Redeploy...' : 'Deploy...'}
                         </button>
                       )}
                     </td>

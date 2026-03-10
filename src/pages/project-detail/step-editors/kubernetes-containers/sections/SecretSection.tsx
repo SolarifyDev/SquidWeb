@@ -10,6 +10,7 @@ import type { ContainersEditorState } from '../types'
 interface SecretSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
+  showNamespaceSection?: boolean
 }
 
 function EditSecretYamlSubSection({
@@ -131,7 +132,7 @@ function EditSecretYamlSubSection({
   )
 }
 
-export function SecretSection({ state, updateField }: SecretSectionProps) {
+export function SecretSection({ state, updateField, showNamespaceSection = false }: SecretSectionProps) {
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
     const fields: (keyof ContainersEditorState)[] = ['namespace', 'secretName', 'secretValues']
     for (const field of fields) {
@@ -166,6 +167,19 @@ export function SecretSection({ state, updateField }: SecretSectionProps) {
           addLabel="Add secret item"
         />
       </CollapsibleSection>
+
+      {showNamespaceSection ? (
+        <CollapsibleSection
+          title="Namespace"
+          subtitle={<span>The Kubernetes context with be set with the namespace <strong>{state.namespace || '#{K8SNameSpace}'}</strong></span>}
+          defaultOpen={false}
+        >
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Namespace</label>
+            <Input value={state.namespace} onChange={(e) => updateField('namespace', e.target.value)} placeholder="default" />
+          </div>
+        </CollapsibleSection>
+      ) : null}
     </CollapsibleSection>
   )
 }

@@ -80,7 +80,7 @@ export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorPr
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <StepNameSection state={state} updateField={updateField} />
           <TargetTagsSection state={state} updateField={updateField} />
-          <IngressSection state={state} updateField={updateField} />
+          <IngressSection state={state} updateField={updateField} showNamespaceSection />
           <ConditionsSection state={state} updateField={updateField} />
         </div>
       </div>

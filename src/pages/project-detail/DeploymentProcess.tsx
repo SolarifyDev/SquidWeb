@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useBeforeUnload } from 'react-router-dom'
 import { Modal, Spin, message } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
 import { getProjects } from 'pages/apis/project'
@@ -237,129 +237,148 @@ const CATEGORY_GROUPS: CategoryGroup[] = [
 
 // ── Featured step templates ────────────────────────────────────────────────────
 
-interface FeaturedTemplate {
+interface StepTemplate {
   id: string
   title: string
   actionType: string
   bullets: string[]
+  categoryIds: string[]
+  featured?: boolean
 }
 
-const FEATURED_TEMPLATES: FeaturedTemplate[] = [
+const STEP_TEMPLATES: StepTemplate[] = [
   {
     id: 'k8s-containers',
     title: 'Configure and apply Kubernetes resources',
-
     actionType: 'Squid.KubernetesDeployContainers',
     bullets: [
       'Use the Squid UI to configure Kubernetes resources',
       'No YAML files required',
     ],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'k8s-ingress',
     title: 'Deploy Kubernetes Ingress',
     actionType: 'Squid.KubernetesDeployIngress',
     bullets: ['Deploy a standalone Ingress resource'],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'k8s-service',
     title: 'Deploy Kubernetes Service',
     actionType: 'Squid.KubernetesDeployService',
     bullets: ['Deploy a standalone Service resource'],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'k8s-configmap',
     title: 'Deploy Kubernetes ConfigMap',
     actionType: 'Squid.KubernetesDeployConfigMap',
     bullets: ['Deploy a standalone ConfigMap resource'],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'k8s-secret',
     title: 'Deploy Kubernetes Secret',
     actionType: 'Squid.KubernetesDeploySecret',
     bullets: ['Deploy a standalone Opaque Secret resource'],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'helm',
     title: 'Deploy a Helm Chart',
-
     actionType: 'Squid.HelmChartUpgrade',
     bullets: [
       'Source a Helm Chart from a Git repository or package',
       'Install or upgrade a Helm release on a Kubernetes cluster',
     ],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'k8s-yaml',
     title: 'Deploy Kubernetes YAML',
-
     actionType: 'Squid.KubernetesDeployRawYaml',
     bullets: [
       'Source YAML files from a Git repository or package',
       'Apply to your Kubernetes cluster',
     ],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'kustomize',
     title: 'Deploy with Kustomize',
-
     actionType: 'Squid.Kubernetes.Kustomize',
     bullets: [
       'Source YAML files from a Git repository or package',
       'Use Kustomize to customize YAML files',
       'Apply to your Kubernetes cluster',
     ],
+    categoryIds: ['kubernetes'],
+    featured: true,
   },
   {
     id: 'script',
     title: 'Run a Script',
-
     actionType: 'Squid.Script',
     bullets: ['Runs a PowerShell, Bash, C#, F#, or Python script.'],
+    categoryIds: ['script'],
   },
   {
     id: 'azure-script',
     title: 'Run an Azure Script',
-
     actionType: 'Squid.AzurePowerShell',
     bullets: ['Runs a custom script using an Azure subscription, with the Azure modules loaded by default.'],
+    categoryIds: ['script', 'azure'],
   },
   {
     id: 'aws-script',
     title: 'Run an AWS CLI Script',
-
     actionType: 'Squid.AwsRunScript',
     bullets: ['Runs a custom script with AWS credentials and the AWS CLI provided'],
+    categoryIds: ['script', 'aws'],
   },
   {
     id: 'iis',
     title: 'Deploy to IIS',
-
     actionType: 'Squid.IIS',
     bullets: ['Deploy the contents of a package to a Website, a Web Application or a Virtual Directory.'],
+    categoryIds: ['package', 'windows'],
   },
   {
     id: 'package',
     title: 'Deploy a Package',
-
     actionType: 'Squid.TentaclePackage',
     bullets: ['Deploy the contents of a package to one or more deployment targets.'],
+    categoryIds: ['package'],
   },
   {
     id: 'azure-app',
     title: 'Deploy an Azure App Service',
-
     actionType: 'Squid.AzureAppService',
     bullets: ['Deploy a package or container image to an Azure App Service (Azure Web App)'],
+    categoryIds: ['azure'],
   },
   {
     id: 'manual',
     title: 'Manual Intervention Required',
-
     actionType: 'Squid.Manual',
     bullets: ['Pauses deployment for human intervention, often used for approval workflow.'],
+    categoryIds: ['other'],
   },
 ]
+
+function stepTemplateTitle(actionType: string): string {
+  const template = STEP_TEMPLATES.find((item) => item.actionType === actionType)
+  return template?.title ?? actionSummary(actionType)
+}
 
 // ── Check icon ─────────────────────────────────────────────────────────────────
 
@@ -380,13 +399,23 @@ function AddStepPanel({ spaceId, onTemplateSelected }: { spaceId: string; onTemp
 
   const allCategories = CATEGORY_GROUPS.flatMap((g) => g.items)
   const selectedCategoryLabel = allCategories.find((c) => c.id === selectedCategory)?.label ?? 'Featured'
+  const categoryLabelMap = new Map(allCategories.map((c) => [c.id, c.label]))
 
-  const filtered = FEATURED_TEMPLATES.filter(
-    (t) =>
-      !search ||
-      t.title.toLowerCase().includes(search.toLowerCase()) ||
-      t.bullets.some((b) => b.toLowerCase().includes(search.toLowerCase()))
-  )
+  const filtered = STEP_TEMPLATES.filter((t) => {
+    const matchesCategory = selectedCategory === 'featured'
+      ? Boolean(t.featured)
+      : t.categoryIds.includes(selectedCategory)
+    if (!matchesCategory) return false
+
+    if (!search) return true
+    const keyword = search.toLowerCase()
+    const categoryText = t.categoryIds.map((id) => categoryLabelMap.get(id) ?? id).join(' ').toLowerCase()
+    return (
+      t.title.toLowerCase().includes(keyword) ||
+      t.bullets.some((b) => b.toLowerCase().includes(keyword)) ||
+      categoryText.includes(keyword)
+    )
+  })
 
   return (
     <div className="flex flex-col h-full">
@@ -448,7 +477,9 @@ function AddStepPanel({ spaceId, onTemplateSelected }: { spaceId: string; onTemp
         <div className="flex-1 overflow-y-auto">
           <div className="p-5">
             <div className="text-sm font-semibold text-slate-800 mb-0.5">{selectedCategoryLabel}</div>
-            <p className="text-xs text-slate-400 mb-4 m-0 mb-4">Try a featured step template or filter by category</p>
+            <p className="text-xs text-slate-400 mb-4 m-0 mb-4">
+              {selectedCategory === 'featured' ? 'Kubernetes featured step templates' : `Step templates in ${selectedCategoryLabel}`}
+            </p>
             <ol
               className="list-none m-0 p-0 gap-3"
               style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
@@ -495,6 +526,9 @@ function AddStepPanel({ spaceId, onTemplateSelected }: { spaceId: string; onTemp
                 </li>
               ))}
             </ol>
+            {filtered.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-400">No step templates found in this category.</div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -650,17 +684,29 @@ function DraftStepItem({
   actionType,
   stepName,
   spaceId,
+  selected,
+  onClick,
 }: {
   index: number
   total: number
   actionType: string
   stepName: string
   spaceId: string
+  selected: boolean
+  onClick: () => void
 }) {
-  const displayName = stepName.trim() || 'Configure and apply Kubernetes resources'
+  const displayName = stepName.trim() || stepTemplateTitle(actionType)
 
   return (
-    <div className="flex items-center border-l-[3px] border-l-blue-600 bg-blue-50">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => e.key === 'Enter' && onClick()}
+      className={`flex items-center cursor-pointer select-none outline-none transition-colors border-l-[3px] ${
+        selected ? 'bg-blue-50 border-l-blue-600' : 'bg-slate-50 border-l-slate-200 hover:bg-slate-100'
+      }`}
+    >
       <div className="flex-shrink-0 flex items-center py-2.5 pl-2 pr-2">
         <div className="rounded overflow-hidden bg-slate-100 flex-shrink-0" style={{ width: 32, height: 32 }}>
           <StepLogoImg actionType={actionType} spaceId={spaceId} name={displayName} />
@@ -777,6 +823,13 @@ const LINK_BTN =
 
 const ICON_BTN =
   'flex items-center justify-center w-8 h-8 rounded-full text-slate-500 hover:bg-slate-100 transition-colors'
+
+type EditorNavigationAction =
+  | { type: 'toOverview' }
+  | { type: 'showAddPanel' }
+  | { type: 'selectStep'; stepId: number; switchToEditor?: boolean }
+  | { type: 'startTemplate'; actionType: string }
+  | { type: 'editDraft' }
 
 // ── Process Overview ───────────────────────────────────────────────────────────
 
@@ -942,11 +995,21 @@ const Process: React.FC = () => {
   const [sidebarFilter, setSidebarFilter] = useState('')
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null)
   const [editingTemplate, setEditingTemplate] = useState<{ actionType: string; step: DeploymentStepDto | null } | null>(null)
+  const [draftTemplateActionType, setDraftTemplateActionType] = useState<string | null>(null)
   const [draftStepName, setDraftStepName] = useState('')
+  const [unsavedChanges, setUnsavedChanges] = useState(false)
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
+  const [pendingNavigation, setPendingNavigation] = useState<EditorNavigationAction | null>(null)
+  const [pendingRouteLeave, setPendingRouteLeave] = useState<(() => void) | null>(null)
   const [stepOverflowMenu, setStepOverflowMenu] = useState<{ stepId: number; top: number; left: number } | null>(null)
   const [processId, setProcessId] = useState<number>(0)
   const editorRef = useRef<StepEditorHandle>(null)
+  const draftEditorRef = useRef<StepEditorHandle>(null)
   const overflowMenuRef = useRef<HTMLDivElement>(null)
+  const pendingSaveNavigationRef = useRef<EditorNavigationAction | null>(null)
+  const pendingSaveRouteLeaveRef = useRef<(() => void) | null>(null)
+  const skipRouteGuardOnceRef = useRef(false)
+  const skipBeforeUnloadOnceRef = useRef(false)
 
   useEffect(() => {
     if (!projectName) return
@@ -1023,19 +1086,127 @@ const Process: React.FC = () => {
     }
   }, [stepOverflowMenu])
 
-  const handleStepSelect = (step: DeploymentStepDto, options?: { switchToEditor?: boolean }) => {
+  const hasUnsavedEditorChanges = Boolean(draftTemplateActionType) || (Boolean(editingTemplate) && unsavedChanges)
+
+  useBeforeUnload(
+    React.useCallback((event: BeforeUnloadEvent) => {
+      if (skipBeforeUnloadOnceRef.current) {
+        skipBeforeUnloadOnceRef.current = false
+        return
+      }
+      if (!hasUnsavedEditorChanges) return
+      event.preventDefault()
+      event.returnValue = ''
+    }, [hasUnsavedEditorChanges])
+  )
+
+  useEffect(() => {
+    if (!hasUnsavedEditorChanges) return
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (skipRouteGuardOnceRef.current) {
+        skipRouteGuardOnceRef.current = false
+        return
+      }
+      if (event.defaultPrevented) return
+      if (event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+      const target = event.target as HTMLElement | null
+      const anchor = target?.closest('a') as HTMLAnchorElement | null
+      if (!anchor) return
+      if (anchor.target && anchor.target !== '_self') return
+      if (anchor.hasAttribute('download')) return
+
+      const rawHref = anchor.getAttribute('href')
+      if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript:')) return
+
+      const current = window.location.href
+      const next = anchor.href
+      if (!next || next === current) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      setPendingNavigation(null)
+      setPendingRouteLeave(() => () => {
+        skipRouteGuardOnceRef.current = true
+        skipBeforeUnloadOnceRef.current = true
+        window.location.assign(next)
+      })
+      setUnsavedDialogOpen(true)
+    }
+
+    document.addEventListener('click', handleDocumentClick, true)
+    return () => {
+      document.removeEventListener('click', handleDocumentClick, true)
+    }
+  }, [hasUnsavedEditorChanges])
+
+  const executeEditorNavigation = (action: EditorNavigationAction) => {
+    if (action.type === 'toOverview') {
+      setMode('overview')
+      setSelectedStepId(null)
+      setEditingTemplate(null)
+      setDraftTemplateActionType(null)
+      setDraftStepName('')
+      setUnsavedChanges(false)
+      return
+    }
+
+    if (action.type === 'showAddPanel') {
+      setMode('editor')
+      setSelectedStepId(null)
+      setEditingTemplate(null)
+      setUnsavedChanges(false)
+      return
+    }
+
+    if (action.type === 'startTemplate') {
+      setMode('editor')
+      setSelectedStepId(null)
+      setDraftStepName('')
+      setDraftTemplateActionType(action.actionType)
+      setEditingTemplate({ actionType: action.actionType, step: null })
+      setUnsavedChanges(true)
+      return
+    }
+
+    if (action.type === 'editDraft') {
+      if (!draftTemplateActionType) return
+      setMode('editor')
+      setSelectedStepId(null)
+      setEditingTemplate({ actionType: draftTemplateActionType, step: null })
+      setUnsavedChanges(true)
+      return
+    }
+
+    const step = steps.find((item) => item.id === action.stepId)
+    if (!step) return
+
     setStepOverflowMenu(null)
-    if (options?.switchToEditor) {
+    if (action.switchToEditor) {
       setMode('editor')
     }
     setSelectedStepId(step.id)
-    setDraftStepName('')
+    setUnsavedChanges(false)
     const firstAction = step.actions[0]
     if (firstAction && STEP_EDITOR_MAP[firstAction.actionType]) {
       setEditingTemplate({ actionType: firstAction.actionType, step })
       return
     }
     setEditingTemplate(null)
+  }
+
+  const requestEditorNavigation = (action: EditorNavigationAction) => {
+    const shouldConfirmUnsaved = hasUnsavedEditorChanges && action.type === 'toOverview'
+
+    if (!shouldConfirmUnsaved) {
+      executeEditorNavigation(action)
+      return
+    }
+    setPendingNavigation(action)
+    setUnsavedDialogOpen(true)
   }
 
   const openStepOverflowMenu = (step: DeploymentStepDto, trigger: HTMLButtonElement) => {
@@ -1101,12 +1272,20 @@ const Process: React.FC = () => {
         lifecycle={lifecycle}
         envMap={envMap}
         onAddStep={() => setMode('editor')}
-        onStepClick={(step) => handleStepSelect(step, { switchToEditor: true })}
+        onStepClick={(step) => executeEditorNavigation({ type: 'selectStep', stepId: step.id, switchToEditor: true })}
       />
     )
   }
 
   // ── Editor mode ────────────────────────────────────────────────────────────
+  const draftDisplayName = draftTemplateActionType
+    ? (draftStepName.trim() || stepTemplateTitle(draftTemplateActionType))
+    : ''
+  const draftMatchesFilter = Boolean(draftTemplateActionType) && (
+    !sidebarFilter || draftDisplayName.toLowerCase().includes(sidebarFilter.toLowerCase())
+  )
+  const isDraftEditorActive = Boolean(editingTemplate && !editingTemplate.step)
+
   return (
     <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
       {/* Header */}
@@ -1117,7 +1296,7 @@ const Process: React.FC = () => {
             <ol className="flex items-center gap-1 list-none m-0 p-0">
               <li>
                 <button
-                  onClick={() => setMode('overview')}
+                  onClick={() => requestEditorNavigation({ type: 'toOverview' })}
                   className="text-sm text-squid-blue hover:underline font-medium"
                 >
                   Process
@@ -1135,7 +1314,7 @@ const Process: React.FC = () => {
             </a>
             <button
               title="Add Step"
-              onClick={() => { setSelectedStepId(null); setEditingTemplate(null) }}
+              onClick={() => requestEditorNavigation({ type: 'showAddPanel' })}
               className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue bg-squid-blue text-white hover:bg-blue-700 hover:border-blue-700 transition-colors"
             >
               Add Step
@@ -1143,7 +1322,10 @@ const Process: React.FC = () => {
             <button
               title="Save"
               disabled={!editingTemplate}
-              onClick={() => editorRef.current?.save()}
+              onClick={() => {
+                const activeEditor = isDraftEditorActive ? draftEditorRef.current : editorRef.current
+                activeEditor?.save()
+              }}
               className={`inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border transition-colors ${
                 editingTemplate
                   ? 'border-green-600 bg-green-600 text-white hover:bg-green-700 hover:border-green-700'
@@ -1198,20 +1380,22 @@ const Process: React.FC = () => {
                     total={0}
                     selected={selectedStepId === step.id}
                     spaceId={spaceId}
-                    onClick={() => handleStepSelect(step)}
+                    onClick={() => requestEditorNavigation({ type: 'selectStep', stepId: step.id })}
                     onMoreClick={openStepOverflowMenu}
                   />
                 ))}
-                {editingTemplate && !editingTemplate.step && (
+                {draftTemplateActionType && draftMatchesFilter && (
                   <DraftStepItem
                     index={filteredSteps.length}
                     total={0}
-                    actionType={editingTemplate.actionType}
+                    actionType={draftTemplateActionType}
                     stepName={draftStepName}
                     spaceId={spaceId}
+                    selected={isDraftEditorActive}
+                    onClick={() => requestEditorNavigation({ type: 'editDraft' })}
                   />
                 )}
-                {filteredSteps.length === 0 && !(editingTemplate && !editingTemplate.step) && (
+                {filteredSteps.length === 0 && !draftMatchesFilter && (
                   <div className="px-4 py-8 text-center text-sm text-slate-400">
                     {sidebarFilter ? 'No steps match filter' : 'No steps yet'}
                   </div>
@@ -1223,48 +1407,111 @@ const Process: React.FC = () => {
 
         {/* Right panel */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          {editingTemplate && STEP_EDITOR_MAP[editingTemplate.actionType] ? (() => {
-            const EditorComponent = STEP_EDITOR_MAP[editingTemplate.actionType]
-            const editorInstanceKey = `${editingTemplate.actionType}:${editingTemplate.step?.id ?? 'new'}`
+          {draftTemplateActionType && STEP_EDITOR_MAP[draftTemplateActionType] ? (() => {
+            const DraftEditorComponent = STEP_EDITOR_MAP[draftTemplateActionType]
+            const draftEditorKey = `draft:${draftTemplateActionType}`
             return (
-              <EditorComponent
-                key={editorInstanceKey}
-                ref={editorRef}
-                step={editingTemplate.step}
-                processId={processId}
+              <div className={isDraftEditorActive ? 'h-full' : 'hidden'} onChangeCapture={() => setUnsavedChanges(true)} onInputCapture={() => setUnsavedChanges(true)}>
+                <DraftEditorComponent
+                  key={draftEditorKey}
+                  ref={draftEditorRef}
+                  step={null}
+                  processId={processId}
+                  spaceId={spaceId}
+                  stepIndex={steps.length}
+                  onSave={(savedStep) => {
+                    setSteps((prev) => {
+                      const exists = prev.some((s) => s.id === savedStep.id)
+                      const next = exists
+                        ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
+                        : [...prev, savedStep]
+                      return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                    })
+                    setDraftTemplateActionType(null)
+                    setDraftStepName('')
+                    setEditingTemplate({ actionType: savedStep.actions[0]?.actionType ?? draftTemplateActionType, step: savedStep })
+                    setSelectedStepId(savedStep.id)
+                    setUnsavedChanges(false)
+
+                    if (pendingSaveRouteLeaveRef.current) {
+                      const continueRouteLeave = pendingSaveRouteLeaveRef.current
+                      pendingSaveRouteLeaveRef.current = null
+                      continueRouteLeave()
+                      setPendingRouteLeave(null)
+                      return
+                    }
+
+                    const pendingAfterSave = pendingSaveNavigationRef.current
+                    if (pendingAfterSave) {
+                      pendingSaveNavigationRef.current = null
+                      executeEditorNavigation(pendingAfterSave)
+                    }
+                  }}
+                  onStepNameChange={(name) => setDraftStepName(name)}
+                />
+              </div>
+            )
+          })() : null}
+
+          {editingTemplate && editingTemplate.step && STEP_EDITOR_MAP[editingTemplate.actionType] ? (() => {
+            const EditorComponent = STEP_EDITOR_MAP[editingTemplate.actionType]
+            const editorInstanceKey = `${editingTemplate.actionType}:${editingTemplate.step.id}`
+            return (
+              <div className={isDraftEditorActive ? 'hidden' : 'h-full'} onChangeCapture={() => setUnsavedChanges(true)} onInputCapture={() => setUnsavedChanges(true)}>
+                <EditorComponent
+                  key={editorInstanceKey}
+                  ref={editorRef}
+                  step={editingTemplate.step}
+                  processId={processId}
+                  spaceId={spaceId}
+                  stepIndex={steps.findIndex((s) => s.id === editingTemplate.step!.id)}
+                  onSave={(savedStep) => {
+                    setSteps((prev) => {
+                      const exists = prev.some((s) => s.id === savedStep.id)
+                      const next = exists
+                        ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
+                        : [...prev, savedStep]
+                      return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                    })
+                    setEditingTemplate((prev) => (
+                      prev
+                        ? { ...prev, step: savedStep, actionType: savedStep.actions[0]?.actionType ?? prev.actionType }
+                        : prev
+                    ))
+                    setSelectedStepId(savedStep.id)
+                    setUnsavedChanges(false)
+
+                    if (pendingSaveRouteLeaveRef.current) {
+                      const continueRouteLeave = pendingSaveRouteLeaveRef.current
+                      pendingSaveRouteLeaveRef.current = null
+                      continueRouteLeave()
+                      setPendingRouteLeave(null)
+                      return
+                    }
+
+                    const pendingAfterSave = pendingSaveNavigationRef.current
+                    if (pendingAfterSave) {
+                      pendingSaveNavigationRef.current = null
+                      executeEditorNavigation(pendingAfterSave)
+                    }
+                  }}
+                />
+              </div>
+            )
+          })() : null}
+
+          {!isDraftEditorActive && (!(editingTemplate && editingTemplate.step && STEP_EDITOR_MAP[editingTemplate.actionType])) ? (
+            selectedStep ? (
+              <StepDetailPanel step={selectedStep} spaceId={spaceId} />
+            ) : (
+              <AddStepPanel
                 spaceId={spaceId}
-                stepIndex={editingTemplate.step ? steps.findIndex((s) => s.id === editingTemplate.step!.id) : steps.length}
-                onSave={(savedStep) => {
-                  setSteps((prev) => {
-                    const exists = prev.some((s) => s.id === savedStep.id)
-                    const next = exists
-                      ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
-                      : [...prev, savedStep]
-                    return next.sort((a, b) => a.stepOrder - b.stepOrder)
-                  })
-                  setEditingTemplate((prev) => (
-                    prev
-                      ? { ...prev, step: savedStep, actionType: savedStep.actions[0]?.actionType ?? prev.actionType }
-                      : prev
-                  ))
-                  setDraftStepName(savedStep.name ?? '')
-                  setSelectedStepId(savedStep.id)
+                onTemplateSelected={(actionType) => {
+                  requestEditorNavigation({ type: 'startTemplate', actionType })
                 }}
-                onStepNameChange={(name) => setDraftStepName(name)}
               />
             )
-          })() : selectedStep ? (
-            <StepDetailPanel step={selectedStep} spaceId={spaceId} />
-          ) : (
-            <AddStepPanel
-              spaceId={spaceId}
-              onTemplateSelected={(actionType) => {
-                setSelectedStepId(null)
-                setDraftStepName('')
-                setEditingTemplate({ actionType, step: null })
-              }}
-            />
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -1322,6 +1569,119 @@ const Process: React.FC = () => {
           </button>
         </div>
       )}
+
+      <Modal
+        title="Unsaved Changes"
+        open={unsavedDialogOpen}
+        onCancel={() => {
+          setUnsavedDialogOpen(false)
+          setPendingNavigation(null)
+          setPendingRouteLeave(null)
+        }}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              title="Save changes"
+              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-green-600 bg-green-600 text-white hover:bg-green-700 hover:border-green-700 transition-colors"
+              onClick={async () => {
+                const preferredEditorForUnsaved = draftTemplateActionType
+                  ? draftEditorRef.current
+                  : (isDraftEditorActive ? draftEditorRef.current : editorRef.current)
+
+                if (pendingRouteLeave) {
+                  if (!preferredEditorForUnsaved) {
+                    const continueRouteLeave = pendingRouteLeave
+                    setPendingRouteLeave(null)
+                    setPendingNavigation(null)
+                    setUnsavedDialogOpen(false)
+                    setUnsavedChanges(false)
+                    continueRouteLeave()
+                    return
+                  }
+
+                  pendingSaveRouteLeaveRef.current = pendingRouteLeave
+                  setPendingRouteLeave(null)
+                  setPendingNavigation(null)
+                  setUnsavedDialogOpen(false)
+                  await preferredEditorForUnsaved.save()
+                  return
+                }
+
+                if (!pendingNavigation) {
+                  setUnsavedDialogOpen(false)
+                  return
+                }
+                if (!preferredEditorForUnsaved) {
+                  const nextAction = pendingNavigation
+                  setPendingNavigation(null)
+                  setUnsavedDialogOpen(false)
+                  setUnsavedChanges(false)
+                  executeEditorNavigation(nextAction)
+                  return
+                }
+
+                pendingSaveNavigationRef.current = pendingNavigation
+                setPendingNavigation(null)
+                setUnsavedDialogOpen(false)
+                await preferredEditorForUnsaved.save()
+
+                if (pendingSaveNavigationRef.current) {
+                  pendingSaveNavigationRef.current = null
+                }
+              }}
+            >
+              Save changes
+            </button>
+            <button
+              type="button"
+              title="Discard changes"
+              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+              onClick={() => {
+                if (pendingRouteLeave) {
+                  const continueRouteLeave = pendingRouteLeave
+                  setPendingRouteLeave(null)
+                  setPendingNavigation(null)
+                  setUnsavedDialogOpen(false)
+                  setUnsavedChanges(false)
+                  pendingSaveNavigationRef.current = null
+                  pendingSaveRouteLeaveRef.current = null
+                  continueRouteLeave()
+                  return
+                }
+
+                if (!pendingNavigation) {
+                  setUnsavedDialogOpen(false)
+                  return
+                }
+                const nextAction = pendingNavigation
+                setPendingNavigation(null)
+                setUnsavedDialogOpen(false)
+                setUnsavedChanges(false)
+                pendingSaveNavigationRef.current = null
+                pendingSaveRouteLeaveRef.current = null
+                executeEditorNavigation(nextAction)
+              }}
+            >
+              Discard changes
+            </button>
+            <button
+              type="button"
+              title="Cancel"
+              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+              onClick={() => {
+                setUnsavedDialogOpen(false)
+                setPendingNavigation(null)
+                setPendingRouteLeave(null)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        }
+      >
+        If you leave this page, any changes you have made will be lost. Are you sure you wish to leave this page?
+      </Modal>
     </div>
   )
 }
