@@ -13,7 +13,7 @@ const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localho
 const ACTION_TYPE = 'Squid.KubernetesDeployService'
 
 export const KubernetesServiceEditor = forwardRef<StepEditorHandle, StepEditorProps>(
-  function KubernetesServiceEditor({ step, processId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+  function KubernetesServiceEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
     const { state, updateField } = useContainersEditorState(step)
     const [saving, setSaving] = useState(false)
 
@@ -81,7 +81,7 @@ export const KubernetesServiceEditor = forwardRef<StepEditorHandle, StepEditorPr
           <StepNameSection state={state} updateField={updateField} />
           <TargetTagsSection state={state} updateField={updateField} />
           <ServiceSection state={state} updateField={updateField} showNamespaceSection />
-          <ConditionsSection state={state} updateField={updateField} />
+          <ConditionsSection state={state} updateField={updateField} projectId={projectId} />
         </div>
       </div>
     )

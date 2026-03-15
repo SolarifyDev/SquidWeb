@@ -13,7 +13,7 @@ const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localho
 const ACTION_TYPE = 'Squid.KubernetesDeployIngress'
 
 export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorProps>(
-  function KubernetesIngressEditor({ step, processId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+  function KubernetesIngressEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
     const { state, updateField } = useContainersEditorState(step)
     const [saving, setSaving] = useState(false)
 
@@ -81,7 +81,7 @@ export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorPr
           <StepNameSection state={state} updateField={updateField} />
           <TargetTagsSection state={state} updateField={updateField} />
           <IngressSection state={state} updateField={updateField} showNamespaceSection />
-          <ConditionsSection state={state} updateField={updateField} />
+          <ConditionsSection state={state} updateField={updateField} projectId={projectId} />
         </div>
       </div>
     )

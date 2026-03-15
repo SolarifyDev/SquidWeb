@@ -89,3 +89,42 @@ export interface GetReleaseVariableSnapshotResponseData {
 export async function getReleaseVariableSnapshot(releaseId: number) {
   return get<GetReleaseVariableSnapshotResponseData>(`/releases/${releaseId}/variable-snapshot`)
 }
+
+export type ReleaseLifecycleProgressionValue = 'Complete' | 'Current' | 'Pending'
+
+export interface ReleaseLifecycleProgressionDeploymentDto {
+  deploymentId: number
+  state: string
+  created: string
+  completedTime: string | null
+}
+
+export interface ReleaseLifecycleProgressionEnvironmentDto {
+  environmentId: number
+  environmentName: string
+  isAutomatic: boolean
+  canDeploy: boolean
+  deployment: ReleaseLifecycleProgressionDeploymentDto | null
+}
+
+export interface ReleaseLifecycleProgressionPhaseDto {
+  phaseId: number
+  phaseName: string
+  sortOrder: number
+  isComplete: boolean
+  isOptional: boolean
+  progress: ReleaseLifecycleProgressionValue
+  environments: ReleaseLifecycleProgressionEnvironmentDto[]
+}
+
+export interface ReleaseLifecycleProgressionDto {
+  releaseId: number
+  releaseVersion: string
+  lifecycleId: number
+  lifecycleName: string
+  phases: ReleaseLifecycleProgressionPhaseDto[]
+}
+
+export function getReleaseLifecycleProgression(releaseId: number) {
+  return get<ReleaseLifecycleProgressionDto>(`/releases/${releaseId}/progression`)
+}

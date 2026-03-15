@@ -74,6 +74,7 @@ interface StepCandidate {
 }
 
 type DeploymentTargetMode = 'AllApplicable' | 'IncludeSpecific' | 'ExcludeSpecific'
+type FailureMode = 'Off' | 'EnvironmentDefault' | 'On'
 
 // ── Expandable form card (matches ExpandableFormCard in add.tsx) ─────────────
 
@@ -192,8 +193,10 @@ const DeployCreate: React.FC = () => {
   const [envsExpanded, setEnvsExpanded] = useState(true)
   const [whenExpanded, setWhenExpanded] = useState(false)
   const [excludedStepsExpanded, setExcludedStepsExpanded] = useState(false)
+  const [failureModeExpanded, setFailureModeExpanded] = useState(false)
   const [previewExpanded, setPreviewExpanded] = useState(true)
   const [expandedPreviewRows, setExpandedPreviewRows] = useState<number[]>([])
+  const [failureMode, setFailureMode] = useState<FailureMode>('Off')
 
   const encodedProjectName = encodeURIComponent(projectName ?? '')
   const basePath = `/${spaceId}/projects/${encodedProjectName}`
@@ -440,6 +443,11 @@ const DeployCreate: React.FC = () => {
           .filter((id) => Number.isFinite(id) && id > 0)
         : []
       const environmentName = envMap.get(environmentId)?.name ?? `Environment ${environmentId}`
+      const useGuidedFailure = failureMode === 'On'
+        ? true
+        : failureMode === 'Off'
+          ? false
+          : undefined
 
       return {
         releaseId: release?.id ?? 0,
@@ -448,7 +456,7 @@ const DeployCreate: React.FC = () => {
         comments: '',
         forcePackageDownload: false,
         forcePackageRedeployment: false,
-        useGuidedFailure: false,
+        useGuidedFailure,
         queueTime,
         queueTimeExpiry,
         formValues: {},
@@ -459,6 +467,7 @@ const DeployCreate: React.FC = () => {
     },
     [
       release?.id,
+      failureMode,
       queueTime,
       queueTimeExpiry,
       deploymentTargetModeByEnvironment,
@@ -593,7 +602,7 @@ const DeployCreate: React.FC = () => {
           comments: '',
           forcePackageDownload: false,
           forcePackageRedeployment: false,
-          useGuidedFailure: false,
+          useGuidedFailure: payload.useGuidedFailure,
           formValues: {},
           queueTime: payload.queueTime,
           queueTimeExpiry: payload.queueTimeExpiry,
@@ -688,11 +697,20 @@ const DeployCreate: React.FC = () => {
   const excludedStepsSubtitle = excludedStepIds.length > 0
     ? `${excludedStepIds.length} step(s) excluded`
     : 'No steps excluded'
+  const failureModeSubtitle = failureMode === 'Off'
+    ? 'Do not use guided failure mode'
+    : failureMode === 'On'
+      ? 'Use guided failure mode'
+      : 'Use the default setting from the target environment'
   const hasPreviewSection = selectedEnvIds.length > 0
   const previewSubtitle = selectedEnvIds.length === 1
     ? '1 deployment will be created. Preview and customize it below.'
     : `${selectedEnvIds.length} deployments will be created. Preview and customize them below.`
-  const allFormCardsExpanded = envsExpanded && whenExpanded && excludedStepsExpanded && (!hasPreviewSection || previewExpanded)
+  const allFormCardsExpanded = envsExpanded
+    && whenExpanded
+    && excludedStepsExpanded
+    && failureModeExpanded
+    && (!hasPreviewSection || previewExpanded)
   const canDeploy = selectedEnvIds.length > 0 && validationPassed && !validationLoading && !deploying
   const togglePreviewRow = (envId: number) => {
     setExpandedPreviewRows((prev) =>
@@ -766,6 +784,7 @@ const DeployCreate: React.FC = () => {
                   setEnvsExpanded(next)
                   setWhenExpanded(next)
                   setExcludedStepsExpanded(next)
+                  setFailureModeExpanded(next)
                   setPreviewExpanded(next)
                 }}
               >
@@ -870,7 +889,7 @@ const DeployCreate: React.FC = () => {
           subtitle={!excludedStepsExpanded ? excludedStepsSubtitle : 'Select steps to exclude.'}
           expanded={excludedStepsExpanded}
           onToggle={() => setExcludedStepsExpanded((v) => !v)}
-          hasBorder={hasPreviewSection}
+          hasBorder
         >
           <div className="mb-3 flex items-center gap-3 flex-wrap">
             <div
@@ -934,7 +953,7 @@ const DeployCreate: React.FC = () => {
                     <span className="inline-flex items-center gap-2 text-sm">
                       <span className={isExcluded ? 'font-medium' : ''}>
                         <span className={isExcluded ? 'line-through decoration-slate-500' : ''}>
-                          {step.stepOrder + 1}. {step.name}
+                          {step.stepOrder}. {step.name}
                         </span>
                         {isExcluded && <span className="text-slate-500"> (excluded)</span>}
                       </span>
@@ -949,6 +968,43 @@ const DeployCreate: React.FC = () => {
             {filteredStepCandidates.length === 0 && (
               <div className="text-sm text-slate-500">No matching steps.</div>
             )}
+          </div>
+        </ExpandableFormCard>
+
+        {/* Failure mode */}
+        <ExpandableFormCard
+          title="Failure mode"
+          subtitle={!failureModeExpanded ? failureModeSubtitle : 'Choose what will happen when a deployment error occurs'}
+          expanded={failureModeExpanded}
+          onToggle={() => setFailureModeExpanded((v) => !v)}
+          hasBorder={hasPreviewSection}
+        >
+          <div className="space-y-3">
+            <Radio.Group
+              value={failureMode}
+              onChange={(e) => setFailureMode(e.target.value)}
+              className="flex flex-col gap-2"
+            >
+              <Radio value="Off">
+                <span className="text-sm">
+                  Do not use guided failure mode <span className="text-slate-400">(default)</span>
+                </span>
+              </Radio>
+              <Radio value="EnvironmentDefault">
+                <span className="text-sm">
+                  Use the default setting from the target environment
+                </span>
+              </Radio>
+              <Radio value="On">
+                <span className="text-sm">Use guided failure mode</span>
+              </Radio>
+            </Radio.Group>
+
+            <div className="text-sm text-slate-500">
+              When guided failure mode is enabled, if an error is encountered during deployment,
+              Squid will pause and allow you to correct the error before proceeding. Otherwise,
+              any errors encountered will cause the deployment to fail.
+            </div>
           </div>
         </ExpandableFormCard>
         </div>
@@ -1203,7 +1259,7 @@ const DeployCreate: React.FC = () => {
                                           <div key={`preview-step-${envId}-${step.stepId}`} className="border border-gray-200 px-3 py-2">
                                             <div className="flex items-center justify-between gap-3">
                                               <div className="text-sm text-slate-700">
-                                                {step.stepOrder + 1}. {step.stepName}
+                                                {step.stepOrder}. {step.stepName}
                                               </div>
                                               <div className={`text-xs font-medium ${stepStatusClass}`}>
                                                 {stepStatusText}

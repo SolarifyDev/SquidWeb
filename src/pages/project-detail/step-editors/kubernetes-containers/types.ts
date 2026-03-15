@@ -214,7 +214,14 @@ export interface ContainersEditorState {
 
   // Conditions
   condition: string
+  conditionExpression: string
   startTrigger: string
+  environmentMode: 'all' | 'include' | 'exclude'
+  environmentIds: number[]
+  channelIds: number[]
+  packageRequirement: string
+  isRequired: boolean
+  isDisabled: boolean
 }
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -312,6 +319,13 @@ export function defaultEditorState(): ContainersEditorState {
     sysctls: [],
     dnsConfigOptions: [],
     condition: 'Success',
+    conditionExpression: '',
     startTrigger: 'StartAfterPrevious',
+    environmentMode: 'all',
+    environmentIds: [],
+    channelIds: [],
+    packageRequirement: 'LetSquidDecide',
+    isRequired: false,
+    isDisabled: false,
   }
 }

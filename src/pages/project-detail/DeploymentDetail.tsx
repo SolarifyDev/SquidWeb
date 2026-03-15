@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Button, Dropdown, Select, Spin, message, type MenuProps } from 'antd'
+import { Button, Dropdown, Input, Select, Spin, message, type MenuProps } from 'antd'
 import {
   CheckOutlined,
   CloseOutlined,
   DownOutlined,
   DownloadOutlined,
+  ExclamationCircleFilled,
   LoadingOutlined,
   MoreOutlined,
   SettingOutlined,
@@ -17,14 +18,21 @@ import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getReleases, type ReleaseDto } from 'pages/apis/release'
 import {
+  cancelServerTask,
   getServerTaskDetails,
+  getServerTaskInterruptions,
+  submitInterruption,
+  takeInterruptionResponsibility,
   type DeploymentActivityLogNodeStatusValue,
   type DeploymentActivityLogNodeTypeValue,
+  type InterruptionDto,
+  InterruptionType,
   type ServerTaskActivityNodeDto,
   type ServerTaskDetailsDto,
   type ServerTaskLogCategoryValue,
   type ServerTaskLogElementDto,
 } from 'pages/apis/serverTask'
+import { getAuthUser } from 'utils/auth'
 
 type ActiveTabKey = 'taskSummary' | 'taskLog'
 type NormalizedNodeStatus = 'Pending' | 'Running' | 'Success' | 'Failed' | 'Unknown'
@@ -99,7 +107,58 @@ function getNodeDurationSeconds(node: ServerTaskActivityNodeDto): number | null 
 }
 
 function isTaskActive(state: string | null | undefined): boolean {
-  return state === 'Pending' || state === 'Executing' || state === 'Cancelling'
+  return state === 'Pending'
+    || state === 'Executing'
+    || state === 'Cancelling'
+    || state === 'Paused'
+    || state === 'Suspended'
+}
+
+function hasTaskPendingInterruptions(task: ServerTaskDetailsDto['task'] | null | undefined): boolean {
+  if (!task) return false
+  return Boolean(task.hasPendingInterruptions ?? task.HasPendingInterruptions)
+}
+
+function interruptionTypeLabel(type: InterruptionType): string {
+  if (type === InterruptionType.GuidedFailure) return 'Guided Failure'
+  if (type === InterruptionType.ManualIntervention) return 'Manual Intervention'
+  return 'Interruption'
+}
+
+function interruptionTitle(interruption: InterruptionDto | null | undefined): string {
+  if (!interruption) return 'Interruption'
+
+  const firstParagraph = (interruption.form?.elements ?? [])
+    .find((element) => element.control.type === 'Paragraph')
+
+  const paragraphText = firstParagraph?.control.type === 'Paragraph'
+    ? firstParagraph.control.text?.trim() ?? ''
+    : ''
+
+  const actionName = interruption.actionName?.trim() ?? ''
+  const stepName = interruption.stepName?.trim() ?? ''
+  return paragraphText || actionName || stepName || 'Interruption'
+}
+
+function toInterruptionErrorMessage(error: any): string {
+  const rawMessage = String(error?.message ?? '').trim()
+  if (!rawMessage) return 'Failed to load pending interruptions.'
+
+  const lower = rawMessage.toLowerCase()
+  if (lower.includes('metadata property') && lower.includes('control.type')) {
+    return 'Interruption form payload cannot be parsed by the server (JSON polymorphic metadata order issue).'
+  }
+
+  return rawMessage
+}
+
+function uniquePendingInterruptions(items: InterruptionDto[]): InterruptionDto[] {
+  const map = new Map<number, InterruptionDto>()
+  for (const item of items) {
+    if (!item.isPending) continue
+    if (!map.has(item.id)) map.set(item.id, item)
+  }
+  return Array.from(map.values())
 }
 
 function deploymentStateLabel(state: string | null | undefined): string {
@@ -108,6 +167,10 @@ function deploymentStateLabel(state: string | null | undefined): string {
       return 'Pending'
     case 'Executing':
       return 'Executing'
+    case 'Paused':
+      return 'Paused'
+    case 'Suspended':
+      return 'Suspended'
     case 'Success':
       return 'Success'
     case 'Failed':
@@ -129,6 +192,9 @@ function deploymentStateColors(state: string | null | undefined) {
       return { bg: '#00874d', text: 'text-emerald-700' }
     case 'Executing':
       return { bg: '#1a77ca', text: 'text-blue-700' }
+    case 'Paused':
+    case 'Suspended':
+      return { bg: '#f59e0b', text: 'text-amber-700' }
     case 'Pending':
       return { bg: '#757575', text: 'text-slate-600' }
     case 'Cancelling':
@@ -162,6 +228,14 @@ function renderDeploymentStateIcon(state: string | null | undefined) {
     )
   }
 
+  if (state === 'Paused' || state === 'Suspended') {
+    return (
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white" style={{ backgroundColor: tone.bg }}>
+        <ExclamationCircleFilled style={{ fontSize: 12 }} />
+      </span>
+    )
+  }
+
   return (
     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white" style={{ backgroundColor: tone.bg }}>
       <CloseOutlined style={{ fontSize: 11 }} />
@@ -182,6 +256,21 @@ function normalizeNodeStatus(value: DeploymentActivityLogNodeStatusValue): Norma
 
   if (value === 'Pending' || value === 'Running' || value === 'Success' || value === 'Failed') return value
   return 'Unknown'
+}
+
+function finalizeNodeStatusForCompletedTask(
+  nodeStatus: NormalizedNodeStatus,
+  taskState: string | null | undefined,
+): NormalizedNodeStatus {
+  if (isTaskActive(taskState)) return nodeStatus
+  if (nodeStatus !== 'Running' && nodeStatus !== 'Pending') return nodeStatus
+
+  if (taskState === 'Success') return 'Success'
+  if (taskState === 'Failed' || taskState === 'TimedOut' || taskState === 'Cancelled' || taskState === 'Cancelling') {
+    return 'Failed'
+  }
+
+  return nodeStatus
 }
 
 function normalizeNodeType(value: DeploymentActivityLogNodeTypeValue): NormalizedNodeType {
@@ -363,13 +452,75 @@ const DeploymentDetail: React.FC = () => {
   const [taskDetails, setTaskDetails] = useState<ServerTaskDetailsDto | null>(null)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
   const [expandedNodeIds, setExpandedNodeIds] = useState<number[]>([])
+  const [interruptionsLoading, setInterruptionsLoading] = useState(false)
+  const [interruptions, setInterruptions] = useState<InterruptionDto[]>([])
+  const [interruptionDraftValues, setInterruptionDraftValues] = useState<Record<number, Record<string, string>>>({})
+  const [interruptionLoadError, setInterruptionLoadError] = useState<string | null>(null)
+  const [interruptionDetailsVisible, setInterruptionDetailsVisible] = useState(false)
+  const [responsibilityLoadingId, setResponsibilityLoadingId] = useState<number | null>(null)
+  const [submittingInterruptionId, setSubmittingInterruptionId] = useState<number | null>(null)
+  const [locallyClaimedInterruptionIds, setLocallyClaimedInterruptionIds] = useState<number[]>([])
+  const [cancellingTask, setCancellingTask] = useState(false)
+
+  const authUser = useMemo(() => getAuthUser(), [])
+  const currentUserIdentifier = useMemo(() => {
+    if (!authUser) return null
+    if (authUser.id != null) return String(authUser.id)
+    if (authUser.userName) return authUser.userName
+    if (authUser.displayName) return authUser.displayName
+    return null
+  }, [authUser])
+  const currentUserCandidates = useMemo(() => {
+    const values = [authUser?.id != null ? String(authUser.id) : null, authUser?.userName ?? null, authUser?.displayName ?? null]
+      .filter((value): value is string => Boolean(value && value.trim()))
+      .map((value) => value.trim().toLowerCase())
+    return new Set(values)
+  }, [authUser])
 
   const envMap = useMemo(() => new Map(environments.map((item) => [item.id, item])), [environments])
 
   const taskSummary = taskDetails?.task ?? null
   const taskState = taskSummary?.state ?? null
+  const taskHasPendingInterruptions = hasTaskPendingInterruptions(taskSummary)
+  const taskMayBeWaitingInterruption = taskState === 'Paused' || taskState === 'Suspended'
   const taskId = deployment?.taskId ?? taskSummary?.id ?? locationState?.taskId ?? null
   const environmentId = deployment?.environmentId ?? locationState?.environmentId ?? null
+  const pendingInterruptions = useMemo(() => uniquePendingInterruptions(interruptions), [interruptions])
+  const hasPendingInterruptionsByList = pendingInterruptions.length > 0
+  const shouldShowInterruptionPanel = taskHasPendingInterruptions || hasPendingInterruptionsByList || taskMayBeWaitingInterruption
+  const activeInterruption = pendingInterruptions.length > 0 ? pendingInterruptions[0] : null
+  const activeInterruptionAssignedUserId = activeInterruption?.responsibleUserId ?? null
+  const activeInterruptionAssignedToCurrentUser = useMemo(() => {
+    if (activeInterruptionAssignedUserId == null) return false
+    return currentUserCandidates.has(String(activeInterruptionAssignedUserId).trim().toLowerCase())
+  }, [activeInterruptionAssignedUserId, currentUserCandidates])
+  const activeInterruptionClaimedLocally = Boolean(
+    activeInterruption != null && locallyClaimedInterruptionIds.includes(activeInterruption.id),
+  )
+  const activeInterruptionClaimedByCurrentUser = Boolean(
+    activeInterruptionAssignedToCurrentUser || activeInterruptionClaimedLocally,
+  )
+  const activeInterruptionClaimedByOtherUser = Boolean(
+    activeInterruptionAssignedUserId != null && !activeInterruptionClaimedByCurrentUser,
+  )
+  const activeInterruptionRequiresAssignment = Boolean(
+    activeInterruption != null && activeInterruptionAssignedUserId == null,
+  )
+  const activeInterruptionTitle = interruptionTitle(activeInterruption)
+  const showCancelButton = taskId != null && (
+    taskState === 'Pending'
+    || taskState === 'Executing'
+    || taskState === 'Paused'
+    || taskState === 'Suspended'
+    || taskState === 'Cancelling'
+  )
+  const canCancelTask = taskId != null && (
+    taskState === 'Pending'
+    || taskState === 'Executing'
+    || taskState === 'Paused'
+    || taskState === 'Suspended'
+  )
+  const cancelInProgress = cancellingTask || taskState === 'Cancelling'
 
   const environmentName = environmentId != null ? envMap.get(environmentId)?.name ?? `Environment ${environmentId}` : '—'
   const releaseVersion = release?.version ?? decodedVersion
@@ -532,7 +683,7 @@ const DeploymentDetail: React.FC = () => {
   }, [taskId, verbose, tail])
 
   useEffect(() => {
-    if (taskId == null || !isTaskActive(taskState)) return
+    if (taskId == null || !isTaskActive(taskState) || taskHasPendingInterruptions) return
 
     let cancelled = false
 
@@ -550,7 +701,52 @@ const DeploymentDetail: React.FC = () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [taskId, taskState, verbose, tail])
+  }, [taskId, taskState, taskHasPendingInterruptions, verbose, tail])
+
+  useEffect(() => {
+    const shouldLoadInterruptions = taskHasPendingInterruptions || taskMayBeWaitingInterruption
+    if (taskId == null || !shouldLoadInterruptions) {
+      setInterruptions([])
+      setInterruptionsLoading(false)
+      setInterruptionLoadError(null)
+      return
+    }
+
+    let cancelled = false
+    setInterruptionsLoading(true)
+    setInterruptionLoadError(null)
+
+    getServerTaskInterruptions(taskId)
+      .then((response) => {
+        if (cancelled) return
+        const pending = uniquePendingInterruptions(response.interruptions ?? [])
+        setInterruptions(pending)
+        setInterruptionDraftValues((prev) => {
+          const next: Record<number, Record<string, string>> = { ...prev }
+          for (const item of pending) {
+            next[item.id] = {
+              ...(item.form?.values ?? {}),
+              ...(prev[item.id] ?? {}),
+            }
+          }
+          return next
+        })
+      })
+      .catch((error: any) => {
+        if (!cancelled) {
+          const errorMessage = toInterruptionErrorMessage(error)
+          setInterruptionLoadError(errorMessage)
+          message.error(errorMessage)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInterruptionsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [taskId, taskState, taskHasPendingInterruptions, taskMayBeWaitingInterruption])
 
   useEffect(() => {
     setExpandedNodeIds((prev) => {
@@ -559,6 +755,23 @@ const DeploymentDetail: React.FC = () => {
       return prev.filter((id) => allNodeIds.includes(id))
     })
   }, [allNodeIds])
+
+  useEffect(() => {
+    if (!shouldShowInterruptionPanel) {
+      setInterruptionDetailsVisible(false)
+    }
+  }, [shouldShowInterruptionPanel])
+
+  useEffect(() => {
+    if (!shouldShowInterruptionPanel || activeInterruption == null) return
+    if (activeInterruptionClaimedByCurrentUser) {
+      setInterruptionDetailsVisible(true)
+    }
+  }, [
+    shouldShowInterruptionPanel,
+    activeInterruption?.id,
+    activeInterruptionClaimedByCurrentUser,
+  ])
 
   const toggleNode = (nodeId: number, expandable: boolean) => {
     if (!expandable) return
@@ -619,6 +832,124 @@ const DeploymentDetail: React.FC = () => {
     }
   }
 
+  const updateInterruptionDraftValue = (interruptionId: number, fieldName: string, value: string) => {
+    setInterruptionDraftValues((prev) => ({
+      ...prev,
+      [interruptionId]: {
+        ...(prev[interruptionId] ?? {}),
+        [fieldName]: value,
+      },
+    }))
+  }
+
+  const reloadInterruptions = async (targetTaskId: number) => {
+    try {
+      setInterruptionsLoading(true)
+      setInterruptionLoadError(null)
+      const response = await getServerTaskInterruptions(targetTaskId)
+      const pending = uniquePendingInterruptions(response.interruptions ?? [])
+      setInterruptions(pending)
+      setLocallyClaimedInterruptionIds((prev) => {
+        if (prev.length === 0) return prev
+        const allowed = new Set(
+          pending
+            .filter((item) => {
+              if (item.responsibleUserId == null) return true
+              return currentUserCandidates.has(String(item.responsibleUserId).trim().toLowerCase())
+            })
+            .map((item) => item.id),
+        )
+        return prev.filter((id) => allowed.has(id))
+      })
+      setInterruptionDraftValues((prev) => {
+        const next: Record<number, Record<string, string>> = { ...prev }
+        for (const item of pending) {
+          next[item.id] = {
+            ...(item.form?.values ?? {}),
+            ...(prev[item.id] ?? {}),
+          }
+        }
+        return next
+      })
+      return pending
+    } catch (error: any) {
+      const errorMessage = toInterruptionErrorMessage(error)
+      setInterruptionLoadError(errorMessage)
+      message.error(errorMessage)
+      throw error
+    } finally {
+      setInterruptionsLoading(false)
+    }
+  }
+
+  const handleTakeResponsibility = async (interruptionId: number) => {
+    if (taskId == null) return
+    if (!currentUserIdentifier) {
+      message.warning('Current user is unavailable, unable to take responsibility.')
+      return
+    }
+
+    setResponsibilityLoadingId(interruptionId)
+    try {
+      await takeInterruptionResponsibility(interruptionId, { userId: currentUserIdentifier })
+      setLocallyClaimedInterruptionIds((prev) => prev.includes(interruptionId) ? prev : [...prev, interruptionId])
+      await reloadInterruptions(taskId)
+      setInterruptionDetailsVisible(true)
+      message.success('Responsibility updated.')
+    } catch (error: any) {
+      message.error(error?.message || 'Failed to take responsibility.')
+    } finally {
+      setResponsibilityLoadingId(null)
+    }
+  }
+
+  const handleSubmitInterruption = async (interruption: InterruptionDto, result: string) => {
+    if (taskId == null) return
+
+    setSubmittingInterruptionId(interruption.id)
+    try {
+      const draftValues = interruptionDraftValues[interruption.id] ?? {}
+      const values = {
+        ...(interruption.form?.values ?? {}),
+        ...draftValues,
+        Result: result,
+      }
+
+      await submitInterruption(interruption.id, { values })
+
+      const details = await getServerTaskDetails(taskId, { verbose, tail })
+      setTaskDetails(details)
+
+      if (hasTaskPendingInterruptions(details.task)) {
+        await reloadInterruptions(taskId)
+      } else {
+        setInterruptions([])
+      }
+
+      message.success('Interruption submitted, task resumed.')
+    } catch (error: any) {
+      message.error(error?.message || 'Failed to submit interruption.')
+    } finally {
+      setSubmittingInterruptionId(null)
+    }
+  }
+
+  const handleCancelTask = async () => {
+    if (taskId == null || !canCancelTask || cancelInProgress) return
+
+    setCancellingTask(true)
+    try {
+      await cancelServerTask(taskId)
+      message.success('Cancellation requested.')
+      const details = await getServerTaskDetails(taskId, { verbose, tail }).catch(() => null)
+      if (details) setTaskDetails(details)
+    } catch (error: any) {
+      message.error(error?.message || 'Failed to cancel deployment task.')
+    } finally {
+      setCancellingTask(false)
+    }
+  }
+
   const renderLogLine = (nodeId: number, log: ServerTaskLogElementDto, index: number, depth: number) => {
     const category = normalizeLogCategory(log.category)
 
@@ -638,7 +969,7 @@ const DeploymentDetail: React.FC = () => {
     const logs = [...(node.logElements ?? [])].sort((a, b) => a.sequenceNumber - b.sequenceNumber)
     const expandable = children.length > 0 || logs.length > 0
     const expanded = expandedNodeIds.includes(node.id)
-    const status = normalizeNodeStatus(node.status)
+    const status = finalizeNodeStatusForCompletedTask(normalizeNodeStatus(node.status), taskState)
     const nodeType = normalizeNodeType(node.nodeType)
     const displayName = getNodeDisplayName(node)
     const nodeDurationSeconds = getNodeDurationSeconds(node)
@@ -737,7 +1068,18 @@ const DeploymentDetail: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 mr-2">
             <Button type="default" onClick={() => setActiveTab('taskSummary')}>Timeline</Button>
-            {nextLifecycleDeployHref ? (
+            {showCancelButton ? (
+              <Button
+                type="primary"
+                danger
+                onClick={handleCancelTask}
+                loading={cancelInProgress}
+                disabled={cancelInProgress}
+                className="!shadow-none"
+              >
+                {cancelInProgress ? 'Cancelling...' : 'Cancel'}
+              </Button>
+            ) : nextLifecycleDeployHref ? (
               <Link to={nextLifecycleDeployHref}>
                 <Button type="primary" className="!bg-green-700 hover:!bg-green-800 !border-green-700">
                   {nextLifecycleDeployLabel}
@@ -765,7 +1107,16 @@ const DeploymentDetail: React.FC = () => {
             className={`px-4 py-2 text-sm border-b-2 ${activeTab === 'taskSummary' ? 'border-squid-blue text-squid-blue font-medium' : 'border-transparent text-slate-600'}`}
             onClick={() => setActiveTab('taskSummary')}
           >
-            Task Summary
+            <span className="inline-flex items-center gap-1.5">
+              <span>Task Summary</span>
+              {shouldShowInterruptionPanel ? (
+                <span className="inline-flex text-amber-500" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor">
+                    <path d="M10 2.5L1.5 17h17L10 2.5zM10 6.8c.5 0 .9.4.9.9v4.1a.9.9 0 11-1.8 0V7.7c0-.5.4-.9.9-.9zm0 8.2a1.1 1.1 0 100 2.2 1.1 1.1 0 000-2.2z" />
+                  </svg>
+                </span>
+              ) : null}
+            </span>
           </button>
           <button
             type="button"
@@ -779,6 +1130,155 @@ const DeploymentDetail: React.FC = () => {
 
       {activeTab === 'taskSummary' ? (
         <div className="px-6 py-5 space-y-4">
+          {shouldShowInterruptionPanel ? (
+            <section className="rounded border border-amber-300 bg-amber-50 px-4 py-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-200 text-amber-800">
+                  <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden="true">
+                    <path d="M10 2.5L1.5 17h17L10 2.5zM10 6.8c.5 0 .9.4.9.9v4.1a.9.9 0 11-1.8 0V7.7c0-.5.4-.9.9-.9zm0 8.2a1.1 1.1 0 100 2.2 1.1 1.1 0 000-2.2z" />
+                  </svg>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-amber-900">{activeInterruptionTitle}</div>
+                  <div className="mt-1 text-sm text-amber-800">
+                    {activeInterruptionRequiresAssignment
+                      ? 'This task is waiting for manual intervention and must be assigned before proceeding.'
+                      : 'This task is waiting for manual intervention.'}
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm text-amber-900">
+                      Assigned to:{' '}
+                      {activeInterruptionAssignedUserId == null ? (
+                        <strong><em>no one</em></strong>
+                      ) : (
+                        <strong>{activeInterruptionClaimedByCurrentUser ? 'you' : activeInterruptionAssignedUserId}</strong>
+                      )}
+                    </div>
+                    {activeInterruptionRequiresAssignment && activeInterruption ? (
+                      <Button
+                        size="small"
+                        type="primary"
+                        loading={responsibilityLoadingId === activeInterruption.id}
+                        disabled={!currentUserIdentifier}
+                        onClick={() => handleTakeResponsibility(activeInterruption.id)}
+                      >
+                        Assign to me
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="text-sm text-squid-blue hover:underline"
+                      onClick={() => setInterruptionDetailsVisible((prev) => !prev)}
+                    >
+                      {interruptionDetailsVisible ? 'Hide details' : 'Show details'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-sm text-squid-blue hover:underline"
+                      onClick={() => setActiveTab('taskLog')}
+                    >
+                      View log
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {interruptionDetailsVisible ? (
+                interruptionsLoading ? (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-amber-800">
+                    <Spin size="small" />
+                    <span>Loading interruptions...</span>
+                  </div>
+                ) : interruptionLoadError ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-amber-800">
+                    <span>{interruptionLoadError}</span>
+                    {taskId != null ? (
+                      <Button size="small" onClick={() => void reloadInterruptions(taskId)}>
+                        Retry
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : activeInterruption == null ? (
+                  <div className="mt-3 text-sm text-amber-800">No pending interruption details are available yet.</div>
+                ) : !activeInterruptionClaimedByCurrentUser ? (
+                  <div className="mt-3 text-sm text-amber-800">
+                    {activeInterruptionRequiresAssignment
+                      ? 'Assign this interruption to yourself to continue.'
+                      : activeInterruptionClaimedByOtherUser
+                        ? `This interruption is currently handled by ${activeInterruptionAssignedUserId}.`
+                        : 'You do not have permission to submit this interruption.'}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded border border-slate-200 bg-white px-4 py-3">
+                    <div className="text-sm font-semibold text-slate-900">
+                      {interruptionTypeLabel(activeInterruption.interruptionType)}
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      {(activeInterruption.form?.elements ?? []).map((element) => {
+                        const control = element.control
+                        const key = `${activeInterruption.id}-${element.name}`
+                        const draftValues = interruptionDraftValues[activeInterruption.id] ?? {}
+                        const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionClaimedByCurrentUser
+
+                        if (control.type === 'Paragraph') {
+                          return (
+                            <div key={key} className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 whitespace-pre-wrap">
+                              {control.text}
+                            </div>
+                          )
+                        }
+
+                        if (control.type === 'TextArea') {
+                          return (
+                            <div key={key}>
+                              <div className="mb-1 text-xs font-medium text-slate-600">{control.label || element.name}</div>
+                              <Input.TextArea
+                                autoSize={{ minRows: 1, maxRows: 6 }}
+                                value={draftValues[element.name] ?? ''}
+                                onChange={(event) => updateInterruptionDraftValue(activeInterruption.id, element.name, event.target.value)}
+                              />
+                            </div>
+                          )
+                        }
+
+                        if (control.type === 'SubmitButtonGroup') {
+                          return (
+                            <div key={key} className="flex flex-wrap items-center gap-2">
+                              {control.buttons.map((buttonLabel) => (
+                                <Button
+                                  key={`${key}-${buttonLabel}`}
+                                  size="small"
+                                  type={buttonLabel === 'Abort' ? 'default' : 'primary'}
+                                  danger={buttonLabel === 'Abort'}
+                                  disabled={submitDisabled}
+                                  loading={submittingInterruptionId === activeInterruption.id}
+                                  onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
+                                >
+                                  {buttonLabel}
+                                </Button>
+                              ))}
+                            </div>
+                          )
+                        }
+
+                        return (
+                          <div key={key} className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                            Unsupported control payload for "{element.name}". Please verify backend JSON polymorphic serialization.
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              ) : null}
+            </section>
+          ) : null}
+
           <section className="bg-white">
             <div className="px-1 py-2 text-sm text-slate-600">
               Started <span className="font-medium text-slate-700">{formatRelative(startedAt)}</span> and ran for <span className="font-medium text-slate-700">{formatDuration(taskSummary?.durationSeconds)}</span>
@@ -788,7 +1288,7 @@ const DeploymentDetail: React.FC = () => {
                 <div className="px-2 py-2 text-sm text-slate-500">No activity summary available.</div>
               ) : (
                 summaryNodes.map((node) => {
-                  const status = normalizeNodeStatus(node.status)
+                  const status = finalizeNodeStatusForCompletedTask(normalizeNodeStatus(node.status), taskState)
                   const displayName = getNodeDisplayName(node)
 
                   return (

@@ -98,7 +98,7 @@ export function getActionProperty(
 }
 
 export function getTargetRoles(step: DeploymentStepDto): string[] {
-  const value = getStepProperty(step, 'Squid.Action.TargetRoles')
+  const value = getStepProperty(step, 'Squid.Action.TargetRoles') ?? getStepProperty(step, 'TargetRoles')
   return value
     ? value
         .split(',')
@@ -135,6 +135,16 @@ export interface DeleteDeploymentStepResponseData {
   failIds: number[]
 }
 
+export interface StepOrderItem {
+  stepId: number
+  stepOrder: number
+}
+
+export interface ReorderDeploymentStepsCommand {
+  processId: number
+  stepOrders: StepOrderItem[]
+}
+
 // --- API functions ---
 
 export function getDeploymentProcess(id: number) {
@@ -155,6 +165,10 @@ export function createDeploymentStep(command: CreateDeploymentStepCommand) {
 
 export function updateDeploymentStep(command: UpdateDeploymentStepCommand) {
   return post<DeploymentStepDto>('/deployment-steps/update', command)
+}
+
+export function reorderDeploymentSteps(command: ReorderDeploymentStepsCommand) {
+  return post<DeploymentStepDto[]>('/deployment-steps/reorder', command)
 }
 
 export function deleteDeploymentSteps(ids: number[]) {

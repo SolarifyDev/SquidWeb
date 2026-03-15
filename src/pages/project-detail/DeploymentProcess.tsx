@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useBeforeUnload } from 'react-router-dom'
-import { Modal, Spin, message } from 'antd'
+import { useParams, useBeforeUnload, useLocation, useNavigate } from 'react-router-dom'
+import { Dropdown, Modal, Spin, message, type MenuProps } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
 import { getProjects } from 'pages/apis/project'
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle'
@@ -8,6 +8,8 @@ import { getProjectProgression } from 'pages/apis/projectProgression'
 import {
   getDeploymentSteps,
   deleteDeploymentSteps,
+  updateDeploymentStep,
+  reorderDeploymentSteps,
   DeploymentStepDto,
 } from 'pages/apis/deploymentProcess'
 import { KubernetesContainersEditor, type KubernetesContainersEditorHandle } from './step-editors/kubernetes-containers/KubernetesContainersEditor'
@@ -15,6 +17,7 @@ import { KubernetesIngressEditor } from './step-editors/kubernetes-ingress/Kuber
 import { KubernetesServiceEditor } from './step-editors/kubernetes-service/KubernetesServiceEditor'
 import { KubernetesConfigMapEditor } from './step-editors/kubernetes-configmap/KubernetesConfigMapEditor'
 import { KubernetesSecretEditor } from './step-editors/kubernetes-secret/KubernetesSecretEditor'
+import { ManualInterventionEditor } from './step-editors/manual/ManualInterventionEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
@@ -27,6 +30,8 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeployService':    KubernetesServiceEditor,
   'Squid.KubernetesDeployConfigMap':  KubernetesConfigMapEditor,
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
+  'Squid.Manual':                     ManualInterventionEditor,
+  'Squid.ManualIntervention':         ManualInterventionEditor,
 }
 
 // ── API base for image URLs ────────────────────────────────────────────────────
@@ -42,6 +47,7 @@ function stepLogoUrl(spaceId: string, actionType: string) {
 function actionSummary(actionType: string): string {
   const map: Record<string, string> = {
     'Squid.Manual': 'Manual intervention required',
+    'Squid.ManualIntervention': 'Manual intervention required',
     'Squid.Script': 'Run a script',
     'Squid.KubernetesDeployContainers': 'Deploy containers to Kubernetes',
     'Squid.KubernetesDeployRawYaml': 'Deploy Kubernetes YAML',
@@ -831,6 +837,50 @@ type EditorNavigationAction =
   | { type: 'startTemplate'; actionType: string }
   | { type: 'editDraft' }
 
+interface ReorderStepItem {
+  id: number
+  name: string
+}
+
+function reorderByDrag<T extends { id: number }>(items: T[], activeId: number, overId: number): T[] {
+  if (activeId === overId) return items
+  const fromIndex = items.findIndex((item) => item.id === activeId)
+  const toIndex = items.findIndex((item) => item.id === overId)
+  if (fromIndex < 0 || toIndex < 0) return items
+
+  const next = [...items]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
+}
+
+function normalizeActionId(value: unknown): string | null {
+  if (value == null) return null
+  const normalized = String(value).trim()
+  return normalized || null
+}
+
+function getPrimaryAction(step: DeploymentStepDto | null | undefined): DeploymentStepDto['actions'][number] | null {
+  if (!step || !step.actions || step.actions.length === 0) return null
+  return step.actions[0] ?? null
+}
+
+function getPrimaryActionId(step: DeploymentStepDto | null | undefined): string | null {
+  const action = getPrimaryAction(step)
+  return normalizeActionId((action as any)?.id)
+}
+
+function findStepAndActionByActionId(steps: DeploymentStepDto[], actionId: string) {
+  for (const step of steps) {
+    for (const action of step.actions ?? []) {
+      if (normalizeActionId((action as any)?.id) === actionId) {
+        return { step, action }
+      }
+    }
+  }
+  return null
+}
+
 // ── Process Overview ───────────────────────────────────────────────────────────
 
 function ProcessOverview({
@@ -986,6 +1036,8 @@ function ProcessOverview({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const Process: React.FC = () => {
+  const location = useLocation()
+  const navigate = useNavigate()
   const { projectName, spaceId = 'Spaces-1' } = useParams<{ projectName: string; spaceId: string }>()
   const [mode, setMode] = useState<'overview' | 'editor'>('overview')
   const [loading, setLoading] = useState(false)
@@ -1002,7 +1054,12 @@ const Process: React.FC = () => {
   const [pendingNavigation, setPendingNavigation] = useState<EditorNavigationAction | null>(null)
   const [pendingRouteLeave, setPendingRouteLeave] = useState<(() => void) | null>(null)
   const [stepOverflowMenu, setStepOverflowMenu] = useState<{ stepId: number; top: number; left: number } | null>(null)
+  const [reorderDialogOpen, setReorderDialogOpen] = useState(false)
+  const [reorderSaving, setReorderSaving] = useState(false)
+  const [reorderItems, setReorderItems] = useState<ReorderStepItem[]>([])
+  const [draggingStepId, setDraggingStepId] = useState<number | null>(null)
   const [processId, setProcessId] = useState<number>(0)
+  const [projectId, setProjectId] = useState<number | null>(null)
   const editorRef = useRef<StepEditorHandle>(null)
   const draftEditorRef = useRef<StepEditorHandle>(null)
   const overflowMenuRef = useRef<HTMLDivElement>(null)
@@ -1010,6 +1067,9 @@ const Process: React.FC = () => {
   const pendingSaveRouteLeaveRef = useRef<(() => void) | null>(null)
   const skipRouteGuardOnceRef = useRef(false)
   const skipBeforeUnloadOnceRef = useRef(false)
+  const encodedProjectName = encodeURIComponent(projectName ?? '')
+  const processBasePath = `/${spaceId}/projects/${encodedProjectName}/deployments/process`
+  const processStepsPath = `${processBasePath}/steps`
 
   useEffect(() => {
     if (!projectName) return
@@ -1022,6 +1082,7 @@ const Process: React.FC = () => {
           (p) => p.slug === projectName || p.name === projectName
         )
         if (!project) return
+        setProjectId(project.id)
         setProcessId(project.deploymentProcessId)
 
         const [stepsRes, lifecyclesRes, progressionRes] = await Promise.all([
@@ -1088,6 +1149,28 @@ const Process: React.FC = () => {
 
   const hasUnsavedEditorChanges = Boolean(draftTemplateActionType) || (Boolean(editingTemplate) && unsavedChanges)
 
+  const updateEditorDeepLink = ({
+    actionId = null,
+    editor = false,
+  }: {
+    actionId?: string | null
+    editor?: boolean
+  }) => {
+    const searchParams = new URLSearchParams(location.search)
+    if (actionId) {
+      searchParams.set('actionId', actionId)
+    } else {
+      searchParams.delete('actionId')
+    }
+
+    const nextPath = editor ? processStepsPath : processBasePath
+    const nextSearch = searchParams.toString()
+    const nextUrl = `${nextPath}${nextSearch ? `?${nextSearch}` : ''}`
+    const currentUrl = `${location.pathname}${location.search}`
+    if (currentUrl === nextUrl) return
+    navigate(nextUrl, { replace: true })
+  }
+
   useBeforeUnload(
     React.useCallback((event: BeforeUnloadEvent) => {
       if (skipBeforeUnloadOnceRef.current) {
@@ -1099,6 +1182,42 @@ const Process: React.FC = () => {
       event.returnValue = ''
     }, [hasUnsavedEditorChanges])
   )
+
+  useEffect(() => {
+    const queryActionId = new URLSearchParams(location.search).get('actionId')
+    if (queryActionId) {
+      const matched = findStepAndActionByActionId(steps, queryActionId)
+      if (!matched) {
+        if (mode !== 'editor') setMode('editor')
+        return
+      }
+
+      const isAlreadyEditingMatched =
+        mode === 'editor' &&
+        selectedStepId === matched.step.id &&
+        editingTemplate?.step?.id === matched.step.id &&
+        editingTemplate?.actionType === matched.action.actionType
+      if (isAlreadyEditingMatched) return
+
+      setMode('editor')
+      setDraftTemplateActionType(null)
+      setDraftStepName('')
+      setStepOverflowMenu(null)
+      setSelectedStepId(matched.step.id)
+      setUnsavedChanges(false)
+      if (STEP_EDITOR_MAP[matched.action.actionType]) {
+        setEditingTemplate({ actionType: matched.action.actionType, step: matched.step })
+      } else {
+        setEditingTemplate(null)
+      }
+      return
+    }
+
+    const isStepDetailPath = location.pathname.endsWith('/process/steps') || location.pathname.endsWith('/process/steps/')
+    if (isStepDetailPath && mode !== 'editor') {
+      setMode('editor')
+    }
+  }, [location.pathname, location.search, steps, mode, selectedStepId, editingTemplate])
 
   useEffect(() => {
     if (!hasUnsavedEditorChanges) return
@@ -1151,6 +1270,7 @@ const Process: React.FC = () => {
       setDraftTemplateActionType(null)
       setDraftStepName('')
       setUnsavedChanges(false)
+      updateEditorDeepLink({ editor: false })
       return
     }
 
@@ -1159,6 +1279,7 @@ const Process: React.FC = () => {
       setSelectedStepId(null)
       setEditingTemplate(null)
       setUnsavedChanges(false)
+      updateEditorDeepLink({ editor: true })
       return
     }
 
@@ -1169,6 +1290,7 @@ const Process: React.FC = () => {
       setDraftTemplateActionType(action.actionType)
       setEditingTemplate({ actionType: action.actionType, step: null })
       setUnsavedChanges(true)
+      updateEditorDeepLink({ editor: true })
       return
     }
 
@@ -1178,6 +1300,7 @@ const Process: React.FC = () => {
       setSelectedStepId(null)
       setEditingTemplate({ actionType: draftTemplateActionType, step: null })
       setUnsavedChanges(true)
+      updateEditorDeepLink({ editor: true })
       return
     }
 
@@ -1190,12 +1313,14 @@ const Process: React.FC = () => {
     }
     setSelectedStepId(step.id)
     setUnsavedChanges(false)
-    const firstAction = step.actions[0]
+    const firstAction = getPrimaryAction(step)
     if (firstAction && STEP_EDITOR_MAP[firstAction.actionType]) {
       setEditingTemplate({ actionType: firstAction.actionType, step })
+      updateEditorDeepLink({ editor: true, actionId: normalizeActionId((firstAction as any).id) })
       return
     }
     setEditingTemplate(null)
+    updateEditorDeepLink({ editor: true })
   }
 
   const requestEditorNavigation = (action: EditorNavigationAction) => {
@@ -1254,6 +1379,7 @@ const Process: React.FC = () => {
             setSelectedStepId(null)
             setEditingTemplate(null)
             setDraftStepName('')
+            updateEditorDeepLink({ editor: true })
           }
           message.success('Step deleted')
         } catch {
@@ -1261,6 +1387,145 @@ const Process: React.FC = () => {
         }
       },
     })
+  }
+
+  const openReorderDialog = () => {
+    const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
+    setReorderItems(sorted.map((step) => ({ id: step.id, name: step.name })))
+    setDraggingStepId(null)
+    setReorderDialogOpen(true)
+  }
+
+  const closeReorderDialog = () => {
+    if (reorderSaving) return
+    setReorderDialogOpen(false)
+    setDraggingStepId(null)
+  }
+
+  const handleReorderDragStart = (stepId: number, event: React.DragEvent<HTMLLIElement>) => {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(stepId))
+    setDraggingStepId(stepId)
+  }
+
+  const handleReorderDragOver = (overStepId: number, event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault()
+    const activeStepId = draggingStepId
+    if (activeStepId == null) return
+    if (activeStepId === overStepId) return
+    setReorderItems((prev) => reorderByDrag(prev, activeStepId, overStepId))
+  }
+
+  const handleReorderDrop = (event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault()
+    setDraggingStepId(null)
+  }
+
+  const handleReorderDone = async () => {
+    const currentSorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
+    const stepById = new Map(currentSorted.map((step) => [step.id, step] as const))
+    const seen = new Set<number>()
+    const orderedIds: number[] = []
+
+    for (const item of reorderItems) {
+      if (seen.has(item.id)) continue
+      if (!stepById.has(item.id)) continue
+      seen.add(item.id)
+      orderedIds.push(item.id)
+    }
+
+    // Keep any late/missing steps to ensure we always submit a full 1..n ordering.
+    for (const step of currentSorted) {
+      if (seen.has(step.id)) continue
+      seen.add(step.id)
+      orderedIds.push(step.id)
+    }
+
+    const reorderedAll = orderedIds.map((stepId, index) => ({
+      ...stepById.get(stepId)!,
+      stepOrder: index + 1,
+    }))
+
+    if (reorderedAll.length === 0) {
+      setReorderDialogOpen(false)
+      return
+    }
+
+    const changed = reorderedAll.some((item) => {
+      const original = stepById.get(item.id)
+      return Boolean(original && original.stepOrder !== item.stepOrder)
+    })
+
+    if (!changed) {
+      setReorderDialogOpen(false)
+      return
+    }
+
+    // Optimistic reorder in UI immediately after Done.
+    setSteps(reorderedAll)
+    setEditingTemplate((prev) => {
+      if (!prev?.step) return prev
+      const latest = reorderedAll.find((step) => step.id === prev.step!.id)
+      if (!latest) return prev
+      return {
+        ...prev,
+        step: latest,
+        actionType: latest.actions[0]?.actionType ?? prev.actionType,
+      }
+    })
+
+    setReorderSaving(true)
+    try {
+      const result = await reorderDeploymentSteps({
+        processId,
+        stepOrders: reorderedAll.map((step) => ({
+          stepId: step.id,
+          stepOrder: step.stepOrder,
+        })),
+      })
+
+      const fullList = result && result.length === reorderedAll.length
+        ? result
+        : (await getDeploymentSteps({ processId, pageSize: 500 })).steps
+
+      const nextSteps = (fullList && fullList.length > 0 ? fullList : reorderedAll)
+        .map((step) => ({
+          ...step,
+          actions: step.actions ?? [],
+          properties: step.properties ?? [],
+        }))
+        .sort((a, b) => a.stepOrder - b.stepOrder)
+
+      setSteps(nextSteps)
+      setEditingTemplate((prev) => {
+        if (!prev?.step) return prev
+        const latest = nextSteps.find((step) => step.id === prev.step!.id)
+        if (!latest) return prev
+        return {
+          ...prev,
+          step: latest,
+          actionType: latest.actions[0]?.actionType ?? prev.actionType,
+        }
+      })
+
+      setReorderDialogOpen(false)
+      message.success('Step order updated')
+    } catch {
+      message.error('Failed to reorder steps')
+    } finally {
+      setReorderSaving(false)
+      setDraggingStepId(null)
+    }
+  }
+
+  const processEditorMenuItems: MenuProps['items'] = [
+    { key: 'reorder-steps', label: 'Reorder steps' },
+  ]
+
+  const handleProcessEditorMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'reorder-steps') {
+      openReorderDialog()
+    }
   }
 
   if (mode === 'overview') {
@@ -1334,11 +1599,6 @@ const Process: React.FC = () => {
             >
               Save
             </button>
-            <button className={ICON_BTN} aria-label="Overflow Menu Button">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-                <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-              </svg>
-            </button>
           </div>
         </div>
       </div>
@@ -1360,9 +1620,15 @@ const Process: React.FC = () => {
                 className="flex-1 border-0 outline-none text-sm text-slate-700 placeholder-slate-400 bg-transparent"
               />
             </div>
-            <button className="p-1 rounded hover:bg-slate-100 text-slate-400" aria-label="Options">
-              <MoreOutlined style={{ fontSize: 16 }} />
-            </button>
+            <Dropdown
+              trigger={['click']}
+              placement="bottomRight"
+              menu={{ items: processEditorMenuItems, onClick: handleProcessEditorMenuClick }}
+            >
+              <button className="p-1 rounded hover:bg-slate-100 text-slate-400" aria-label="Options">
+                <MoreOutlined style={{ fontSize: 16 }} />
+              </button>
+            </Dropdown>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -1417,21 +1683,23 @@ const Process: React.FC = () => {
                   ref={draftEditorRef}
                   step={null}
                   processId={processId}
+                  projectId={projectId}
                   spaceId={spaceId}
                   stepIndex={steps.length}
                   onSave={(savedStep) => {
                     setSteps((prev) => {
                       const exists = prev.some((s) => s.id === savedStep.id)
-                      const next = exists
+                      const merged = exists
                         ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
                         : [...prev, savedStep]
-                      return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                      return merged.sort((a, b) => a.stepOrder - b.stepOrder)
                     })
                     setDraftTemplateActionType(null)
                     setDraftStepName('')
                     setEditingTemplate({ actionType: savedStep.actions[0]?.actionType ?? draftTemplateActionType, step: savedStep })
                     setSelectedStepId(savedStep.id)
                     setUnsavedChanges(false)
+                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(savedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {
                       const continueRouteLeave = pendingSaveRouteLeaveRef.current
@@ -1463,15 +1731,16 @@ const Process: React.FC = () => {
                   ref={editorRef}
                   step={editingTemplate.step}
                   processId={processId}
+                  projectId={projectId}
                   spaceId={spaceId}
                   stepIndex={steps.findIndex((s) => s.id === editingTemplate.step!.id)}
                   onSave={(savedStep) => {
                     setSteps((prev) => {
                       const exists = prev.some((s) => s.id === savedStep.id)
-                      const next = exists
+                      const merged = exists
                         ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
                         : [...prev, savedStep]
-                      return next.sort((a, b) => a.stepOrder - b.stepOrder)
+                      return merged.sort((a, b) => a.stepOrder - b.stepOrder)
                     })
                     setEditingTemplate((prev) => (
                       prev
@@ -1480,6 +1749,7 @@ const Process: React.FC = () => {
                     ))
                     setSelectedStepId(savedStep.id)
                     setUnsavedChanges(false)
+                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(savedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {
                       const continueRouteLeave = pendingSaveRouteLeaveRef.current
@@ -1569,6 +1839,65 @@ const Process: React.FC = () => {
           </button>
         </div>
       )}
+
+      <Modal
+        title="Reorder steps"
+        open={reorderDialogOpen}
+        onCancel={closeReorderDialog}
+        width={560}
+        maskClosable={!reorderSaving}
+        keyboard={!reorderSaving}
+        closable={!reorderSaving}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              title="Cancel"
+              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+              onClick={closeReorderDialog}
+              disabled={reorderSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              title="Done"
+              className={`inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border transition-colors ${
+                reorderSaving
+                  ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'border-squid-blue bg-squid-blue text-white hover:bg-blue-700 hover:border-blue-700'
+              }`}
+              onClick={handleReorderDone}
+              disabled={reorderSaving}
+            >
+              {reorderSaving ? 'Saving...' : 'Done'}
+            </button>
+          </div>
+        }
+      >
+        <ol className="list-none m-0 p-0 space-y-2">
+          {reorderItems.map((item) => (
+            <li
+              key={item.id}
+              draggable={!reorderSaving}
+              onDragStart={(event) => handleReorderDragStart(item.id, event)}
+              onDragOver={(event) => handleReorderDragOver(item.id, event)}
+              onDrop={handleReorderDrop}
+              onDragEnd={() => setDraggingStepId(null)}
+              className={`flex items-center gap-2 rounded border px-3 py-2 transition-colors ${
+                draggingStepId === item.id
+                  ? 'border-squid-blue bg-blue-50'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              } ${reorderSaving ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+            >
+              <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 40 40" width="18" height="18" fill="currentColor" aria-hidden="true">
+                <path d="M16 12C14.875 12 14 11.125 14 10C14 8.9375 14.875 8 16 8C17.0625 8 18 8.9375 18 10C18 11.125 17.0625 12 16 12ZM16 22C14.875 22 14 21.125 14 20C14 18.9375 14.875 18 16 18C17.0625 18 18 18.9375 18 20C18 21.125 17.0625 22 16 22ZM18 30C18 31.125 17.0625 32 16 32C14.875 32 14 31.125 14 30C14 28.9375 14.875 28 16 28C17.0625 28 18 28.9375 18 30ZM24 12C22.875 12 22 11.125 22 10C22 8.9375 22.875 8 24 8C25.0625 8 26 8.9375 26 10C26 11.125 25.0625 12 24 12ZM26 20C26 21.125 25.0625 22 24 22C22.875 22 22 21.125 22 20C22 18.9375 22.875 18 24 18C25.0625 18 26 18.9375 26 20ZM24 32C22.875 32 22 31.125 22 30C22 28.9375 22.875 28 24 28C25.0625 28 26 28.9375 26 30C26 31.125 25.0625 32 24 32Z" />
+              </svg>
+              <span className="text-sm text-slate-800">{item.name}</span>
+            </li>
+          ))}
+        </ol>
+      </Modal>
 
       <Modal
         title="Unsaved Changes"

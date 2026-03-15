@@ -11,6 +11,7 @@ import { ServiceSection } from './sections/ServiceSection'
 import { IngressSection } from './sections/IngressSection'
 import { ConfigMapSection } from './sections/ConfigMapSection'
 import { SecretSection } from './sections/SecretSection'
+import { ConditionsSection } from './sections/ConditionsSection'
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 
@@ -21,6 +22,7 @@ export interface KubernetesContainersEditorHandle {
 interface KubernetesContainersEditorProps {
   step: DeploymentStepDto | null
   processId: number
+  projectId?: number | null
   spaceId: string
   stepIndex: number | null
   onSave: (savedStep: DeploymentStepDto) => void
@@ -28,7 +30,7 @@ interface KubernetesContainersEditorProps {
 }
 
 export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorHandle, KubernetesContainersEditorProps>(
-  function KubernetesContainersEditor({ step, processId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+  function KubernetesContainersEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
     const { state, updateField } = useContainersEditorState(step)
     const [saving, setSaving] = useState(false)
 
@@ -112,6 +114,7 @@ export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorH
           <IngressSection state={state} updateField={updateField} />
           <ConfigMapSection state={state} updateField={updateField} />
           <SecretSection state={state} updateField={updateField} />
+          <ConditionsSection state={state} updateField={updateField} projectId={projectId} />
         </div>
       </div>
     )

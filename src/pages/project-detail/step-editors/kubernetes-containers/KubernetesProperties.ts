@@ -2,8 +2,14 @@ export class KubernetesProperties {
   private constructor() {}
 
   // Step level (not action level) - "Target Roles" in step header/settings.
-  // Storage: comma-separated string, e.g. "kubernetes-worker,linux".
+  // Storage: comma-separated string, e.g. "Web,API".
   static readonly TargetRoles = 'Squid.Action.TargetRoles'
+
+  // Legacy key used by older Squid builds. Read for compatibility.
+  static readonly TargetRolesLegacy = 'TargetRoles'
+
+  // Step-level variable run condition expression.
+  static readonly StepConditionExpression = 'Squid.Step.ConditionExpression'
 
   // Deployment - "Resource Type" selector.
   // Storage: "Deployment" (currently supported path).

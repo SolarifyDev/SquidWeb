@@ -40,7 +40,7 @@ interface NavItemDef {
 const navSections: NavItemDef[][] = [
   [
     { label: "Deployments", path: "deployments" },
-    { label: "Process", path: "process" },
+    { label: "Process", path: "deployments/process" },
     { label: "Channels", path: "deployments/channels" },
     { label: "Releases", path: "releases" },
     { label: "Triggers", path: "triggers" },

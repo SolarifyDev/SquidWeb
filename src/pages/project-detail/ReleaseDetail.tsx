@@ -14,13 +14,14 @@ import {
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import {
   getReleaseVariableSnapshot,
+  getReleaseLifecycleProgression,
   getReleases,
   updateReleaseVariables,
+  type ReleaseLifecycleProgressionDto,
   type ReleaseDto,
 } from 'pages/apis/release'
-import { getProjectProgression, type ReleaseProgression, type DeploymentState } from 'pages/apis/projectProgression'
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
-import { getLifecycles, type LifecycleDto, type LifecyclePhaseDto } from 'pages/apis/lifecycle'
+import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 import { getPackageReferences, type PackageReferenceItem } from 'pages/apis/deploymentProcess'
 import {
@@ -66,7 +67,7 @@ function formatDate(iso: string | null | undefined): string {
   })
 }
 
-function stateColor(state: DeploymentState): string {
+function stateColor(state: string): string {
   switch (state) {
     case 'Success':    return '#00874d'
     case 'Failed':
@@ -87,6 +88,51 @@ function phaseStatusColor(status: PhaseStatus): string {
     case 'current': return '#3b82f6'
     case 'pending': return '#d1d5db'
   }
+}
+
+function renderPhaseIcon(status: PhaseStatus, isOptional: boolean) {
+  const color = phaseStatusColor(status)
+
+  if (isOptional) {
+    return (
+      <span
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border-2 flex-shrink-0"
+        style={{
+          borderColor: color,
+          backgroundColor: 'transparent',
+        }}
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{
+            backgroundColor: color,
+            opacity: status === 'pending' ? 0.55 : 1,
+          }}
+        />
+      </span>
+    )
+  }
+
+  if (status === 'done') {
+    return (
+      <span
+        className="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-white flex-shrink-0"
+        style={{ backgroundColor: color }}
+      >
+        <CheckOutlined style={{ fontSize: 9 }} />
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className="inline-block w-3 h-3 rounded-full flex-shrink-0 border-2"
+      style={{
+        borderColor: color,
+        backgroundColor: 'transparent',
+      }}
+    />
+  )
 }
 
 function toEnvironmentToken(environmentId: number): string {
@@ -119,7 +165,7 @@ function formatTaskSummaryDate(iso: string | null | undefined): string {
   return `${month} ${toOrdinal(date.getDate())} ${date.getFullYear()}`
 }
 
-function renderTaskStatusIcon(state: DeploymentState) {
+function renderTaskStatusIcon(state: string) {
   if (state === 'Success') {
     return <CheckOutlined style={{ fontSize: 14 }} />
   }
@@ -177,7 +223,7 @@ const ReleaseDetail: React.FC = () => {
   const deployMenuRef = useRef<HTMLDivElement>(null)
   const [project, setProject] = useState<ProjectDto | null>(null)
   const [release, setRelease] = useState<ReleaseDto | null>(null)
-  const [progression, setProgression] = useState<ReleaseProgression | null>(null)
+  const [releaseProgression, setReleaseProgression] = useState<ReleaseLifecycleProgressionDto | null>(null)
   const [channel, setChannel] = useState<ChannelDto | null>(null)
   const [lifecycle, setLifecycle] = useState<LifecycleDto | null>(null)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
@@ -202,8 +248,7 @@ const ReleaseDetail: React.FC = () => {
         setProject(foundProject)
         if (!foundProject) return
 
-        const [progRes, chanRes, lcRes, envRes, pkgRefRes] = await Promise.all([
-          getProjectProgression(foundProject.id).catch(() => null),
+        const [chanRes, lcRes, envRes, pkgRefRes] = await Promise.all([
           getChannels({ projectId: foundProject.id, pageSize: 1000 }).catch(() => null),
           getLifecycles({ pageSize: 100 }).catch(() => null),
           getEnvironments({ pageSize: 1000 }).catch(() => null),
@@ -215,23 +260,27 @@ const ReleaseDetail: React.FC = () => {
 
         let foundRelease = await findRelease(foundProject.id, channels, decodedVersion)
         setRelease(foundRelease)
-
-        const foundProgression = progRes?.releases.find(
-          (rp) => rp.release.version === decodedVersion,
-        ) ?? null
-        setProgression(foundProgression)
+        setReleaseProgression(null)
 
         setEnvironments(envRes?.environments ?? [])
         setPackageReferences(pkgRefRes?.packageReferences ?? [])
 
         if (foundRelease) {
+          const foundReleaseProgression = await getReleaseLifecycleProgression(foundRelease.id).catch(() => null)
+          setReleaseProgression(foundReleaseProgression)
+
           const foundChannel = channels.find((c) => c.id === foundRelease.channelId) ?? null
           setChannel(foundChannel)
 
           // channel.lifecycleId is null for default channels → fall back to project.lifecycleId
-          const effectiveLifecycleId = foundChannel?.lifecycleId ?? foundProject.lifecycleId
+          const effectiveLifecycleId = foundReleaseProgression?.lifecycleId
+            ?? foundChannel?.lifecycleId
+            ?? foundProject.lifecycleId
           const foundLifecycle = lcRes?.lifecycles.find((lc) => lc.id === effectiveLifecycleId) ?? null
           setLifecycle(foundLifecycle)
+        } else {
+          setChannel(null)
+          setLifecycle(null)
         }
       } catch {
         message.error('Failed to load release details.')
@@ -260,8 +309,6 @@ const ReleaseDetail: React.FC = () => {
     () => new Map(environments.map((e) => [e.id, e])),
     [environments],
   )
-
-  const phases = lifecycle?.phases?.slice().sort((a, b) => a.sortOrder - b.sortOrder) ?? []
 
   const releasePackages = useMemo(() => {
     const sortedReferences = [...packageReferences].sort((a, b) => {
@@ -295,77 +342,66 @@ const ReleaseDetail: React.FC = () => {
   }, [packageReferences, release?.assembled, release?.version])
 
   const phaseRows = useMemo(() => {
-    if (!progression || phases.length === 0) return []
+    if (!releaseProgression) return []
 
-    let previousBlockingPhasesCompleted = true
-
+    const phases = [...(releaseProgression.phases ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
     return phases.map((phase) => {
-      const envIds = Array.from(
-        new Set([...phase.automaticDeploymentTargetIds, ...phase.optionalDeploymentTargetIds]),
-      )
-      const envNames = envIds.map((id) => envMap.get(id)?.name ?? `Env #${id}`).join(', ')
-
-      const deployments = envIds.flatMap((envId) => {
-        const deps = progression.deployments[envId] ?? []
-        return deps
-          .filter((d) => d.releaseVersion === progression.release.version)
-          .map((d) => ({ ...d, environmentId: envId }))
-      })
-
-      const deploymentsSorted = [...deployments].sort((a, b) => {
-        const aTs = Date.parse(a.completedTime ?? a.created)
-        const bTs = Date.parse(b.completedTime ?? b.created)
-        const safeATs = Number.isFinite(aTs) ? aTs : 0
-        const safeBTs = Number.isFinite(bTs) ? bTs : 0
-        return safeBTs - safeATs
-      })
-
-      const latestDeployment = deploymentsSorted[0] ?? null
-      const latestByEnvironment = new Map<number, (typeof deploymentsSorted)[number]>()
-      deploymentsSorted.forEach((deployment) => {
-        if (!latestByEnvironment.has(deployment.environmentId)) {
-          latestByEnvironment.set(deployment.environmentId, deployment)
-        }
-      })
-
-      const successfulEnvironmentCount = envIds.reduce((count, envId) => {
-        const latest = latestByEnvironment.get(envId)
-        return latest?.state === 'Success' ? count + 1 : count
-      }, 0)
-
-      const minimumRequired = phase.minimumEnvironmentsBeforePromotion ?? 0
-      const requiredSuccessCount = phase.isOptionalPhase
-        ? 0
-        : minimumRequired > 0
-          ? Math.min(minimumRequired, envIds.length)
-          : envIds.length
-      const phaseCompleted = phase.isOptionalPhase
-        ? successfulEnvironmentCount > 0
-        : requiredSuccessCount > 0 && successfulEnvironmentCount >= requiredSuccessCount
-
-      const deployableEnvIds = previousBlockingPhasesCompleted
-        ? envIds.filter((id) => progression.nextDeployments.includes(id))
-        : []
+      const environments = phase.environments ?? []
+      const envIds = environments.map((env) => env.environmentId)
+      const envNames = environments.map((env) => env.environmentName || `Env #${env.environmentId}`).join(', ')
+      const deployableEnvIds = environments.filter((env) => env.canDeploy).map((env) => env.environmentId)
       const canDeploy = deployableEnvIds.length > 0
-      const hasActiveDeployment = Boolean(
-        latestDeployment && (latestDeployment.state === 'Executing' || latestDeployment.state === 'Pending' || latestDeployment.state === 'Cancelling'),
-      )
 
-      let status: PhaseStatus = 'pending'
-      if (phaseCompleted) status = 'done'
-      else if (canDeploy || hasActiveDeployment) {
-        status = 'current'
+      const latestDeployment = environments
+        .filter((env) => env.deployment != null)
+        .map((env) => ({
+          ...env.deployment!,
+          environmentId: env.environmentId,
+        }))
+        .sort((a, b) => {
+          const aTs = Date.parse(a.completedTime ?? a.created)
+          const bTs = Date.parse(b.completedTime ?? b.created)
+          const safeATs = Number.isFinite(aTs) ? aTs : 0
+          const safeBTs = Number.isFinite(bTs) ? bTs : 0
+          return safeBTs - safeATs
+        })[0] ?? null
+
+      const status: PhaseStatus = phase.progress === 'Complete'
+        ? 'done'
+        : phase.progress === 'Current'
+          ? 'current'
+          : 'pending'
+
+      return {
+        phase: {
+          id: phase.phaseId,
+          name: phase.phaseName,
+          isOptionalPhase: phase.isOptional,
+        },
+        envIds,
+        envNames,
+        latestDeployment,
+        deployableEnvIds,
+        canDeploy,
+        status,
+        phaseCompleted: phase.isComplete,
       }
-
-      if (!phase.isOptionalPhase) {
-        previousBlockingPhasesCompleted = previousBlockingPhasesCompleted && phaseCompleted
-      }
-
-      return { phase, envIds, envNames, latestDeployment, deployableEnvIds, canDeploy, status, phaseCompleted }
     })
-  }, [progression, phases, envMap])
+  }, [releaseProgression])
 
-  const nextDeployEnvIds = progression?.nextDeployments ?? []
+  const nextDeployEnvIds = useMemo(() => {
+    if (!releaseProgression) return []
+    const orderedEnvIds: number[] = []
+    for (const phase of [...(releaseProgression.phases ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)) {
+      for (const environment of phase.environments ?? []) {
+        if (!environment.canDeploy) continue
+        if (!orderedEnvIds.includes(environment.environmentId)) {
+          orderedEnvIds.push(environment.environmentId)
+        }
+      }
+    }
+    return orderedEnvIds
+  }, [releaseProgression])
   const filteredNextDeployEnvIds = useMemo(() => {
     const keyword = deployFilterText.trim().toLowerCase()
     if (!keyword) return nextDeployEnvIds
@@ -649,9 +685,11 @@ const ReleaseDetail: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue text-squid-blue bg-white hover:bg-blue-50 transition-colors"
+              className="inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue text-squid-blue bg-white hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={nextDeployEnvIds.length === 0}
               onClick={() => {
                 const defaultTarget = nextDeployEnvIds[0]
+                if (defaultTarget == null) return
                 const query = defaultTarget != null ? buildEnvironmentIdsQuery([defaultTarget]) : ''
                 navigate(query ? `${deployCreatePath}?${query}` : deployCreatePath)
               }}
@@ -741,7 +779,7 @@ const ReleaseDetail: React.FC = () => {
           {/* Lifecycle / Channel info row */}
           <div className="px-5 py-3 border-b border-slate-100">
             <span className="text-sm text-slate-700">
-              Lifecycle: <b className="mr-4">{lifecycle?.name ?? '—'}</b>
+              Lifecycle: <b className="mr-4">{releaseProgression?.lifecycleName ?? lifecycle?.name ?? '—'}</b>
             </span>
             <span className="text-sm text-slate-700">
               Channel:{' '}
@@ -782,22 +820,7 @@ const ReleaseDetail: React.FC = () => {
                     {/* Phase name + icon */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
-                        {status === 'done' ? (
-                          <span
-                            className="inline-flex h-4 w-4 items-center justify-center rounded-[2px] text-white flex-shrink-0"
-                            style={{ backgroundColor: phaseStatusColor(status) }}
-                          >
-                            <CheckOutlined style={{ fontSize: 9 }} />
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-block w-3 h-3 rounded-full flex-shrink-0 border-2"
-                            style={{
-                              borderColor: phaseStatusColor(status),
-                              backgroundColor: 'transparent',
-                            }}
-                          />
-                        )}
+                        {renderPhaseIcon(status, phase.isOptionalPhase)}
                         <span className="text-sm font-medium text-slate-800">
                           {phase.name}
                           {phase.isOptionalPhase && (

@@ -17,6 +17,14 @@ function getActionProp(action: DeploymentActionDto, name: string): string | unde
   return action.properties.find((p) => p.propertyName === name)?.propertyValue
 }
 
+function getStepProp(step: DeploymentStepDto, names: string[]): string {
+  for (const name of names) {
+    const value = step.properties.find((p) => p.propertyName === name)?.propertyValue
+    if (value != null) return value
+  }
+  return ''
+}
+
 function kvFromJson(value: string | undefined): KeyValueItem[] {
   const arr = safeJsonParse<{ Key: string; Value: string }[]>(value, [])
   return arr.map((item) => ({ key: item.Key, value: item.Value }))
@@ -124,9 +132,15 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
 
   const get = (key: string) => getActionProp(action, key)
 
-  const targetRoles = step.properties.find((p) => p.propertyName === KubernetesProperties.TargetRoles)?.propertyValue ?? ''
+  const targetRoles = getStepProp(step, [KubernetesProperties.TargetRoles, KubernetesProperties.TargetRolesLegacy])
+  const conditionExpression = getStepProp(step, [KubernetesProperties.StepConditionExpression])
   const containers = safeJsonParse<ContainerSpec[]>(get(KubernetesProperties.Containers), [])
   const firstContainer = containers[0]
+
+  const includeEnvironments = action.environments ?? []
+  const excludeEnvironments = action.excludedEnvironments ?? []
+  const environmentMode = excludeEnvironments.length > 0 ? 'exclude' : includeEnvironments.length > 0 ? 'include' : 'all'
+  const environmentIds = environmentMode === 'exclude' ? excludeEnvironments : includeEnvironments
 
   return {
     stepName: step.name,
@@ -189,7 +203,14 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     sysctls: safeJsonParse(get(KubernetesProperties.PodSecuritySysctls), []),
     dnsConfigOptions: safeJsonParse(get(KubernetesProperties.DnsConfigOptions), []),
     condition: step.condition || 'Success',
+    conditionExpression,
     startTrigger: step.startTrigger || 'StartAfterPrevious',
+    environmentMode,
+    environmentIds,
+    channelIds: action.channels ?? [],
+    packageRequirement: step.packageRequirement || 'LetSquidDecide',
+    isRequired: step.isRequired ?? false,
+    isDisabled: step.isDisabled ?? false,
   }
 }
 
@@ -264,6 +285,9 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
   const actionProperties = buildActionProperties(state)
   const resolvedActionType = actionType ?? 'Squid.KubernetesDeployContainers'
 
+  const actionEnvironments = state.environmentMode === 'include' ? state.environmentIds : []
+  const actionExcludedEnvironments = state.environmentMode === 'exclude' ? state.environmentIds : []
+
   const action: DeploymentActionDto = {
     id: existingStep?.actions[0]?.id ?? 0,
     stepId: existingStep?.id ?? 0,
@@ -271,18 +295,34 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
     name: state.stepName || 'Deploy Kubernetes Containers',
     actionType: resolvedActionType,
     workerPoolId: null,
-    isDisabled: false,
-    isRequired: false,
+    isDisabled: existingStep?.actions[0]?.isDisabled ?? false,
+    isRequired: existingStep?.actions[0]?.isRequired ?? false,
     canBeUsedForProjectVersioning: false,
     createdAt: existingStep?.actions[0]?.createdAt ?? new Date().toISOString(),
     properties: actionProperties,
-    environments: existingStep?.actions[0]?.environments ?? [],
-    excludedEnvironments: existingStep?.actions[0]?.excludedEnvironments ?? [],
-    channels: existingStep?.actions[0]?.channels ?? [],
+    environments: actionEnvironments,
+    excludedEnvironments: actionExcludedEnvironments,
+    channels: state.channelIds,
   }
 
+  const managedStepPropertyNames = new Set([
+    KubernetesProperties.TargetRoles,
+    KubernetesProperties.TargetRolesLegacy,
+    KubernetesProperties.StepConditionExpression,
+  ])
+
+  const preservedStepProperties = (existingStep?.properties ?? []).filter(
+    (property) => !managedStepPropertyNames.has(property.propertyName),
+  )
+
   const stepProperties = [
-    { id: 0, stepId: existingStep?.id ?? 0, propertyName: KubernetesProperties.TargetRoles, propertyValue: state.targetRoles },
+    ...preservedStepProperties,
+    ...(state.targetRoles.trim()
+      ? [{ id: 0, stepId: existingStep?.id ?? 0, propertyName: KubernetesProperties.TargetRoles, propertyValue: state.targetRoles.trim() }]
+      : []),
+    ...(state.condition === 'Variable' && state.conditionExpression.trim()
+      ? [{ id: 0, stepId: existingStep?.id ?? 0, propertyName: KubernetesProperties.StepConditionExpression, propertyValue: state.conditionExpression.trim() }]
+      : []),
   ]
 
   return {
@@ -293,9 +333,9 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
     stepType: 'Action',
     condition: state.condition,
     startTrigger: state.startTrigger,
-    packageRequirement: 'LetSquidDecide',
-    isDisabled: false,
-    isRequired: false,
+    packageRequirement: state.packageRequirement || 'LetSquidDecide',
+    isDisabled: state.isDisabled,
+    isRequired: state.isRequired,
     createdAt: existingStep?.createdAt ?? new Date().toISOString(),
     properties: stepProperties,
     actions: [action],

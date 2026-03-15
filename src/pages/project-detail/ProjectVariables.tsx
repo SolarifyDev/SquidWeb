@@ -4,7 +4,9 @@ import { useSpace } from 'contexts/SpaceContext';
 import { Button, Dropdown, Input, Popover, Select, Spin, Tabs, message } from 'antd';
 import { EditOutlined, FilterOutlined, MoreOutlined, SearchOutlined } from '@ant-design/icons';
 import { getProjects } from 'pages/apis/project';
+import { getChannels } from 'pages/apis/channel';
 import { getEnvironments } from 'pages/apis/environment';
+import { getDeploymentSteps } from 'pages/apis/deploymentProcess';
 import { getMachines } from 'pages/apis/machine';
 import { getTargetTags } from 'pages/apis/targetTag';
 import {
@@ -28,10 +30,35 @@ interface NewVarState {
   name: string;
 }
 
+interface ScopeOption {
+  value: string;
+  label: string;
+}
+
 interface ScopeEditorState {
   environments: string[];
   targetTags: string[];
   targets: string[];
+  channels: string[];
+  actions: string[];
+  processes: string[];
+}
+
+interface ScopeOptionContext {
+  environments: ScopeOption[];
+  targetTags: ScopeOption[];
+  targets: ScopeOption[];
+  channels: ScopeOption[];
+  actions: ScopeOption[];
+  processes: ScopeOption[];
+}
+
+interface ProjectScopeContext {
+  id: number;
+  name: string;
+  spaceId: number;
+  variableSetId: number;
+  deploymentProcessId: number;
 }
 
 interface DraftValueRow {
@@ -101,16 +128,85 @@ function uniqueStringValues(values: string[]): string[] {
   return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean)));
 }
 
-function toScopeEditorState(scopes: VariableScopeDto[]): ScopeEditorState {
+function uniqueScopeOptions(options: ScopeOption[]): ScopeOption[] {
+  const seen = new Set<string>();
+  const next: ScopeOption[] = [];
+  options.forEach((option) => {
+    const key = option.value.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    next.push({ value: key, label: option.label });
+  });
+  return next;
+}
+
+function normalizeScopeEditorValues(rawValues: string[], options: ScopeOption[]): string[] {
+  const optionValueSet = new Set(options.map((o) => o.value.trim()));
+  const valueByLabel = new Map(
+    options.map((o) => [o.label.trim().toLowerCase(), o.value.trim()] as const),
+  );
+
+  return uniqueStringValues(
+    rawValues.map((value) => {
+      const trimmed = (value ?? '').trim();
+      if (!trimmed) return '';
+      if (optionValueSet.has(trimmed)) return trimmed;
+      const byLabel = valueByLabel.get(trimmed.toLowerCase());
+      return byLabel ?? trimmed;
+    }),
+  );
+}
+
+function isStandardScopeType(scopeType: VariableScopeType): boolean {
+  return scopeType === VariableScopeType.Environment
+    || scopeType === VariableScopeType.Machine
+    || scopeType === VariableScopeType.Role
+    || scopeType === VariableScopeType.Channel
+    || scopeType === VariableScopeType.Action
+    || scopeType === VariableScopeType.Process;
+}
+
+function formatActionScopeLabel(stepOrder: number, stepName: string, actionName: string, actionId: number): string {
+  const normalizedStepName = (stepName ?? '').trim();
+  const normalizedActionName = (actionName ?? '').trim();
+  const safeStepOrder = Number.isFinite(stepOrder) && stepOrder > 0 ? stepOrder : 0;
+  const orderPrefix = safeStepOrder > 0 ? `${safeStepOrder}. ` : '';
+
+  if (!normalizedActionName || normalizedActionName.toLowerCase() === normalizedStepName.toLowerCase()) {
+    return `${orderPrefix}${normalizedStepName || `Action #${actionId}`}`.trim();
+  }
+
+  if (!normalizedStepName) return `${orderPrefix}${normalizedActionName}`.trim();
+  return `${orderPrefix}${normalizedStepName} / ${normalizedActionName}`.trim();
+}
+
+function toScopeEditorState(scopes: VariableScopeDto[], options: ScopeOptionContext): ScopeEditorState {
   return {
-    environments: uniqueStringValues(
+    environments: normalizeScopeEditorValues(
       (scopes ?? []).filter((s) => s.scopeType === VariableScopeType.Environment).map((s) => s.scopeValue),
+      options.environments,
     ),
-    targetTags: uniqueStringValues(
+    targetTags: normalizeScopeEditorValues(
       (scopes ?? []).filter((s) => s.scopeType === VariableScopeType.Role).map((s) => s.scopeValue),
+      options.targetTags,
     ),
-    targets: uniqueStringValues(
+    targets: normalizeScopeEditorValues(
       (scopes ?? []).filter((s) => s.scopeType === VariableScopeType.Machine).map((s) => s.scopeValue),
+      options.targets,
+    ),
+    channels: normalizeScopeEditorValues(
+      (scopes ?? []).filter((s) => s.scopeType === VariableScopeType.Channel).map((s) => s.scopeValue),
+      options.channels,
+    ),
+    actions: normalizeScopeEditorValues(
+      (scopes ?? [])
+        .filter((s) => s.scopeType === VariableScopeType.Action)
+        .map((s) => s.scopeValue),
+      options.actions,
+    ),
+    processes: normalizeScopeEditorValues(
+      (scopes ?? []).filter((s) => s.scopeType === VariableScopeType.Process).map((s) => s.scopeValue),
+      options.processes,
     ),
   };
 }
@@ -120,12 +216,7 @@ function applyScopeEditorToScopes(
   editor: ScopeEditorState,
   variableId: number,
 ): VariableScopeDto[] {
-  const preserved = (originalScopes ?? []).filter(
-    (scope) =>
-      scope.scopeType !== VariableScopeType.Environment &&
-      scope.scopeType !== VariableScopeType.Role &&
-      scope.scopeType !== VariableScopeType.Machine,
-  );
+  const preserved = (originalScopes ?? []).filter((scope) => !isStandardScopeType(scope.scopeType));
   const base = Date.now();
   return [
     ...preserved,
@@ -145,6 +236,24 @@ function applyScopeEditorToScopes(
       id: base + 2000 + i,
       variableId,
       scopeType: VariableScopeType.Machine,
+      scopeValue: name,
+    })),
+    ...uniqueStringValues(editor.channels).map((name, i) => ({
+      id: base + 3000 + i,
+      variableId,
+      scopeType: VariableScopeType.Channel,
+      scopeValue: name,
+    })),
+    ...uniqueStringValues(editor.actions).map((name, i) => ({
+      id: base + 4000 + i,
+      variableId,
+      scopeType: VariableScopeType.Action,
+      scopeValue: name,
+    })),
+    ...uniqueStringValues(editor.processes).map((name, i) => ({
+      id: base + 5000 + i,
+      variableId,
+      scopeType: VariableScopeType.Process,
       scopeValue: name,
     })),
   ];
@@ -193,9 +302,38 @@ const EnvironmentIcon: React.FC = () => (
   </svg>
 );
 
-const ScopeChip: React.FC<{ label: string }> = ({ label }) => (
-  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs mr-1 select-none">
-    <EnvironmentIcon />
+const ChannelIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" style={{ marginRight: 3, flexShrink: 0 }} aria-hidden="true">
+    <path fill="currentColor" d="M14 4l2.29 2.29-2.88 2.88 1.42 1.42 2.88-2.88L20 10V4zm-4 0H4v6l2.29-2.29 4.71 4.7V20h2v-8.41l-5.29-5.3z" />
+  </svg>
+);
+
+const RoleIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" style={{ marginRight: 3, flexShrink: 0 }} aria-hidden="true">
+    <path fill="currentColor" d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z" />
+  </svg>
+);
+
+const MachineIcon: React.FC = () => (
+  <svg viewBox="0 0 200 200" width="12" height="12" style={{ marginRight: 3, flexShrink: 0 }} aria-hidden="true">
+    <path fill="currentColor" d="M119.19 70.52h6.54a27 27 0 0 0-18-18V59a3.87 3.87 0 0 1-3.84 3.84h-7.73A3.87 3.87 0 0 1 92.32 59v-6.53a27 27 0 0 0-18 18h6.54a3.86 3.86 0 0 1 3.83 3.84V82a3.86 3.86 0 0 1-3.83 3.84h-6.59a27 27 0 0 0 18 18.05v-6.5a3.87 3.87 0 0 1 3.84-3.84h7.68a3.87 3.87 0 0 1 3.84 3.84v6.54a27 27 0 0 0 18-18.05h-6.54a3.86 3.86 0 0 1-3.73-3.88v-7.64a3.86 3.86 0 0 1 3.83-3.84z" />
+    <path fill="currentColor" d="M170.17 16.15H29.83A3.82 3.82 0 0 0 26 20v116.71a3.82 3.82 0 0 0 3.83 3.82h65.34v15.74a14.92 14.92 0 0 0-9.3 9.3H42a4.83 4.83 0 1 0 0 9.66h43.87a14.92 14.92 0 0 0 28.26 0H158a4.83 4.83 0 1 0 0-9.66h-43.87a14.92 14.92 0 0 0-9.3-9.3v-15.74h65.34a3.82 3.82 0 0 0 3.83-3.82V20a3.82 3.82 0 0 0-3.83-3.85zM146.07 82a3.87 3.87 0 0 1-3.84 3.84h-8.58a34.59 34.59 0 0 1-26 26v8.58a3.87 3.87 0 0 1-3.84 3.84h-7.65a3.87 3.87 0 0 1-3.84-3.84v-8.58a34.59 34.59 0 0 1-26-26h-8.55A3.87 3.87 0 0 1 53.93 82v-7.64a3.87 3.87 0 0 1 3.84-3.84h8.58a34.59 34.59 0 0 1 26-26V36a3.87 3.87 0 0 1 3.84-3.84h7.68a3.87 3.87 0 0 1 3.81 3.84v8.58a34.59 34.59 0 0 1 26 26h8.58a3.87 3.87 0 0 1 3.84 3.84z" />
+  </svg>
+);
+
+const ProcessIcon: React.FC = () => (
+  <svg viewBox="0 0 200 200" width="12" height="12" style={{ marginRight: 3, flexShrink: 0 }} aria-hidden="true">
+    <path fill="currentColor" d="M176.84 15.09l-21.16 3.44C134.57 21.44 116 31 102.56 45.89l-23.72 26L46.52 70a4.9 4.9 0 00-4.35 2.16L25.91 96.43a4.89 4.89 0 002 7.17L50.89 114 86 149.11l10.44 23a4.89 4.89 0 007.16 2.05l24.64-16.35a4.87 4.87 0 002.18-4.4l-2.16-32.31 25.88-23.62C169 84 178.56 65.43 181.47 44.32l3.44-21.16a7 7 0 00-8.07-8.07zm-39 67.8a14.67 14.67 0 110-20.75 14.67 14.67 0 01.02 20.75zM73.59 153.49l-27.08-27.08a1.94 1.94 0 00-2.71 0c-1.47 1.42-3.49 3.42-4.21 4.14C15.67 154.44 15 185 15 185s30.56-.67 54.48-24.59c.72-.72 2.72-2.74 4.14-4.21a1.94 1.94 0 00-.03-2.71z" />
+  </svg>
+);
+
+const ScopeChip: React.FC<{ label: string; scopeType?: VariableScopeType }> = ({ label, scopeType }) => (
+  <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs mr-1 select-none">
+    {scopeType === VariableScopeType.Environment ? <EnvironmentIcon /> : null}
+    {scopeType === VariableScopeType.Channel ? <ChannelIcon /> : null}
+    {scopeType === VariableScopeType.Role ? <RoleIcon /> : null}
+    {scopeType === VariableScopeType.Machine ? <MachineIcon /> : null}
+    {scopeType === VariableScopeType.Process ? <ProcessIcon /> : null}
     {label}
   </span>
 );
@@ -218,8 +356,9 @@ const ScopeCell: React.FC<{
   entry: VariableDto;
   editorOpen: boolean;
   onEditorOpenChange: (open: boolean) => void;
+  getScopeLabel: (scope: VariableScopeDto) => string;
   editorContent: React.ReactNode;
-}> = ({ entry, editorOpen, onEditorOpenChange, editorContent }) => (
+}> = ({ entry, editorOpen, onEditorOpenChange, getScopeLabel, editorContent }) => (
   <div className="w-full">
     <Popover
       trigger="click"
@@ -232,7 +371,11 @@ const ScopeCell: React.FC<{
       <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 min-w-0 cursor-pointer">
         {entry.scopes.length > 0 ? (
           entry.scopes.map((s, i) => (
-            <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${i}`} label={s.scopeValue} />
+            <ScopeChip
+              key={`${s.scopeType}-${s.scopeValue}-${i}`}
+              label={getScopeLabel(s)}
+              scopeType={s.scopeType}
+            />
           ))
         ) : (
           <span className="text-gray-400 text-xs font-mono hover:text-gray-600">Define scope</span>
@@ -273,8 +416,9 @@ const SingleVariableRow: React.FC<{
   onRowMenuAction: (entry: VariableDto, key: string) => void;
   scopeEditorOpen: boolean;
   onScopeEditorOpenChange: (entry: VariableDto, open: boolean) => void;
+  getScopeLabel: (scope: VariableScopeDto) => string;
   scopeEditorContent: React.ReactNode;
-}> = ({ entry, onNameChange, onValueChange, isModified, rowMenuItems, onRowMenuAction, scopeEditorOpen, onScopeEditorOpenChange, scopeEditorContent }) => (
+}> = ({ entry, onNameChange, onValueChange, isModified, rowMenuItems, onRowMenuAction, scopeEditorOpen, onScopeEditorOpenChange, getScopeLabel, scopeEditorContent }) => (
   <div className="flex items-center hover:bg-gray-50 border-b border-gray-200" style={{ minHeight: ROW_HEIGHT }}>
     <div style={{ width: NAME_COL_WIDTH }} className="px-3">
       <InlineVariableInput value={entry.name} onChange={(next) => onNameChange(entry.id, next)} />
@@ -283,7 +427,13 @@ const SingleVariableRow: React.FC<{
       <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
     </div>
     <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
-      <ScopeCell entry={entry} editorOpen={scopeEditorOpen} onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)} editorContent={scopeEditorContent} />
+      <ScopeCell
+        entry={entry}
+        editorOpen={scopeEditorOpen}
+        onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)}
+        getScopeLabel={getScopeLabel}
+        editorContent={scopeEditorContent}
+      />
     </div>
     <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 flex items-center justify-end">
       <RowControlActions isModified={isModified} rowMenuItems={rowMenuItems} onMenuAction={(key) => onRowMenuAction(entry, key)} />
@@ -300,6 +450,7 @@ const MultiVariableGroup: React.FC<{
   onRowMenuAction: (entry: VariableDto, key: string) => void;
   scopeEditorTarget: ScopeEditorTarget;
   onScopeEditorOpenChange: (entry: VariableDto, open: boolean) => void;
+  getScopeLabel: (scope: VariableScopeDto) => string;
   scopeEditorContent: React.ReactNode;
 }> = ({
   group,
@@ -310,6 +461,7 @@ const MultiVariableGroup: React.FC<{
   onRowMenuAction,
   scopeEditorTarget,
   onScopeEditorOpenChange,
+  getScopeLabel,
   scopeEditorContent,
 }) => {
   const firstEntry = group.entries[0];
@@ -341,7 +493,13 @@ const MultiVariableGroup: React.FC<{
             <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
           </div>
           <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
-            <ScopeCell entry={entry} editorOpen={scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id} onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)} editorContent={scopeEditorContent} />
+            <ScopeCell
+              entry={entry}
+              editorOpen={scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id}
+              onEditorOpenChange={(open) => onScopeEditorOpenChange(entry, open)}
+              getScopeLabel={getScopeLabel}
+              editorContent={scopeEditorContent}
+            />
           </div>
           <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center justify-end">
             <RowControlActions isModified={isVariableModified(entry)} rowMenuItems={getRowMenuItems(entry, false)} onMenuAction={(key) => onRowMenuAction(entry, key)} />
@@ -367,13 +525,76 @@ const ProjectVariables: React.FC = () => {
   const [draftValueRows, setDraftValueRows] = useState<DraftValueRow[]>([createDraftValueRow()]);
   const [localVariables, setLocalVariables] = useState<VariableDto[]>([]);
   const [originalVariables, setOriginalVariables] = useState<VariableDto[]>([]);
+  const [projectScopeContext, setProjectScopeContext] = useState<ProjectScopeContext | null>(null);
   const [scopeOptionsLoading, setScopeOptionsLoading] = useState(false);
-  const [environmentOptions, setEnvironmentOptions] = useState<{ value: string; label: string }[]>([]);
-  const [targetTagOptions, setTargetTagOptions] = useState<{ value: string; label: string }[]>([]);
-  const [targetOptions, setTargetOptions] = useState<{ value: string; label: string }[]>([]);
+  const [environmentOptions, setEnvironmentOptions] = useState<ScopeOption[]>([]);
+  const [targetTagOptions, setTargetTagOptions] = useState<ScopeOption[]>([]);
+  const [targetOptions, setTargetOptions] = useState<ScopeOption[]>([]);
+  const [channelOptions, setChannelOptions] = useState<ScopeOption[]>([]);
+  const [actionOptions, setActionOptions] = useState<ScopeOption[]>([]);
+  const [processOptions, setProcessOptions] = useState<ScopeOption[]>([]);
   const [scopeEditorTarget, setScopeEditorTarget] = useState<ScopeEditorTarget>(null);
-  const [scopeEditor, setScopeEditor] = useState<ScopeEditorState>({ environments: [], targetTags: [], targets: [] });
+  const [scopeEditor, setScopeEditor] = useState<ScopeEditorState>({
+    environments: [],
+    targetTags: [],
+    targets: [],
+    channels: [],
+    actions: [],
+    processes: [],
+  });
   const [variableSetId, setVariableSetId] = useState<number | null>(null);
+  const scopeOptionContext: ScopeOptionContext = useMemo(
+    () => ({
+      environments: environmentOptions,
+      targetTags: targetTagOptions,
+      targets: targetOptions,
+      channels: channelOptions,
+      actions: actionOptions,
+      processes: processOptions,
+    }),
+    [environmentOptions, targetTagOptions, targetOptions, channelOptions, actionOptions, processOptions],
+  );
+
+  const environmentNameById = useMemo(
+    () => new Map(environmentOptions.map((option) => [option.value, option.label])),
+    [environmentOptions],
+  );
+  const machineNameById = useMemo(
+    () => new Map(targetOptions.map((option) => [option.value, option.label])),
+    [targetOptions],
+  );
+  const roleNameByValue = useMemo(
+    () => new Map(targetTagOptions.map((option) => [option.value, option.label])),
+    [targetTagOptions],
+  );
+  const channelNameById = useMemo(
+    () => new Map(channelOptions.map((option) => [option.value, option.label])),
+    [channelOptions],
+  );
+  const actionNameById = useMemo(
+    () => new Map(actionOptions.map((option) => [option.value, option.label])),
+    [actionOptions],
+  );
+  const processNameById = useMemo(
+    () => new Map(processOptions.map((option) => [option.value, option.label])),
+    [processOptions],
+  );
+
+  const getScopeLabel = (scope: VariableScopeDto): string => {
+    const raw = (scope.scopeValue ?? '').trim();
+    if (!raw) return '';
+
+    if (scope.scopeType === VariableScopeType.Environment) return environmentNameById.get(raw) ?? raw;
+    if (scope.scopeType === VariableScopeType.Machine) return machineNameById.get(raw) ?? raw;
+    if (scope.scopeType === VariableScopeType.Role) return roleNameByValue.get(raw) ?? raw;
+    if (scope.scopeType === VariableScopeType.Channel) return channelNameById.get(raw) ?? raw;
+    if (scope.scopeType === VariableScopeType.Action) {
+      return actionNameById.get(raw) ?? raw;
+    }
+    if (scope.scopeType === VariableScopeType.Process) return processNameById.get(raw) ?? raw;
+
+    return raw;
+  };
 
   // Step 1: resolve project → variableSetId
   useEffect(() => {
@@ -381,7 +602,20 @@ const ProjectVariables: React.FC = () => {
     getProjects({ pageSize: 500 })
       .then((res) => {
         const project = res.projects.find((p) => p.slug === projectName || p.name === projectName);
-        if (project) setVariableSetId(project.variableSetId);
+        if (!project) {
+          setProjectScopeContext(null);
+          setVariableSetId(null);
+          return;
+        }
+
+        setProjectScopeContext({
+          id: project.id,
+          name: project.name,
+          spaceId: project.spaceId,
+          variableSetId: project.variableSetId,
+          deploymentProcessId: project.deploymentProcessId,
+        });
+        setVariableSetId(project.variableSetId);
       })
       .catch(() => {});
   }, [projectName]);
@@ -404,29 +638,80 @@ const ProjectVariables: React.FC = () => {
 
   // Step 3: load scope options
   useEffect(() => {
-    if (!space.id) return;
+    if (!space.id || !projectScopeContext) return;
     setScopeOptionsLoading(true);
     Promise.all([
       getEnvironments({ pageIndex: 1, pageSize: 1000, spaceId: space.id }),
       getTargetTags(),
       getMachines({ pageIndex: 1, pageSize: 1000, spaceId: space.id }),
+      getChannels({ pageIndex: 1, pageSize: 1000, projectId: projectScopeContext.id }),
+      getDeploymentSteps({ processId: projectScopeContext.deploymentProcessId, pageIndex: 1, pageSize: 1000 }),
     ])
-      .then(([envRes, tagRes, machineRes]) => {
+      .then(([envRes, tagRes, machineRes, channelRes, stepRes]) => {
         const scopedTags = (tagRes.targetTags ?? []).filter((t) => t.spaceId === space.id);
         const scopedMachines = (machineRes.machines ?? []).filter((m) => m.spaceId === space.id);
+        const scopedChannels = (channelRes.channels ?? []).filter((c) => c.projectId === projectScopeContext.id);
+
+        const nextEnvironmentOptions = uniqueScopeOptions(
+          (envRes.environments ?? []).map((env) => ({
+            value: String(env.id),
+            label: env.name,
+          })),
+        );
+
+        const nextTargetTagOptions = uniqueScopeOptions(
+          (scopedTags.length > 0 ? scopedTags : tagRes.targetTags ?? []).map((tag) => ({
+            value: tag.name.trim(),
+            label: tag.name,
+          })),
+        );
+
+        const nextTargetOptions = uniqueScopeOptions(
+          (scopedMachines.length > 0 ? scopedMachines : machineRes.machines ?? []).map((machine) => ({
+            value: String(machine.id),
+            label: machine.name,
+          })),
+        );
+
+        const nextChannelOptions = uniqueScopeOptions(
+          (scopedChannels.length > 0 ? scopedChannels : channelRes.channels ?? []).map((channel) => ({
+            value: String(channel.id),
+            label: channel.name,
+          })),
+        );
+
+        const nextActionOptions = uniqueScopeOptions(
+          (stepRes.steps ?? []).flatMap((step) =>
+            (step.actions ?? []).map((action) => ({
+              value: String(action.id),
+              label: formatActionScopeLabel(step.stepOrder, step.name, action.name, action.id),
+            })),
+          ),
+        );
+
+        const nextProcessOptions = uniqueScopeOptions([
+          {
+            value: String(projectScopeContext.deploymentProcessId),
+            label: `${projectScopeContext.name} deployment process`,
+          },
+        ]);
+
         setEnvironmentOptions(
-          uniqueStringValues((envRes.environments ?? []).map((e) => e.name)).map((n) => ({ value: n, label: n })),
+          nextEnvironmentOptions,
         );
         setTargetTagOptions(
-          uniqueStringValues((scopedTags.length > 0 ? scopedTags : tagRes.targetTags ?? []).map((t) => t.name)).map((n) => ({ value: n, label: n })),
+          nextTargetTagOptions,
         );
         setTargetOptions(
-          uniqueStringValues((scopedMachines.length > 0 ? scopedMachines : machineRes.machines ?? []).map((m) => m.name)).map((n) => ({ value: n, label: n })),
+          nextTargetOptions,
         );
+        setChannelOptions(nextChannelOptions);
+        setActionOptions(nextActionOptions);
+        setProcessOptions(nextProcessOptions);
       })
       .catch(() => message.error('Failed to load scope options'))
       .finally(() => setScopeOptionsLoading(false));
-  }, [space.id]);
+  }, [space.id, projectScopeContext]);
 
   const filteredVariables = useMemo(
     () => localVariables.filter((v) => v.name.toLowerCase().includes(searchText.toLowerCase())),
@@ -501,13 +786,13 @@ const ProjectVariables: React.FC = () => {
   const handleScopeEditorOpenChange = (entry: VariableDto, open: boolean) => {
     if (!open) { if (scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id) setScopeEditorTarget(null); return; }
     setScopeEditorTarget({ kind: 'existing', id: entry.id });
-    setScopeEditor(toScopeEditorState(entry.scopes ?? []));
+    setScopeEditor(toScopeEditorState(entry.scopes ?? [], scopeOptionContext));
   };
 
   const handleDraftScopeEditorOpenChange = (row: DraftValueRow, open: boolean) => {
     if (!open) { if (scopeEditorTarget?.kind === 'draft' && scopeEditorTarget.id === row.id) setScopeEditorTarget(null); return; }
     setScopeEditorTarget({ kind: 'draft', id: row.id });
-    setScopeEditor(toScopeEditorState(row.scopes));
+    setScopeEditor(toScopeEditorState(row.scopes, scopeOptionContext));
   };
 
   const applyScopeEditorStateToTarget = (nextEditor: ScopeEditorState) => {
@@ -607,6 +892,18 @@ const ProjectVariables: React.FC = () => {
         <label className="block text-sm text-gray-700 mb-1.5">Select targets</label>
         <Select mode="multiple" value={scopeEditor.targets} onChange={(v) => handleScopeEditorChange({ targets: v })} options={targetOptions} loading={scopeOptionsLoading} placeholder="Select targets" className="w-full" allowClear showSearch />
       </div>
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select channels</label>
+        <Select mode="multiple" value={scopeEditor.channels} onChange={(v) => handleScopeEditorChange({ channels: v })} options={channelOptions} loading={scopeOptionsLoading} placeholder="Select channels" className="w-full" allowClear showSearch />
+      </div>
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select deployment steps</label>
+        <Select mode="multiple" value={scopeEditor.actions} onChange={(v) => handleScopeEditorChange({ actions: v })} options={actionOptions} loading={scopeOptionsLoading} placeholder="Select deployment steps" className="w-full" allowClear showSearch optionFilterProp="label" />
+      </div>
+      <div>
+        <label className="block text-sm text-gray-700 mb-1.5">Select deployment processes</label>
+        <Select mode="multiple" value={scopeEditor.processes} onChange={(v) => handleScopeEditorChange({ processes: v })} options={processOptions} loading={scopeOptionsLoading} placeholder="Select deployment processes" className="w-full" allowClear showSearch optionFilterProp="label" />
+      </div>
     </div>
   );
 
@@ -655,7 +952,13 @@ const ProjectVariables: React.FC = () => {
                 <Popover trigger="click" open={scopeEditorTarget?.kind === 'draft' && scopeEditorTarget.id === row.id} onOpenChange={(open) => handleDraftScopeEditorOpenChange(row, open)} content={scopeEditorContent} placement="bottomLeft" destroyTooltipOnHide>
                   <div className="w-full min-h-[28px] py-1 flex items-center flex-wrap gap-0.5 cursor-pointer">
                     {row.scopes.length > 0 ? (
-                      row.scopes.map((s, i) => <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${i}`} label={s.scopeValue} />)
+                      row.scopes.map((s, i) => (
+                        <ScopeChip
+                          key={`${s.scopeType}-${s.scopeValue}-${i}`}
+                          label={getScopeLabel(s)}
+                          scopeType={s.scopeType}
+                        />
+                      ))
                     ) : (
                       <span className="text-gray-400 text-xs font-mono hover:text-gray-600">Define scope</span>
                     )}
@@ -705,6 +1008,7 @@ const ProjectVariables: React.FC = () => {
                   onRowMenuAction={handleRowMenuAction}
                   scopeEditorOpen={scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === group.entries[0].id}
                   onScopeEditorOpenChange={handleScopeEditorOpenChange}
+                  getScopeLabel={getScopeLabel}
                   scopeEditorContent={scopeEditorContent}
                 />
               ) : (
@@ -718,6 +1022,7 @@ const ProjectVariables: React.FC = () => {
                   onRowMenuAction={handleRowMenuAction}
                   scopeEditorTarget={scopeEditorTarget}
                   onScopeEditorOpenChange={handleScopeEditorOpenChange}
+                  getScopeLabel={getScopeLabel}
                   scopeEditorContent={scopeEditorContent}
                 />
               ),

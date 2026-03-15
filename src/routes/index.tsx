@@ -146,6 +146,16 @@ const routes = [
               },
               {
                 path: "process",
+                redirect: "deployments/process",
+                name: "ProcessLegacy",
+              },
+              {
+                path: "process/*",
+                component: Process,
+                name: "ProcessLegacyWildcard",
+              },
+              {
+                path: "deployments/process/*",
                 component: Process,
                 name: "Process",
               },

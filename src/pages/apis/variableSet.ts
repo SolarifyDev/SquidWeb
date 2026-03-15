@@ -38,7 +38,9 @@ export enum VariableScopeType {
   Role = 3,
   // 渠道作用域
   Channel = 4,
-  // 步骤作用域
+  // 部署步骤作用域
+  Action = 5,
+  // 兼容旧命名
   Step = 5,
   // 进程作用域
   Process = 6,
@@ -223,6 +225,14 @@ function normalizeScopeType(value: unknown): VariableScopeType {
   }
 
   if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'environment') return VariableScopeType.Environment
+    if (normalized === 'machine') return VariableScopeType.Machine
+    if (normalized === 'role') return VariableScopeType.Role
+    if (normalized === 'channel') return VariableScopeType.Channel
+    if (normalized === 'action' || normalized === 'step') return VariableScopeType.Action
+    if (normalized === 'process') return VariableScopeType.Process
+
     const fromName = VariableScopeType[value as keyof typeof VariableScopeType]
     if (typeof fromName === 'number') return fromName as VariableScopeType
   }

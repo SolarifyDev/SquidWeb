@@ -7,6 +7,7 @@ export interface StepEditorHandle {
 export interface StepEditorProps {
   step: DeploymentStepDto | null
   processId: number
+  projectId?: number | null
   spaceId: string
   stepIndex: number | null
   onSave: (savedStep: DeploymentStepDto) => void
