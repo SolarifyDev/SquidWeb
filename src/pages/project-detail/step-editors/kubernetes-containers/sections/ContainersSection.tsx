@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { Input, Select, Radio, Modal, Tooltip } from 'antd'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { Input, Select, Radio, Modal, Tooltip, AutoComplete } from 'antd'
 import { PlusOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { type ContainerSpec, type ProbeConfig, defaultContainer } from '../types'
-import { getExternalFeeds, type ExternalFeedDto } from 'pages/apis/externalFeed'
+import { getExternalFeeds, searchExternalFeedPackages, type ExternalFeedDto } from 'pages/apis/externalFeed'
 import { getRegistryHost } from '../generateYaml'
 
 interface ContainersSectionProps {
@@ -146,6 +146,44 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
   packageId: string
   onFeedChange: (feedId: number | null, packageId: string) => void
 }) {
+  const [packageSearchTerm, setPackageSearchTerm] = useState(packageId)
+  const [packageSearchOptions, setPackageSearchOptions] = useState<string[]>([])
+  const [packageSearchLoading, setPackageSearchLoading] = useState(false)
+  const packageSearchRequestId = useRef(0)
+
+  useEffect(() => {
+    setPackageSearchTerm(packageId)
+  }, [packageId])
+
+  useEffect(() => {
+    const query = packageSearchTerm.trim()
+    if (!feedId || !query) {
+      setPackageSearchOptions([])
+      setPackageSearchLoading(false)
+      return
+    }
+
+    const requestId = ++packageSearchRequestId.current
+    const timer = window.setTimeout(() => {
+      setPackageSearchLoading(true)
+      searchExternalFeedPackages({ feedId, query, take: 20 })
+        .then((res) => {
+          if (requestId !== packageSearchRequestId.current) return
+          setPackageSearchOptions((res.packages ?? []).filter((pkg) => Boolean(pkg)))
+        })
+        .catch(() => {
+          if (requestId !== packageSearchRequestId.current) return
+          setPackageSearchOptions([])
+        })
+        .finally(() => {
+          if (requestId !== packageSearchRequestId.current) return
+          setPackageSearchLoading(false)
+        })
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [feedId, packageSearchTerm])
+
   const registryHost = getRegistryHost(feeds.find((f) => f.id === feedId))
   const imagePreview = registryHost && packageId ? `${registryHost}/${packageId}` : packageId
 
@@ -190,12 +228,25 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Package ID</label>
-              <Input
-                size="small"
+              <AutoComplete
+                className="w-full"
                 value={packageId}
-                onChange={(e) => onFeedChange(feedId, e.target.value)}
-                placeholder="my-image"
-              />
+                allowClear
+                options={packageSearchOptions.map((value) => ({ value }))}
+                onSearch={setPackageSearchTerm}
+                onSelect={(value) => {
+                  setPackageSearchTerm(value)
+                  onFeedChange(feedId, value)
+                }}
+                onChange={(value) => {
+                  setPackageSearchTerm(value)
+                  onFeedChange(feedId, value)
+                }}
+                filterOption={false}
+                notFoundContent={feedId && packageSearchTerm.trim() ? (packageSearchLoading ? 'Searching packages...' : 'No packages found') : null}
+              >
+                <Input size="small" placeholder="my-image" />
+              </AutoComplete>
               <p className="text-xs text-slate-400 mt-1 mb-0">
                 Enter the ID of the package (image name within the registry, without tag).
                 {imagePreview && <> Image: <code className="text-xs bg-slate-100 px-1 rounded">{imagePreview}:&lt;version&gt;</code></>}
@@ -647,8 +698,8 @@ export function ContainersSection({ containers, onChange, feedId, packageId, onF
           feeds={feeds}
           feedsLoading={feedsLoading}
           onRefreshFeeds={loadFeeds}
-          feedId={draft.FeedId ?? feedId}
-          packageId={draft.PackageId || packageId}
+          feedId={draft.FeedId}
+          packageId={draft.PackageId}
           onFeedChange={(fid, pid) => setDraft({ ...draft, FeedId: fid, PackageId: pid })}
         />
       </Modal>

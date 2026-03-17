@@ -78,3 +78,23 @@ export interface TestExternalFeedResult {
 export function testExternalFeed(id: number) {
   return post<TestExternalFeedResult>('/external-feeds/test', { id })
 }
+
+export interface SearchExternalFeedPackagesRequest {
+  feedId: number
+  query: string
+  take?: number
+}
+
+export interface SearchExternalFeedPackagesResponseData {
+  packages: string[]
+}
+
+export function searchExternalFeedPackages(params: SearchExternalFeedPackagesRequest) {
+  const query = {
+    feedId: params.feedId,
+    query: params.query,
+    take: params.take ?? 20,
+  }
+
+  return get<SearchExternalFeedPackagesResponseData>('/external-feeds/search-packages', { params: query })
+}
