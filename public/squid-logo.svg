@@ -1,0 +1,28 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="squidRocket" x1="42" y1="214" x2="198" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#24C7EE"/>
+      <stop offset="1" stop-color="#7A54B5"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="rotate(18 128 128)">
+    <path
+      d="M162 38C180 36 192 45 190 63C186 101 166 134 135 160C111 180 85 188 66 183C56 180 51 171 54 161C61 139 78 114 104 88C128 64 148 47 162 38Z"
+      fill="url(#squidRocket)"
+    />
+    <path
+      d="M106 146C94 156 83 163 72 167C64 170 57 166 54 158C52 152 55 145 62 142C74 137 85 130 95 121L106 146Z"
+      fill="url(#squidRocket)"
+    />
+    <path
+      d="M133 160C127 170 122 182 120 194C118 203 111 208 103 206C95 204 90 196 92 188C95 175 101 161 109 148L133 160Z"
+      fill="url(#squidRocket)"
+    />
+    <circle cx="162" cy="72" r="12" fill="#F8FAFC"/>
+
+    <path d="M72 181C56 187 46 199 45 214" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M98 188C82 199 72 215 69 233" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M121 178C110 188 102 200 101 214" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
+  </g>
+</svg>

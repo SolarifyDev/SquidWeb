@@ -53,7 +53,6 @@ const Tasks: React.FC = () => {
   const [project, setProject] = useState('all');
   const [runbook, setRunbook] = useState('all');
   const [environment, setEnvironment] = useState('all');
-  const [tenant, setTenant] = useState('all');
   const [dateField, setDateField] = useState('');
   
   // Script Console states
@@ -62,27 +61,7 @@ const Tasks: React.FC = () => {
   const [scriptLanguage, setScriptLanguage] = useState('PowerShell');
   const [scriptBody, setScriptBody] = useState('');
 
-  // 模拟数据
-  const tasksData: TaskData[] = [
-    {
-      key: '1',
-      state: 'Executing',
-      taskName: 'Deploy Customer Intention in MTR release 0.0.7 to TEST',
-      taskDate: 'November 7th 2025',
-      startTime: 'Friday, November 7, 2025 3:28 PM +08:00',
-      completedTime: 'Friday, November 7, 2025 3:29 PM +08:00',
-      duration: '1 minute',
-    },
-    {
-      key: '2',
-      state: 'Success',
-      taskName: 'Deploy Smarties.Api release 6.0.1-mixture-v6.1-3550 to TEST',
-      taskDate: 'November 7th 2025',
-      startTime: 'Friday, November 7, 2025 3:24 PM +08:00',
-      completedTime: 'Friday, November 7, 2025 3:27 PM +08:00',
-      duration: '2 minutes',
-    }
-  ];
+  const tasksData: TaskData[] = [];
 
   const renderStateCell = (state: string) => {
     if (state === 'Executing') {
@@ -192,7 +171,6 @@ const Tasks: React.FC = () => {
     setProject('all');
     setRunbook('all');
     setEnvironment('all');
-    setTenant('all');
     setDateField('');
   };
 
@@ -302,7 +280,6 @@ const Tasks: React.FC = () => {
               { label: 'By project', value: project, setter: setProject, options: ['All projects'] },
               { label: 'By runbook', value: runbook, setter: setRunbook, options: ['All runbooks'] },
               { label: 'By environment', value: environment, setter: setEnvironment, options: ['All environments'] },
-              { label: 'By tenant', value: tenant, setter: setTenant, options: ['All tenants'] },
             ].map((filter, index) => (
               <div key={index} className="mb-4">
                 <label className="text-xs text-gray-500 mb-2 block">{filter.label}</label>
@@ -411,12 +388,12 @@ const Tasks: React.FC = () => {
                   </Radio>
                   <Radio value="environments">
                     <span className="text-sm">
-                      Run the script on all deployment targets in set of environments, roles, and tenants
+                      Run the script on all deployment targets in set of environments and roles
                     </span>
                   </Radio>
                   <Radio value="server">
                     <span className="text-sm">
-                      Run the script on the Octopus Server
+                      Run the script on the Squid Server
                     </span>
                   </Radio>
                 </Radio.Group>

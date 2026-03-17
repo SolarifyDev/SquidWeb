@@ -1,0 +1,231 @@
+/* Global Octopus-like dropdown style */
+
+/* Ant Design Select: underline-only trigger */
+.ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  border: 0 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.ant-select.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: 38px !important;
+  padding-left: 0 !important;
+  padding-right: 28px !important;
+}
+
+.ant-select.ant-select-single .ant-select-selection-item,
+.ant-select.ant-select-single .ant-select-selection-placeholder {
+  line-height: 36px !important;
+}
+
+.ant-select.ant-select-multiple:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: 38px !important;
+  padding-left: 0 !important;
+  padding-right: 28px !important;
+  padding-top: 4px !important;
+  padding-bottom: 2px !important;
+}
+
+.ant-select.ant-select-multiple .ant-select-selection-placeholder {
+  margin-left: 0 !important;
+}
+
+.ant-select.ant-select-multiple .ant-select-selection-item {
+  background: #f1f5f9 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  color: #334155 !important;
+}
+
+.ant-select-focused:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector,
+.ant-select-open:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector {
+  border-bottom-color: #2563eb !important;
+}
+
+.ant-select-arrow {
+  color: #64748b !important;
+}
+
+.ant-select-clear {
+  inset-inline-end: 22px !important;
+}
+
+/* Ant Design Select popup menu */
+.ant-select-dropdown {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12) !important;
+  padding: 4px 0 !important;
+}
+
+.ant-select-item {
+  min-height: 34px !important;
+  padding: 6px 12px !important;
+}
+
+.ant-select-item-option-state {
+  display: none !important;
+}
+
+.ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: #f8fafc !important;
+}
+
+.ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: #eff6ff !important;
+  color: #2563eb !important;
+  font-weight: 500 !important;
+}
+
+/* Ant Design Dropdown menu (actions/overflow) */
+.ant-dropdown .ant-dropdown-menu {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12) !important;
+  padding: 4px 0 !important;
+}
+
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item,
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-submenu-title {
+  min-height: 34px !important;
+  padding: 6px 12px !important;
+}
+
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item:hover,
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-submenu-title:hover {
+  background: #f8fafc !important;
+}
+
+/* Native select helper class (for places that still use <select>) */
+.octo-native-select {
+  width: 100%;
+  min-height: 38px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #94a3b8;
+  border-radius: 0;
+  padding: 0 1.75rem 0 0;
+  color: #334155;
+  appearance: none;
+  outline: none;
+}
+
+.octo-native-select:focus {
+  border-bottom-color: #2563eb;
+}
+
+/* Octopus-like underline input (single-line text input) */
+.octo-underline-input.ant-input {
+  border: 0 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.octo-underline-input.ant-input:hover {
+  border-color: transparent !important;
+  border-bottom-color: #94a3b8 !important;
+}
+
+.octo-underline-input.ant-input:focus,
+.octo-underline-input.ant-input:focus-visible {
+  border-color: transparent !important;
+  border-bottom-color: #2563eb !important;
+  box-shadow: none !important;
+}
+
+/* Global Octopus-like input style (Ant Design Input / TextArea / InputNumber) */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number {
+  border: 0 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper {
+  padding-left: 0 !important;
+}
+
+.ant-input-affix-wrapper .ant-input {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding-left: 0 !important;
+}
+
+.ant-input-number-input {
+  padding-left: 0 !important;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover {
+  border-color: transparent !important;
+  border-bottom-color: #94a3b8 !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper:focus-within,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused {
+  border-color: transparent !important;
+  border-bottom-color: #2563eb !important;
+  box-shadow: none !important;
+}
+
+.ant-input-status-error:not(.ant-input-disabled),
+.ant-input-affix-wrapper-status-error:not(.ant-input-affix-wrapper-disabled),
+.ant-input-number-status-error:not(.ant-input-number-disabled) {
+  border-bottom-color: #ef4444 !important;
+}
+
+.ant-input-status-warning:not(.ant-input-disabled),
+.ant-input-affix-wrapper-status-warning:not(.ant-input-affix-wrapper-disabled),
+.ant-input-number-status-warning:not(.ant-input-number-disabled) {
+  border-bottom-color: #f59e0b !important;
+}
+
+/* Global native text-like inputs (excluding special controls) */
+input[type='text']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='search']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='email']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='password']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='number']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='url']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+input[type='tel']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']),
+textarea:not(.ant-input):not([class*='visuallyHidden']) {
+  border: 0;
+  border-bottom: 1px solid #94a3b8;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  outline: none;
+}
+
+input[type='text']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='search']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='email']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='password']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='number']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='url']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+input[type='tel']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
+textarea:not(.ant-input):not([class*='visuallyHidden']):focus {
+  border-bottom-color: #2563eb;
+}
+
+/* If input explicitly opts out with Tailwind border-0, don't add underline */
+input[class*='border-0']:not(.ant-input),
+textarea[class*='border-0']:not(.ant-input) {
+  border-bottom: 0 !important;
+}

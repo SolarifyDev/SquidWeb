@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import 'tailwindcss/tailwind.css'
+import 'assets/octo-dropdown.css'
 import App from 'components/App'
 import { BrowserRouter as Router } from 'react-router-dom'
 

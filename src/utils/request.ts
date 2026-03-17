@@ -4,30 +4,22 @@ import axios, {
   AxiosResponse,
   AxiosError,
 } from 'axios'
+import { clearAuthSession, getAuthToken } from 'utils/auth'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL as
   | string
   | undefined
 
-// 统一获取 token 的方法，如果你的项目里 key 不同可以在这里改
-function getToken(): string | null {
-  try {
-    return window.localStorage.getItem('AUTH_TOKEN')
-  } catch {
-    return null
-  }
-}
-
 // 创建 axios 实例
 const instance: AxiosInstance = axios.create({
-  baseURL: 'https://test-squid.solarifyai.com/api',
+  baseURL: 'https://localhost:7078/api',
   timeout: 15000,
 })
 
 // 请求拦截：自动注入 token
 instance.interceptors.request.use(
   (config) => {
-    const token = getToken()
+    const token = getAuthToken()
 
     if (token) {
       if (!config.headers) {
@@ -47,6 +39,18 @@ instance.interceptors.request.use(
 instance.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      clearAuthSession()
+      try {
+        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`
+        if (!window.location.pathname.startsWith('/users/sign-in')) {
+          const redirect = encodeURIComponent(currentPath)
+          window.location.assign(`/users/sign-in?redirect=${redirect}`)
+        }
+      } catch {
+        // ignore navigation errors in non-browser contexts
+      }
+    }
     // 例如：统一处理未登录
     // if (error.response?.status === 401) {
     //   // TODO: 跳转登录页 / 清理本地状态等
@@ -136,4 +140,3 @@ export default {
   put,
   delete: del,
 }
-

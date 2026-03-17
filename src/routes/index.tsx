@@ -2,15 +2,33 @@ import Project from 'pages/project'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
+import VariableSetDetail from 'pages/variablesets/detail'
+import LegacyVariableSetsRedirect from 'pages/variablesets/LegacyVariableSetsRedirect'
 import ExternalFeeds from 'pages/externalfeeds'
+import CertificatesPage from 'pages/certificates'
 import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
+import AddDeploymentTargetPage from 'pages/deploymentTargets/add'
+import DeploymentTargetDetailPage from 'pages/deploymentTargets/detail'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
+import Accounts from 'pages/accounts'
+import AccountsCreatePage from 'pages/accounts/create'
+import AccountsDetailPage from 'pages/accounts/detail'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
-import { redirect } from "react-router-dom";
-import path from "path";
+import Process from "pages/project-detail/DeploymentProcess";
+import ProjectVariables from "pages/project-detail/ProjectVariables";
+import ProjectVariableSets from "pages/project-detail/ProjectVariableSets";
+import ProjectAllVariables from "pages/project-detail/ProjectAllVariables";
+import Channels from "pages/project-detail/Channels";
+import ChannelDetail from "pages/project-detail/ChannelDetail";
+import Releases from "pages/project-detail/Releases";
+import ReleasesCreate from "pages/project-detail/ReleasesCreate";
+import ReleaseDetail from "pages/project-detail/ReleaseDetail";
+import DeployCreate from "pages/project-detail/DeployCreate";
+import DeploymentDetail from "pages/project-detail/DeploymentDetail";
+import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
 
 const routes = [
   {
@@ -18,124 +36,210 @@ const routes = [
     children: [
       {
         path: "",
-        redirect: "project",
+        redirect: "Spaces-1/projects",
       },
       {
-        path: "variable",
-        component: VariableSets,
-        name: "Variable Sets",
-      },
-      {
-        path: "deployment/targets",
-        component: Project,
-        name: "Deployment Targets",
-      },
-      {
-        path: "environments",
-        component: Project,
-        name: "Environments",
-      },
-      {
-        path: "machine/policies",
-        component: Project,
-        name: "Machine Policies",
-      },
-      {
-        path: "external/feeds",
-        component: Project,
-        name: "External Feeds",
-      },
-      {
-        path: "lifecycles",
-        component: Project,
-        name: "Lifecycles",
-      },
-      {
-        path: "project",
-        component: Project,
-        name: "Project",
-      },
-      {
-        path: "project/:projectName/project-detail",
-        component: ProjectDetail,
-        name: "ProjectDetail",
+        path: ":spaceId",
         children: [
           {
             path: "",
-            redirect: "deployments",
+            redirect: "projects",
           },
           {
-            path: "deployments",
-            component: Deployments,
-            name: "Deployments",
+            path: "projects",
+            component: Project,
+            name: "Project",
+          },
+          {
+            path: "library/variables",
+            component: VariableSets,
+            name: "Variable Sets",
+          },
+          {
+            path: "library/variables/:id",
+            component: VariableSetDetail,
+            name: "Variable Set Detail",
+          },
+          {
+            path: "variable",
+            component: LegacyVariableSetsRedirect,
+            name: "VariableSetsLegacyRedirect",
+          },
+          {
+            path: "variable/:id",
+            component: LegacyVariableSetsRedirect,
+            name: "VariableSetLegacyRedirect",
+          },
+          {
+            path: "deployment/targets/add",
+            component: AddDeploymentTargetPage,
+            name: "Add Deployment Target",
+          },
+          {
+            path: "deployment/targets/:targetId/:tab?",
+            component: DeploymentTargetDetailPage,
+            name: "Deployment Target Detail",
+          },
+          {
+            path: "deployment/targets",
+            component: DeploymentTargets,
+            name: "Deployment Targets",
+          },
+          {
+            path: "environments",
+            component: Environments,
+            name: "Environments",
+          },
+          {
+            path: "machine/policies",
+            component: MachinePolicies,
+            name: "Machine Policies",
+          },
+          {
+            path: "infrastructure/accounts",
+            component: Accounts,
+            name: "Accounts",
+          },
+          {
+            path: "infrastructure/accounts/create",
+            component: AccountsCreatePage,
+            name: "AccountsCreate",
+          },
+          {
+            path: "infrastructure/accounts/:accountSlug",
+            component: AccountsDetailPage,
+            name: "AccountsDetail",
+          },
+          {
+            path: "external/feeds",
+            component: ExternalFeeds,
+            name: "External Feeds",
+          },
+          {
+            path: "library/certificates",
+            component: CertificatesPage,
+            name: "Certificates",
+          },
+          {
+            path: "lifecycles",
+            component: Lifecycles,
+            name: "Lifecycles",
+          },
+          {
+            path: "projects/:projectName/project-detail/*",
+            component: LegacyProjectDetailRedirect,
+            name: "ProjectDetailLegacyRedirect",
+          },
+          {
+            path: "projects/:projectName",
+            component: ProjectDetail,
+            name: "ProjectDetail",
+            children: [
+              {
+                path: "",
+                redirect: "deployments",
+              },
+              {
+                path: "deployments",
+                component: Deployments,
+                name: "Deployments",
+              },
+              {
+                path: "process",
+                redirect: "deployments/process",
+                name: "ProcessLegacy",
+              },
+              {
+                path: "process/*",
+                component: Process,
+                name: "ProcessLegacyWildcard",
+              },
+              {
+                path: "deployments/process/*",
+                component: Process,
+                name: "Process",
+              },
+              {
+                path: "channels",
+                redirect: "deployments/channels",
+                name: "ChannelsLegacy",
+              },
+              {
+                path: "channels/edit/:channelId",
+                component: ChannelDetail,
+                name: "ChannelDetailLegacy",
+              },
+              {
+                path: "deployments/channels",
+                component: Channels,
+                name: "Channels",
+              },
+              {
+                path: "deployments/channels/edit/:channelId",
+                component: ChannelDetail,
+                name: "ChannelDetail",
+              },
+              {
+                path: "releases",
+                component: Releases,
+                name: "Releases",
+              },
+              {
+                path: "releases/create",
+                component: ReleasesCreate,
+                name: "ReleasesCreate",
+              },
+              {
+                path: "releases/:version/deployments/create",
+                component: DeployCreate,
+                name: "DeployCreate",
+              },
+              {
+                path: "releases/:version/deployments/:deploymentId",
+                component: DeploymentDetail,
+                name: "DeploymentDetail",
+              },
+              {
+                // Backward-compatible route
+                path: "releases/:version/deploy",
+                component: DeployCreate,
+                name: "DeployCreateLegacy",
+              },
+              {
+                path: "releases/:version",
+                component: ReleaseDetail,
+                name: "ReleaseDetail",
+              },
+              {
+                path: "variables",
+                component: ProjectVariables,
+                name: "ProjectVariables",
+              },
+              {
+                path: "variables/library",
+                component: ProjectVariableSets,
+                name: "ProjectVariableSets",
+              },
+              {
+                path: "variables/all",
+                component: ProjectAllVariables,
+                name: "ProjectAllVariables",
+              },
+            ],
           },
         ],
       },
+      {
+        path: "tasks",
+        component: Tasks,
+        name: "Tasks",
+      },
+      {
+        path: "*",
+        component: NotFound,
+        name: "404",
+      },
     ],
-  },
-  {
-    path: '/deploy/variable',
-    component: VariableSets,
-    name: 'Variable Sets',
-    meta: {
-      icon: '⚙️',
-      showInNav: true
-    }
-  },
-  {
-    path: '/deploy/deployment/targets',
-    component: DeploymentTargets,
-    name: 'Deployment Targets',
-    meta: {
-      icon: '🏠',
-      showInNav: true
-    }
-  },
-  {
-    path: '/deploy/environments',
-    component: Environments,
-    name: 'Environments',
-    meta: {
-      icon: '🏠',
-      showInNav: true
-    }
-  },
-  {
-    path: '/deploy/machine/policies',
-    component: MachinePolicies,
-    name: 'Machine Policies',
-    meta: {
-      icon: '🏠',
-      showInNav: true
-    }
-  },
-  {
-    path: '/deploy/external/feeds',
-    component: ExternalFeeds,
-    name: 'External Feeds',
-    meta: {
-      icon: '🏠',
-      showInNav: true
-    }
-  },
-  {
-    path: '/deploy/lifecycles',
-    component: Lifecycles,
-    name: 'Lifecycles',
-    meta: {
-      icon: '🏠',
-      showInNav: true
-    }
-  },
-  {
-    path: '/tasks',
-    component: Tasks,
-    name: "Tasks",
-  },
-  {
-    path: "*",
-    component: NotFound,
-    name: "404",
   },
 ];
 
