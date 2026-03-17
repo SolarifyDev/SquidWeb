@@ -1,4 +1,3 @@
-
 FROM node:18-alpine AS node
 
 FROM nginx:stable-alpine
