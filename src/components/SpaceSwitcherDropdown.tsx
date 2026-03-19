@@ -122,14 +122,14 @@ const CheckIcon: React.FC = () => (
 
 interface SpaceSwitcherDropdownProps {
   spaces: SpaceDto[];
-  currentSpaceSlug: string;
+  currentSpaceId: number;
   onSelectSpace: (space: SpaceDto) => void;
   onClose: () => void;
 }
 
 const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
   spaces,
-  currentSpaceSlug,
+  currentSpaceId,
   onSelectSpace,
   onClose,
 }) => {
@@ -193,7 +193,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
       {/* Space list */}
       <div className="py-1">
         {spaces.map(space => {
-          const isActive = space.slug === currentSpaceSlug;
+          const isActive = space.id === currentSpaceId;
           return (
             <button
               key={space.id}

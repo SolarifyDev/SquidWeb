@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useBeforeUnload, useLocation, useNavigate } from 'react-router-dom'
-import { Dropdown, Modal, Spin, message, type MenuProps } from 'antd'
+import { Dropdown, Modal, Select, Spin, message, type MenuProps } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
-import { getProjects } from 'pages/apis/project'
+import { getProjects, updateProject, type ProjectDto } from 'pages/apis/project'
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjectProgression } from 'pages/apis/projectProgression'
 import {
@@ -46,10 +46,10 @@ function stepLogoUrl(spaceId: string, actionType: string) {
 
 function actionSummary(actionType: string): string {
   const map: Record<string, string> = {
-    'Squid.Manual': 'Manual intervention required',
-    'Squid.ManualIntervention': 'Manual intervention required',
+    'Squid.Manual': 'Manual intervention',
+    'Squid.ManualIntervention': 'Manual intervention',
     'Squid.Script': 'Run a script',
-    'Squid.KubernetesDeployContainers': 'Deploy containers to Kubernetes',
+    'Squid.KubernetesDeployContainers': 'Deploy containers to Kubernetes, optionally exposed by a service and an ingress rule.',
     'Squid.KubernetesDeployRawYaml': 'Deploy Kubernetes YAML',
     'Squid.HelmChartUpgrade': 'Deploy a Helm Chart',
     'Squid.Kubernetes.Kustomize': 'Deploy with Kustomize',
@@ -60,6 +60,25 @@ function actionSummary(actionType: string): string {
     'Squid.AwsRunScript': 'Run an AWS CLI Script',
   }
   return map[actionType] ?? actionType.replace(/^Squid\./, '')
+}
+
+function normalizeStepDisabled(step: DeploymentStepDto): DeploymentStepDto {
+  const actions = (step.actions ?? []).map((action) => ({ ...action }))
+  const isDisabled = Boolean(step.isDisabled || actions.some((action) => action.isDisabled))
+  const normalizedActions = isDisabled
+    ? actions.map((action) => ({ ...action, isDisabled: Boolean(action.isDisabled || step.isDisabled) }))
+    : actions
+
+  return {
+    ...step,
+    isDisabled,
+    actions: normalizedActions,
+    properties: step.properties ?? [],
+  }
+}
+
+function normalizeSteps(steps: DeploymentStepDto[]): DeploymentStepDto[] {
+  return steps.map(normalizeStepDisabled).sort((a, b) => a.stepOrder - b.stepOrder)
 }
 
 // ── Category SVG icons ────────────────────────────────────────────────────────
@@ -386,6 +405,25 @@ function stepTemplateTitle(actionType: string): string {
   return template?.title ?? actionSummary(actionType)
 }
 
+function EnvironmentScopeIcon() {
+  return (
+    <svg viewBox="0 0 200 200" width="12" height="12" aria-hidden="true">
+      <path fill="currentColor" d="M14 30v35h172V30zm26 26H23V39h17zM14 83v35h95V83zm26 26H23V92h17zM14 134v35h172v-35zm26 26H23v-17h17z" />
+    </svg>
+  )
+}
+
+function EnvironmentScopeChip({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 shadow-sm">
+      <span className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+        <EnvironmentScopeIcon />
+      </span>
+      <span className="break-all">{label}</span>
+    </span>
+  )
+}
+
 // ── Check icon ─────────────────────────────────────────────────────────────────
 
 function CheckIcon() {
@@ -605,12 +643,22 @@ function StepDetailPanel({ step, spaceId }: { step: DeploymentStepDto; spaceId: 
 
 // ── Step logo with fallback ────────────────────────────────────────────────────
 
-function StepLogoImg({ actionType, spaceId, name }: { actionType: string; spaceId: string; name: string }) {
+function StepLogoImg({
+  actionType,
+  spaceId,
+  name,
+  className,
+}: {
+  actionType: string
+  spaceId: string
+  name: string
+  className?: string
+}) {
   const [failed, setFailed] = React.useState(false)
 
   if (failed) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-slate-400">
+      <div className={`w-full h-full flex items-center justify-center text-slate-400 ${className ?? ''}`}>
         <KubernetesSvg />
       </div>
     )
@@ -620,7 +668,7 @@ function StepLogoImg({ actionType, spaceId, name }: { actionType: string; spaceI
     <img
       src={stepLogoUrl(spaceId, actionType)}
       alt={name}
-      className="w-full h-full object-contain"
+      className={className ?? 'w-full h-full object-contain'}
       onError={() => setFailed(true)}
     />
   )
@@ -751,73 +799,79 @@ function OverviewStepItem({
   envMap: Record<number, string>
 }) {
   const firstAction = step.actions[0]
-  const envNames = (firstAction?.environments ?? []).map((id) => envMap[id]).filter(Boolean)
+  const isFirst = index === 0
+  const envNames = Array.from(
+    new Set(
+      (step.actions ?? [])
+        .flatMap((action) => action.environments ?? [])
+        .map((id) => envMap[id])
+        .filter(Boolean),
+    ),
+  )
   const summary = firstAction ? actionSummary(firstAction.actionType) : ''
   const isLast = index === total - 1
 
   return (
-    <div className="group relative flex gap-3">
-      {/* Connector column */}
-      <div className="flex flex-col items-center flex-shrink-0" style={{ width: 32 }}>
-        <div className="relative z-10 w-8 h-8 rounded-full bg-white border-2 border-slate-300 flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0">
-          {index + 1}
-        </div>
-        {!isLast && (
-          <div className="w-px bg-slate-200 my-1" style={{ flex: 1, minHeight: 16 }} />
-        )}
-      </div>
+    <div className="relative flex gap-4 px-2 py-3">
+      {!isFirst ? <div className="absolute left-[64px] right-0 top-0 h-px bg-slate-200" /> : null}
+      {!isFirst ? <div className="absolute left-[27px] top-0 h-3 w-px bg-slate-200" /> : null}
+      {!isLast ? <div className="absolute left-[27px] top-[52px] bottom-0 w-px bg-slate-200" /> : null}
 
-      {/* Logo */}
-      <div className="flex-shrink-0" style={{ opacity: step.isDisabled ? 0.4 : 1 }}>
-        <div className="rounded border border-slate-200 bg-slate-50 overflow-hidden" style={{ width: 36, height: 36 }}>
-          {firstAction && (
-            <img
-              src={stepLogoUrl(spaceId, firstAction.actionType)}
-              alt={step.name}
-              className="w-full h-full object-contain"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className={`flex-1 min-w-0 ${isLast ? 'pb-2' : 'pb-6'}`}>
-        <div className="flex items-center gap-2 flex-wrap mb-0.5">
-          <span className={`font-semibold text-sm leading-snug ${step.isDisabled ? 'text-slate-400' : 'text-slate-800'}`}>
-            {step.name}
-          </span>
-          {step.isDisabled && (
-            <span className="text-[10px] font-medium bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200">
-              Disabled
-            </span>
-          )}
-        </div>
-        {summary && (
-          <p className="text-xs text-slate-500 m-0 mb-1.5 leading-relaxed">{summary}</p>
-        )}
-        {envNames.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {envNames.map((name) => (
-              <span
-                key={name}
-                className="text-[10px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200"
-              >
-                {name}
-              </span>
-            ))}
+      <div className="relative flex-shrink-0" style={{ width: 40 }}>
+        <div className="relative z-10" style={{ opacity: step.isDisabled ? 0.5 : 1 }}>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+            {firstAction ? (
+              <StepLogoImg
+                actionType={firstAction.actionType}
+                spaceId={spaceId}
+                name={step.name}
+                className={`h-full w-full object-contain ${step.isDisabled ? 'grayscale' : ''}`}
+              />
+            ) : null}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Overflow button */}
-      <button
-        className="flex-shrink-0 self-start mt-0.5 p-1.5 rounded text-slate-300 hover:text-slate-500 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-all"
-        aria-label="Step options"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <MoreOutlined style={{ fontSize: 14 }} />
-      </button>
+      <div className={`min-w-0 flex-1 ${isLast ? 'pb-1' : 'pb-2'}`}>
+        <div className="min-w-0 flex-1 flex items-start gap-1">
+          <span className="w-5 flex-shrink-0 text-right text-sm font-semibold leading-snug text-slate-800">
+            {index + 1}.
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-sm font-semibold leading-snug ${step.isDisabled ? 'text-squid-blue/60' : 'text-squid-blue'}`}>
+                {step.name}
+              </span>
+              {step.isDisabled && (
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-transparent px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                  Disabled
+                </span>
+              )}
+            </div>
+
+            {summary ? (
+              <div className={`mt-1.5 max-w-2xl text-sm leading-6 ${step.isDisabled ? 'text-slate-400' : 'text-slate-600'}`}>
+                {summary}
+              </div>
+            ) : null}
+
+            {envNames.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {envNames.map((name) => (
+                  <EnvironmentScopeChip key={name} label={name} />
+                ))}
+              </div>
+            ) : null}
+
+            {step.isDisabled && (
+              <div className="mt-1 text-xs text-slate-400">
+                This step is disabled and will be skipped during deployment.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -826,6 +880,9 @@ function OverviewStepItem({
 
 const LINK_BTN =
   'inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue/40 text-squid-blue hover:border-squid-blue hover:bg-squid-blue/[0.04] transition-colors no-underline cursor-pointer select-none'
+
+const PRIMARY_BTN =
+  'inline-flex items-center px-3 py-[5px] text-[13px] font-medium rounded border border-squid-blue bg-squid-blue text-white hover:bg-[#1469b4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
 
 const ICON_BTN =
   'flex items-center justify-center w-8 h-8 rounded-full text-slate-500 hover:bg-slate-100 transition-colors'
@@ -888,27 +945,61 @@ function ProcessOverview({
   loading,
   spaceId,
   lifecycle,
+  lifecycleOptions,
   envMap,
   onAddStep,
   onStepClick,
+  onLifecycleChange,
 }: {
   steps: DeploymentStepDto[]
   loading: boolean
   spaceId: string
   lifecycle: LifecycleDto | null
+  lifecycleOptions: LifecycleDto[]
   envMap: Record<number, string>
   onAddStep: () => void
   onStepClick: (step: DeploymentStepDto) => void
+  onLifecycleChange: (lifecycleId: number) => Promise<void>
 }) {
   const [search, setSearch] = useState('')
+  const [changeLifecycleOpen, setChangeLifecycleOpen] = useState(false)
+  const [changeLifecycleId, setChangeLifecycleId] = useState<number | null>(lifecycle?.id ?? null)
+  const [changeLifecycleSaving, setChangeLifecycleSaving] = useState(false)
+  const [showLifecyclePreview, setShowLifecyclePreview] = useState(false)
   const filtered = search
     ? steps.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
     : steps
+  const previewLifecycle = changeLifecycleId == null
+    ? null
+    : lifecycleOptions.find((item) => item.id === changeLifecycleId) ?? null
+
+  const openChangeLifecycleDialog = () => {
+    setChangeLifecycleId(lifecycle?.id ?? null)
+    setShowLifecyclePreview(false)
+    setChangeLifecycleOpen(true)
+  }
+
+  const closeChangeLifecycleDialog = () => {
+    if (changeLifecycleSaving) return
+    setChangeLifecycleOpen(false)
+    setShowLifecyclePreview(false)
+  }
+
+  const saveLifecycleChange = async () => {
+    if (changeLifecycleId == null) return
+    setChangeLifecycleSaving(true)
+    try {
+      await onLifecycleChange(changeLifecycleId)
+      setChangeLifecycleOpen(false)
+    } finally {
+      setChangeLifecycleSaving(false)
+    }
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+      <div className="relative flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
         <h1 className="text-xl font-semibold text-slate-800 m-0">Process</h1>
         <div className="flex items-center gap-2">
           <a href="#" title="Create Release" role="link" className={LINK_BTN}>
@@ -932,7 +1023,8 @@ function ProcessOverview({
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3 px-6 py-2.5 flex-shrink-0">
+      <div className="relative flex items-center gap-3 px-6 py-2.5 flex-shrink-0">
+        <div className="pointer-events-none absolute right-[280px] top-0 bottom-0 w-px bg-slate-200" />
         <div className="flex items-center gap-2 border-b border-slate-300 pb-1.5" style={{ maxWidth: 320 }}>
           <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
@@ -967,13 +1059,13 @@ function ProcessOverview({
                 </button>
               </div>
             ) : (
-              <div className="px-6 pt-6 pb-4">
+              <div className="pl-6 pr-0 pt-6 pb-4">
                 {filtered.map((step, i) => (
                   <button
                     key={step.id}
                     type="button"
                     onClick={() => onStepClick(step)}
-                    className="w-full text-left rounded-lg hover:bg-slate-50 transition-colors px-2 py-1"
+                    className="relative block w-full text-left transition-colors hover:bg-slate-50"
                   >
                     <OverviewStepItem
                       step={step}
@@ -990,31 +1082,38 @@ function ProcessOverview({
         </div>
 
         {/* Right sidebar */}
-        <div className="flex-shrink-0 border-l border-slate-200 overflow-y-auto p-5" style={{ width: 248 }}>
+        <div className="flex-shrink-0 border-l border-slate-200 overflow-y-auto pt-0 pb-5 pr-5 pl-3" style={{ width: 280 }}>
           {/* Lifecycle */}
-          <div className="mb-6">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Lifecycle</div>
+          <div className="mb-0">
+            <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Lifecycle</div>
             {lifecycle ? (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
-                  <a href="#" className="text-sm font-medium text-squid-blue hover:underline truncate mr-2">
+                  <a
+                    href={`/${spaceId}/lifecycles?lifecycleId=${lifecycle.id}&lifecycleSlug=${encodeURIComponent(lifecycle.slug)}`}
+                    className="text-sm font-medium text-squid-blue hover:underline truncate mr-2"
+                  >
                     {lifecycle.name}
                   </a>
-                  <button className="text-xs text-slate-400 hover:text-slate-600 flex-shrink-0">Change</button>
+                  <button type="button" className={LINK_BTN} onClick={openChangeLifecycleDialog}>Change</button>
                 </div>
-                <div className="flex flex-wrap gap-1.5 items-center">
+                <div className="relative flex flex-col gap-1.5">
                   {lifecycle.phases.map((phase, i) => (
-                    <React.Fragment key={phase.id}>
-                      {i > 0 && (
-                        <svg viewBox="0 0 16 16" width="8" height="8" className="text-slate-300 flex-shrink-0" fill="currentColor">
-                          <path d="M5 3l6 5-6 5V3z" />
-                        </svg>
-                      )}
-                      <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
-                        {phase.name}
-                      </span>
-                    </React.Fragment>
+                    <div key={phase.id} className="relative flex items-center gap-2 min-h-[22px]">
+                      <div className="absolute -left-3 top-1/2 h-px w-3 -translate-y-1/2 bg-slate-200" />
+                      <div className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                        {i < lifecycle.phases.length - 1 ? <div className="absolute left-1/2 top-4 h-[14px] w-px -translate-x-1/2 bg-slate-300" /> : null}
+                        <div className="h-3.5 w-3.5 rounded-[2px] border border-slate-400 bg-slate-300" />
+                      </div>
+                      <span className="text-sm font-medium text-slate-700">{phase.name}</span>
+                    </div>
                   ))}
+                </div>
+                <div className="mt-4 text-sm text-slate-500">
+                  Lifecycles can be defined{' '}
+                  <a href={`/${spaceId}/lifecycles`} className="text-squid-blue hover:underline">
+                    here
+                  </a>
                 </div>
               </div>
             ) : (
@@ -1022,13 +1121,145 @@ function ProcessOverview({
             )}
           </div>
 
-          {/* Script Modules */}
-          <div>
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">Script Modules</div>
-            <a href="#" className="text-xs text-squid-blue hover:underline">Include Script Modules</a>
-          </div>
         </div>
       </div>
+
+      <Modal open={changeLifecycleOpen} onCancel={closeChangeLifecycleDialog} footer={null} width={560} centered destroyOnClose maskClosable={!changeLifecycleSaving}>
+        <div className="flex h-full w-full flex-col">
+          <div className="px-6 py-4">
+            <h2 className="m-0 text-lg font-semibold text-slate-800">Change lifecycle</h2>
+          </div>
+          <div className="px-6 py-5">
+            <div className="mb-4">
+              <label className="mb-2 block text-sm font-medium text-slate-600">Lifecycle</label>
+              <Select
+                value={changeLifecycleId ?? undefined}
+                onChange={(value) => {
+                  setChangeLifecycleId(value)
+                  setShowLifecyclePreview(false)
+                }}
+                options={lifecycleOptions.map((item) => ({ value: item.id, label: item.name }))}
+                className="w-full"
+                size="large"
+              />
+            </div>
+            <button
+              type="button"
+              className="inline-flex text-sm font-medium text-squid-blue hover:underline"
+              onClick={() => setShowLifecyclePreview((prev) => !prev)}
+            >
+              Show Lifecycle
+            </button>
+
+            {showLifecyclePreview && previewLifecycle ? (
+              <div className="mt-4">
+                <div className="text-sm text-slate-500 whitespace-pre-wrap">
+                  {previewLifecycle.description ?? ''}
+                </div>
+                <div className="mt-3 bg-white px-1 py-2">
+                  {(previewLifecycle.phases ?? []).length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-4">
+                      <div className="text-sm font-medium text-slate-700">Uses default conventions</div>
+                      <div className="mt-1 text-xs text-slate-500 leading-relaxed">
+                        Deployments can progress through environments in their configured order unless explicit phases are added.
+                      </div>
+                    </div>
+                  ) : (
+                    <ul className="m-0 list-none p-0">
+                      {previewLifecycle.phases.map((phase, index) => {
+                        const isLast = index === previewLifecycle.phases.length - 1
+                        const displayName = phase.name || `Phase ${index + 1}`
+                        const isOptionalPhase = Boolean(phase.isOptionalPhase)
+                        const minimum = phase.minimumEnvironmentsBeforePromotion ?? 0
+                        const progressionText = isOptionalPhase
+                          ? 'Optional phase'
+                          : minimum > 0
+                            ? `Progress after ${minimum} environment${minimum > 1 ? 's' : ''}`
+                            : 'Progress after all environments'
+
+                        const environments = [
+                          ...(phase.automaticDeploymentTargetIds ?? []).map((id) => ({ id, auto: true })),
+                          ...(phase.optionalDeploymentTargetIds ?? []).map((id) => ({ id, auto: false })),
+                        ]
+
+                        return (
+                          <li key={phase.id || `${phase.name}-${index}`} className={isLast ? '' : 'pb-3'}>
+                            <div className="flex">
+                              <div className="flex flex-col items-center pt-1" style={{ width: 18 }}>
+                                <span
+                                  className={[
+                                    'inline-block',
+                                    isOptionalPhase ? 'border border-slate-400 bg-white' : 'bg-slate-500',
+                                  ].join(' ')}
+                                  style={{ width: '8px', height: '8px', borderRadius: '999px' }}
+                                />
+                                {!isLast ? <div className="bg-slate-300 mt-1" style={{ width: '1px', height: '100%' }} /> : null}
+                              </div>
+
+                              <div className="ml-2.5 flex-1">
+                                <div className="text-sm text-slate-800">
+                                  <span className="font-semibold">{displayName}</span>
+                                  {isOptionalPhase ? <span className="text-slate-500"> (optional)</span> : null}
+                                  {phase.isPriorityPhase ? (
+                                    <span className="ml-2 text-[11px] rounded-full bg-orange-50 text-orange-700 border border-orange-100 px-2 py-0.5 align-middle">
+                                      Priority
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="text-xs text-slate-500 mt-1">{progressionText}</div>
+
+                                {environments.length === 0 ? (
+                                  <div className="mt-2 text-xs text-slate-500">
+                                    Any environment (not explicitly named in another phase)
+                                  </div>
+                                ) : (
+                                  <ul className="mt-2 mb-0 list-none p-0 space-y-1">
+                                    {environments.map((env, envIndex) => {
+                                      const envName = envMap[env.id] ?? `Environment #${env.id}`
+                                      return (
+                                        <li
+                                          key={`${phase.id || index}-${env.id}-${env.auto ? 'a' : 'm'}-${envIndex}`}
+                                          className="flex items-center gap-2 text-sm text-slate-700"
+                                          title={env.auto ? 'Automatically deploy to this environment' : 'Manually deploy to this environment'}
+                                        >
+                                          <span
+                                            className={[
+                                              'inline-block',
+                                              env.auto ? 'bg-squid-blue' : 'border border-slate-400 bg-white',
+                                            ].join(' ')}
+                                            style={{ width: '7px', height: '7px', borderRadius: '999px' }}
+                                          />
+                                          <span>{envName}</span>
+                                          <span className="text-xs text-slate-400">{env.auto ? '(auto)' : ''}</span>
+                                        </li>
+                                      )
+                                    })}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex justify-end gap-2 px-6 py-4">
+            <button type="button" className={LINK_BTN} onClick={closeChangeLifecycleDialog} disabled={changeLifecycleSaving}>Cancel</button>
+            <button
+              type="button"
+              className={PRIMARY_BTN}
+              onClick={saveLifecycleChange}
+              disabled={changeLifecycleSaving || changeLifecycleId == null || changeLifecycleId === lifecycle?.id}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -1043,6 +1274,8 @@ const Process: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [steps, setSteps] = useState<DeploymentStepDto[]>([])
   const [lifecycle, setLifecycle] = useState<LifecycleDto | null>(null)
+  const [lifecycleOptions, setLifecycleOptions] = useState<LifecycleDto[]>([])
+  const [projectDetail, setProjectDetail] = useState<ProjectDto | null>(null)
   const [envMap, setEnvMap] = useState<Record<number, string>>({})
   const [sidebarFilter, setSidebarFilter] = useState('')
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null)
@@ -1082,6 +1315,7 @@ const Process: React.FC = () => {
           (p) => p.slug === projectName || p.name === projectName
         )
         if (!project) return
+        setProjectDetail(project)
         setProjectId(project.id)
         setProcessId(project.deploymentProcessId)
 
@@ -1091,10 +1325,11 @@ const Process: React.FC = () => {
           getProjectProgression(project.id),
         ])
 
-        setSteps([...stepsRes.steps].sort((a, b) => a.stepOrder - b.stepOrder))
+        setSteps(normalizeSteps([...stepsRes.steps]))
+        setLifecycleOptions(lifecyclesRes.lifecycles)
 
         const lc = lifecyclesRes.lifecycles.find((l) => l.id === project.lifecycleId)
-        if (lc) setLifecycle(lc)
+        setLifecycle(lc ?? null)
 
         const map: Record<number, string> = {}
         for (const env of progressionRes.environments) {
@@ -1108,6 +1343,23 @@ const Process: React.FC = () => {
       }
     })()
   }, [projectName])
+
+  const handleLifecycleChange = async (nextLifecycleId: number) => {
+    if (!projectDetail) return
+    if (projectDetail.lifecycleId === nextLifecycleId) return
+
+    const payload: ProjectDto = { ...projectDetail, lifecycleId: nextLifecycleId }
+    try {
+      const updatedProject = await updateProject({ id: projectDetail.id, project: payload })
+      setProjectDetail(updatedProject)
+      const nextLifecycle = lifecycleOptions.find((item) => item.id === nextLifecycleId) ?? null
+      setLifecycle(nextLifecycle)
+      message.success('Lifecycle changed')
+    } catch {
+      message.error('Failed to change lifecycle')
+      throw new Error('Failed to change lifecycle')
+    }
+  }
 
   const filteredSteps = sidebarFilter
     ? steps.filter((s) => s.name.toLowerCase().includes(sidebarFilter.toLowerCase()))
@@ -1349,13 +1601,31 @@ const Process: React.FC = () => {
 
   const closeStepOverflowMenu = () => setStepOverflowMenu(null)
 
-  const handleToggleStepDisabled = () => {
+  const handleToggleStepDisabled = async () => {
     if (!overflowStep) return
-    setSteps((prev) => prev.map((s) => (
-      s.id === overflowStep.id ? { ...s, isDisabled: !s.isDisabled } : s
-    )))
+    const stepToUpdate = overflowStep
+    const nextIsDisabled = !stepToUpdate.isDisabled
+    const nextStep = {
+      ...stepToUpdate,
+      isDisabled: nextIsDisabled,
+      actions: (stepToUpdate.actions ?? []).map((action) => ({ ...action, isDisabled: nextIsDisabled })),
+    }
     closeStepOverflowMenu()
-    message.success(overflowStep.isDisabled ? 'Step enabled' : 'Step disabled')
+
+    try {
+      const saved = normalizeStepDisabled(await updateDeploymentStep({ id: stepToUpdate.id, step: nextStep }))
+      setSteps((prev) => normalizeSteps(prev.map((s) => (s.id === saved.id ? saved : s))))
+      if (selectedStepId === saved.id) {
+        setEditingTemplate((prev) => (
+          prev && prev.step?.id === saved.id
+            ? { ...prev, step: saved, actionType: saved.actions[0]?.actionType ?? prev.actionType }
+            : prev
+        ))
+      }
+      message.success(saved.isDisabled ? 'Step disabled' : 'Step enabled')
+    } catch {
+      message.error('Failed to update step')
+    }
   }
 
   const handleDeleteStep = () => {
@@ -1462,7 +1732,7 @@ const Process: React.FC = () => {
     }
 
     // Optimistic reorder in UI immediately after Done.
-    setSteps(reorderedAll)
+    setSteps(normalizeSteps(reorderedAll))
     setEditingTemplate((prev) => {
       if (!prev?.step) return prev
       const latest = reorderedAll.find((step) => step.id === prev.step!.id)
@@ -1488,13 +1758,12 @@ const Process: React.FC = () => {
         ? result
         : (await getDeploymentSteps({ processId, pageSize: 500 })).steps
 
-      const nextSteps = (fullList && fullList.length > 0 ? fullList : reorderedAll)
+      const nextSteps = normalizeSteps((fullList && fullList.length > 0 ? fullList : reorderedAll)
         .map((step) => ({
           ...step,
           actions: step.actions ?? [],
           properties: step.properties ?? [],
-        }))
-        .sort((a, b) => a.stepOrder - b.stepOrder)
+        })))
 
       setSteps(nextSteps)
       setEditingTemplate((prev) => {
@@ -1535,9 +1804,11 @@ const Process: React.FC = () => {
         loading={loading}
         spaceId={spaceId}
         lifecycle={lifecycle}
+        lifecycleOptions={lifecycleOptions}
         envMap={envMap}
         onAddStep={() => setMode('editor')}
         onStepClick={(step) => executeEditorNavigation({ type: 'selectStep', stepId: step.id, switchToEditor: true })}
+        onLifecycleChange={handleLifecycleChange}
       />
     )
   }
@@ -1687,19 +1958,20 @@ const Process: React.FC = () => {
                   spaceId={spaceId}
                   stepIndex={steps.length}
                   onSave={(savedStep) => {
+                    const normalizedSavedStep = normalizeStepDisabled(savedStep)
                     setSteps((prev) => {
-                      const exists = prev.some((s) => s.id === savedStep.id)
+                      const exists = prev.some((s) => s.id === normalizedSavedStep.id)
                       const merged = exists
-                        ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
-                        : [...prev, savedStep]
-                      return merged.sort((a, b) => a.stepOrder - b.stepOrder)
+                        ? prev.map((s) => (s.id === normalizedSavedStep.id ? normalizedSavedStep : s))
+                        : [...prev, normalizedSavedStep]
+                      return normalizeSteps(merged)
                     })
                     setDraftTemplateActionType(null)
                     setDraftStepName('')
-                    setEditingTemplate({ actionType: savedStep.actions[0]?.actionType ?? draftTemplateActionType, step: savedStep })
-                    setSelectedStepId(savedStep.id)
+                    setEditingTemplate({ actionType: normalizedSavedStep.actions[0]?.actionType ?? draftTemplateActionType, step: normalizedSavedStep })
+                    setSelectedStepId(normalizedSavedStep.id)
                     setUnsavedChanges(false)
-                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(savedStep) })
+                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(normalizedSavedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {
                       const continueRouteLeave = pendingSaveRouteLeaveRef.current
@@ -1735,21 +2007,22 @@ const Process: React.FC = () => {
                   spaceId={spaceId}
                   stepIndex={steps.findIndex((s) => s.id === editingTemplate.step!.id)}
                   onSave={(savedStep) => {
+                    const normalizedSavedStep = normalizeStepDisabled(savedStep)
                     setSteps((prev) => {
-                      const exists = prev.some((s) => s.id === savedStep.id)
+                      const exists = prev.some((s) => s.id === normalizedSavedStep.id)
                       const merged = exists
-                        ? prev.map((s) => (s.id === savedStep.id ? savedStep : s))
-                        : [...prev, savedStep]
-                      return merged.sort((a, b) => a.stepOrder - b.stepOrder)
+                        ? prev.map((s) => (s.id === normalizedSavedStep.id ? normalizedSavedStep : s))
+                        : [...prev, normalizedSavedStep]
+                      return normalizeSteps(merged)
                     })
                     setEditingTemplate((prev) => (
                       prev
-                        ? { ...prev, step: savedStep, actionType: savedStep.actions[0]?.actionType ?? prev.actionType }
+                        ? { ...prev, step: normalizedSavedStep, actionType: normalizedSavedStep.actions[0]?.actionType ?? prev.actionType }
                         : prev
                     ))
-                    setSelectedStepId(savedStep.id)
+                    setSelectedStepId(normalizedSavedStep.id)
                     setUnsavedChanges(false)
-                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(savedStep) })
+                    updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(normalizedSavedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {
                       const continueRouteLeave = pendingSaveRouteLeaveRef.current

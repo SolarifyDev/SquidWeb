@@ -45,7 +45,7 @@ const DeploySidebar: React.FC = () => {
   const menu = buildMenu(space.slug);
 
   return (
-    <div className="h-full w-full border-r border-slate-200/80 bg-white/95 backdrop-blur flex flex-col overflow-y-auto">
+    <div className="h-full w-full border-r border-slate-200/55 bg-white/95 backdrop-blur flex flex-col overflow-y-auto">
       <div className="px-5 pt-4 pb-2 border-b border-slate-100">
         <div className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
           Deploy

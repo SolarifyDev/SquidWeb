@@ -11,6 +11,7 @@ import {
 import { CollapsibleSection } from '../shared/CollapsibleSection'
 import { StepConditionsSection, type StepEnvironmentMode } from '../shared/StepConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { getTeams, type TeamDto } from 'pages/apis/team'
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 const ACTION_TYPE = 'Squid.Manual'
@@ -60,6 +61,13 @@ function parseTeamValues(rawValue: string | undefined): string[] {
   }
 
   return trimmed.split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function parseSpaceNumericId(spaceId: string): number {
+  const match = spaceId.match(/^Spaces-(\d+)$/i)
+  if (match) return Number(match[1])
+  const numeric = Number(spaceId)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1
 }
 
 function buildActionProperties(
@@ -162,6 +170,33 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
     const [packageRequirement, setPackageRequirement] = useState(step?.packageRequirement ?? 'LetSquidDecide')
     const [isRequired, setIsRequired] = useState(step?.isRequired ?? false)
     const [isDisabled, setIsDisabled] = useState(step?.isDisabled ?? false)
+    const [teamsLoading, setTeamsLoading] = useState(false)
+    const [teamOptions, setTeamOptions] = useState<TeamDto[]>([])
+
+    useEffect(() => {
+      const numericSpaceId = parseSpaceNumericId(spaceId)
+      let cancelled = false
+
+      setTeamsLoading(true)
+      getTeams({ spaceId: numericSpaceId })
+        .then((result) => {
+          if (cancelled) return
+          const teams = [...(result.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+          setTeamOptions(teams)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setTeamOptions([])
+        })
+        .finally(() => {
+          if (cancelled) return
+          setTeamsLoading(false)
+        })
+
+      return () => {
+        cancelled = true
+      }
+    }, [spaceId])
 
     useEffect(() => {
       onStepNameChange?.(stepName)
@@ -187,7 +222,7 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
         name: normalizedStepName,
         actionType: ACTION_TYPE,
         workerPoolId: action?.workerPoolId ?? null,
-        isDisabled: action?.isDisabled ?? false,
+        isDisabled,
         isRequired: action?.isRequired ?? false,
         canBeUsedForProjectVersioning: action?.canBeUsedForProjectVersioning ?? false,
         createdAt: action?.createdAt ?? new Date().toISOString(),
@@ -243,7 +278,16 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
     const displayName = stepName.trim() || 'Manual Intervention Required'
-    const teamSelectValue = responsibleTeams.length === 0 ? [EVERYONE_VALUE] : responsibleTeams
+    const teamSelectValue = responsibleTeams
+    const knownTeamIds = new Set(teamOptions.map((team) => String(team.id)))
+    const unknownResponsibleTeams = responsibleTeams
+      .filter((id) => !knownTeamIds.has(id))
+      .map((id) => ({ label: `Team #${id}`, value: id }))
+    const selectOptions = [
+      { label: 'Everyone', value: EVERYONE_VALUE },
+      ...teamOptions.map((team) => ({ label: team.name, value: String(team.id) })),
+      ...unknownResponsibleTeams,
+    ]
 
     return (
       <div className="flex flex-col h-full">
@@ -331,21 +375,22 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Responsible teams</label>
               <Select
-                mode="tags"
+                mode="multiple"
                 value={teamSelectValue}
-                options={[{ label: 'Everyone', value: EVERYONE_VALUE }]}
+                options={selectOptions}
                 onChange={(values) => {
-                  const selectedValues = (values as string[]).map((item) => item.trim()).filter(Boolean)
+                  const selectedValues = Array.from(new Set((values as string[]).map((item) => item.trim()).filter(Boolean)))
                   if (selectedValues.includes(EVERYONE_VALUE)) {
+                    // "Everyone" means no explicit team restriction.
                     setResponsibleTeams([])
                     return
                   }
                   setResponsibleTeams(selectedValues)
                 }}
                 placeholder="Everyone"
-                tokenSeparators={[',']}
                 size="small"
                 className="w-full"
+                loading={teamsLoading}
               />
             </div>
             <p className="text-xs text-slate-500 m-0">

@@ -29,8 +29,15 @@ import ReleaseDetail from "pages/project-detail/ReleaseDetail";
 import DeployCreate from "pages/project-detail/DeployCreate";
 import DeploymentDetail from "pages/project-detail/DeploymentDetail";
 import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
+import SettingsPage from 'pages/settings'
+import PersonalSettingsPage from 'pages/account/PersonalSettingsPage'
 
 const routes = [
+  {
+    path: "/users/me",
+    component: PersonalSettingsPage,
+    name: "PersonalSettings",
+  },
   {
     path: "/",
     children: [
@@ -124,6 +131,11 @@ const routes = [
             path: "lifecycles",
             component: Lifecycles,
             name: "Lifecycles",
+          },
+          {
+            path: 'settings/*',
+            component: SettingsPage,
+            name: 'Settings',
           },
           {
             path: "projects/:projectName/project-detail/*",

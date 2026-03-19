@@ -17,6 +17,7 @@ import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getReleases, type ReleaseDto } from 'pages/apis/release'
+import { getTeams } from 'pages/apis/team'
 import {
   cancelServerTask,
   getServerTaskDetails,
@@ -66,6 +67,22 @@ function parseDeploymentId(input: string | undefined): number | null {
   if (!suffix) return null
   const parsed = Number(suffix[1])
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseSpaceNumericId(spaceId: string | undefined): number {
+  const raw = String(spaceId ?? '')
+  const match = raw.match(/^Spaces-(\d+)$/i)
+  if (match) return Number(match[1])
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+function parseResponsibleTeamIds(rawValue: string | null | undefined): string[] {
+  if (!rawValue?.trim()) return []
+  return rawValue
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function formatRelative(value: string | null | undefined): string {
@@ -461,6 +478,7 @@ const DeploymentDetail: React.FC = () => {
   const [submittingInterruptionId, setSubmittingInterruptionId] = useState<number | null>(null)
   const [locallyClaimedInterruptionIds, setLocallyClaimedInterruptionIds] = useState<number[]>([])
   const [cancellingTask, setCancellingTask] = useState(false)
+  const [teamNameById, setTeamNameById] = useState<Record<string, string>>({})
 
   const authUser = useMemo(() => getAuthUser(), [])
   const currentUserIdentifier = useMemo(() => {
@@ -490,6 +508,15 @@ const DeploymentDetail: React.FC = () => {
   const shouldShowInterruptionPanel = taskHasPendingInterruptions || hasPendingInterruptionsByList || taskMayBeWaitingInterruption
   const activeInterruption = pendingInterruptions.length > 0 ? pendingInterruptions[0] : null
   const activeInterruptionAssignedUserId = activeInterruption?.responsibleUserId ?? null
+  const activeInterruptionTeamIds = useMemo(
+    () => parseResponsibleTeamIds(activeInterruption?.responsibleTeamIds),
+    [activeInterruption?.responsibleTeamIds],
+  )
+  const activeInterruptionTeamNames = useMemo(
+    () => activeInterruptionTeamIds.map((teamId) => teamNameById[teamId] ?? `Team #${teamId}`),
+    [activeInterruptionTeamIds, teamNameById],
+  )
+  const activeInterruptionCanTakeResponsibility = activeInterruption?.canTakeResponsibility ?? true
   const activeInterruptionAssignedToCurrentUser = useMemo(() => {
     if (activeInterruptionAssignedUserId == null) return false
     return currentUserCandidates.has(String(activeInterruptionAssignedUserId).trim().toLowerCase())
@@ -505,6 +532,9 @@ const DeploymentDetail: React.FC = () => {
   )
   const activeInterruptionRequiresAssignment = Boolean(
     activeInterruption != null && activeInterruptionAssignedUserId == null,
+  )
+  const activeInterruptionCanSubmit = Boolean(
+    activeInterruptionCanTakeResponsibility && activeInterruptionClaimedByCurrentUser,
   )
   const activeInterruptionTitle = interruptionTitle(activeInterruption)
   const showCancelButton = taskId != null && (
@@ -625,6 +655,13 @@ const DeploymentDetail: React.FC = () => {
 
         setProject(foundProject)
         setEnvironments(environmentRes?.environments ?? [])
+        const teamRes = await getTeams({ spaceId: parseSpaceNumericId(spaceId) }).catch(() => null)
+        if (cancelled) return
+        const nextTeamMap: Record<string, string> = {}
+        for (const team of teamRes?.teams ?? []) {
+          nextTeamMap[String(team.id)] = team.name
+        }
+        setTeamNameById(nextTeamMap)
 
         if (foundProject) {
           const [releaseRes, channelRes, lifecycleRes] = await Promise.all([
@@ -661,7 +698,7 @@ const DeploymentDetail: React.FC = () => {
     return () => {
       cancelled = true
     }
-  }, [deploymentId, projectName, decodedVersion])
+  }, [deploymentId, projectName, decodedVersion, spaceId])
 
   useEffect(() => {
     if (taskId == null) return
@@ -888,6 +925,11 @@ const DeploymentDetail: React.FC = () => {
       message.warning('Current user is unavailable, unable to take responsibility.')
       return
     }
+    const interruption = pendingInterruptions.find((item) => item.id === interruptionId)
+    if (interruption && interruption.canTakeResponsibility === false) {
+      message.warning('You are not a member of a responsible team for this interruption.')
+      return
+    }
 
     setResponsibilityLoadingId(interruptionId)
     try {
@@ -905,6 +947,10 @@ const DeploymentDetail: React.FC = () => {
 
   const handleSubmitInterruption = async (interruption: InterruptionDto, result: string) => {
     if (taskId == null) return
+    if (interruption.canTakeResponsibility === false) {
+      message.warning('You are not a member of a responsible team for this interruption.')
+      return
+    }
 
     setSubmittingInterruptionId(interruption.id)
     try {
@@ -1160,13 +1206,18 @@ const DeploymentDetail: React.FC = () => {
                         size="small"
                         type="primary"
                         loading={responsibilityLoadingId === activeInterruption.id}
-                        disabled={!currentUserIdentifier}
+                        disabled={!currentUserIdentifier || !activeInterruptionCanTakeResponsibility}
                         onClick={() => handleTakeResponsibility(activeInterruption.id)}
                       >
                         Assign to me
                       </Button>
                     ) : null}
                   </div>
+                  {activeInterruptionTeamNames.length > 0 ? (
+                    <div className="mt-1 text-sm text-amber-900">
+                      Responsible teams: <strong>{activeInterruptionTeamNames.join(', ')}</strong>
+                    </div>
+                  ) : null}
 
                   <div className="mt-2 flex items-center gap-3">
                     <button
@@ -1204,6 +1255,10 @@ const DeploymentDetail: React.FC = () => {
                   </div>
                 ) : activeInterruption == null ? (
                   <div className="mt-3 text-sm text-amber-800">No pending interruption details are available yet.</div>
+                ) : !activeInterruptionCanTakeResponsibility ? (
+                  <div className="mt-3 text-sm text-amber-800">
+                    You are not a member of any responsible team for this interruption.
+                  </div>
                 ) : !activeInterruptionClaimedByCurrentUser ? (
                   <div className="mt-3 text-sm text-amber-800">
                     {activeInterruptionRequiresAssignment
@@ -1223,7 +1278,7 @@ const DeploymentDetail: React.FC = () => {
                         const control = element.control
                         const key = `${activeInterruption.id}-${element.name}`
                         const draftValues = interruptionDraftValues[activeInterruption.id] ?? {}
-                        const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionClaimedByCurrentUser
+                        const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionCanSubmit
 
                         if (control.type === 'Paragraph') {
                           return (

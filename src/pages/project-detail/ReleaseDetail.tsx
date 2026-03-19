@@ -23,7 +23,14 @@ import {
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
-import { getPackageReferences, type PackageReferenceItem } from 'pages/apis/deploymentProcess'
+import {
+  getDeploymentSteps,
+  getPackageReferences,
+  type DeploymentStepDto,
+  type PackageReferenceItem,
+} from 'pages/apis/deploymentProcess'
+import { getMachines, type MachineDto } from 'pages/apis/machine'
+import { getTargetTags, type TargetTagDto } from 'pages/apis/targetTag'
 import {
   GetVariableSet,
   VariableScopeType,
@@ -145,8 +152,34 @@ function buildEnvironmentIdsQuery(environmentIds: number[]): string {
   return params.toString()
 }
 
-function formatVariableScope(scope: VariableScopeDto): string {
-  return scope.scopeValue
+function formatActionScopeLabel(stepOrder: number, stepName: string, actionName: string, actionId: number): string {
+  const normalizedStepName = (stepName ?? '').trim()
+  const normalizedActionName = (actionName ?? '').trim()
+  const safeStepOrder = Number.isFinite(stepOrder) && stepOrder > 0 ? stepOrder : 0
+  const orderPrefix = safeStepOrder > 0 ? `${safeStepOrder}. ` : ''
+
+  if (!normalizedActionName || normalizedActionName.toLowerCase() === normalizedStepName.toLowerCase()) {
+    return `${orderPrefix}${normalizedStepName || `Action #${actionId}`}`.trim()
+  }
+
+  if (!normalizedStepName) return `${orderPrefix}${normalizedActionName}`.trim()
+  return `${orderPrefix}${normalizedStepName} / ${normalizedActionName}`.trim()
+}
+
+function resolveScopeLookupKey(raw: string): string {
+  const normalized = raw.trim()
+  if (!normalized) return ''
+
+  const tokenMatch = normalized.match(/^[A-Za-z]+-(\d+)$/)
+  if (tokenMatch) return tokenMatch[1]
+
+  return normalized
+}
+
+function resolveScopeLabel(raw: string, labelsById: Map<string, string>): string {
+  const normalized = raw.trim()
+  if (!normalized) return ''
+  return labelsById.get(normalized) ?? labelsById.get(resolveScopeLookupKey(normalized)) ?? normalized
 }
 
 function toOrdinal(day: number): string {
@@ -224,9 +257,13 @@ const ReleaseDetail: React.FC = () => {
   const [project, setProject] = useState<ProjectDto | null>(null)
   const [release, setRelease] = useState<ReleaseDto | null>(null)
   const [releaseProgression, setReleaseProgression] = useState<ReleaseLifecycleProgressionDto | null>(null)
+  const [projectChannels, setProjectChannels] = useState<ChannelDto[]>([])
   const [channel, setChannel] = useState<ChannelDto | null>(null)
   const [lifecycle, setLifecycle] = useState<LifecycleDto | null>(null)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
+  const [machines, setMachines] = useState<MachineDto[]>([])
+  const [targetTags, setTargetTags] = useState<TargetTagDto[]>([])
+  const [deploymentSteps, setDeploymentSteps] = useState<DeploymentStepDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
 
   const encodedProjectName = encodeURIComponent(projectName ?? '')
@@ -248,21 +285,28 @@ const ReleaseDetail: React.FC = () => {
         setProject(foundProject)
         if (!foundProject) return
 
-        const [chanRes, lcRes, envRes, pkgRefRes] = await Promise.all([
+        const [chanRes, lcRes, envRes, machineRes, tagRes, stepRes, pkgRefRes] = await Promise.all([
           getChannels({ projectId: foundProject.id, pageSize: 1000 }).catch(() => null),
           getLifecycles({ pageSize: 100 }).catch(() => null),
           getEnvironments({ pageSize: 1000 }).catch(() => null),
+          getMachines({ pageIndex: 1, pageSize: 1000, spaceId: foundProject.spaceId }).catch(() => null),
+          getTargetTags().catch(() => null),
+          getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageIndex: 1, pageSize: 1000 }).catch(() => null),
           getPackageReferences(foundProject.id).catch(() => null),
         ])
 
         const channels = chanRes?.channels.filter((c) => c.projectId === foundProject.id) ?? []
         const decodedVersion = decodeURIComponent(version!)
 
-        let foundRelease = await findRelease(foundProject.id, channels, decodedVersion)
+        const foundRelease = await findRelease(foundProject.id, channels, decodedVersion)
         setRelease(foundRelease)
         setReleaseProgression(null)
 
-        setEnvironments(envRes?.environments ?? [])
+        setProjectChannels(channels)
+        setEnvironments((envRes?.environments ?? []).filter((environment) => environment.spaceId === foundProject.spaceId))
+        setMachines((machineRes?.machines ?? []).filter((machine) => machine.spaceId === foundProject.spaceId))
+        setTargetTags((tagRes?.targetTags ?? []).filter((tag) => tag.spaceId === foundProject.spaceId))
+        setDeploymentSteps(stepRes?.steps ?? [])
         setPackageReferences(pkgRefRes?.packageReferences ?? [])
 
         if (foundRelease) {
@@ -309,6 +353,58 @@ const ReleaseDetail: React.FC = () => {
     () => new Map(environments.map((e) => [e.id, e])),
     [environments],
   )
+  const environmentNameById = useMemo(
+    () => new Map(environments.map((environment) => [String(environment.id), environment.name])),
+    [environments],
+  )
+  const machineNameById = useMemo(
+    () => new Map(machines.map((machine) => [String(machine.id), machine.name])),
+    [machines],
+  )
+  const roleNameByValue = useMemo(
+    () =>
+      new Map(
+        targetTags.flatMap((targetTag) => [
+          [String(targetTag.id), targetTag.name] as const,
+          [targetTag.name.trim(), targetTag.name] as const,
+        ]),
+      ),
+    [targetTags],
+  )
+  const channelNameById = useMemo(
+    () => new Map(projectChannels.map((channelItem) => [String(channelItem.id), channelItem.name])),
+    [projectChannels],
+  )
+  const actionNameById = useMemo(
+    () =>
+      new Map(
+        deploymentSteps.flatMap((step) =>
+          (step.actions ?? []).map((action) => [
+            String(action.id),
+            formatActionScopeLabel(step.stepOrder, step.name, action.name, action.id),
+          ] as const),
+        ),
+      ),
+    [deploymentSteps],
+  )
+  const processNameById = useMemo(
+    () => new Map(project ? [[String(project.deploymentProcessId), `${project.name} deployment process`]] : []),
+    [project],
+  )
+
+  const getSnapshotScopeLabel = (scope: VariableScopeDto): string => {
+    const raw = (scope.scopeValue ?? '').trim()
+    if (!raw) return ''
+
+    if (scope.scopeType === VariableScopeType.Environment) return resolveScopeLabel(raw, environmentNameById)
+    if (scope.scopeType === VariableScopeType.Machine) return resolveScopeLabel(raw, machineNameById)
+    if (scope.scopeType === VariableScopeType.Role) return resolveScopeLabel(raw, roleNameByValue)
+    if (scope.scopeType === VariableScopeType.Channel) return resolveScopeLabel(raw, channelNameById)
+    if (scope.scopeType === VariableScopeType.Action) return resolveScopeLabel(raw, actionNameById)
+    if (scope.scopeType === VariableScopeType.Process) return resolveScopeLabel(raw, processNameById)
+
+    return raw
+  }
 
   const releasePackages = useMemo(() => {
     const sortedReferences = [...packageReferences].sort((a, b) => {
@@ -438,7 +534,7 @@ const ReleaseDetail: React.FC = () => {
       name: v.name || '-',
       value: v.value || '',
       isSensitive: Boolean(v.isSensitive),
-      scopes: (v.scopes ?? []).map(formatVariableScope),
+      scopes: (v.scopes ?? []).map(getSnapshotScopeLabel),
       sourceLabel,
       sourceHref,
       sourceKind,
@@ -528,7 +624,7 @@ const ReleaseDetail: React.FC = () => {
                 name: v.name || '-',
                 value: v.value || '',
                 isSensitive: Boolean(v.isSensitive),
-                scopes: (v.scopes ?? []).map(formatVariableScope),
+                scopes: (v.scopes ?? []).map(getSnapshotScopeLabel),
                 sourceLabel: source?.sourceLabel ?? 'Snapshot',
                 sourceHref: source?.sourceHref,
                 sourceKind: source?.sourceKind ?? 'snapshot',

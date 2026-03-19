@@ -86,6 +86,8 @@ export interface InterruptionDto {
   actionName: string
   machineName: string | null
   responsibleUserId: string | null
+  responsibleTeamIds: string | null
+  canTakeResponsibility: boolean
   isPending: boolean
   createdAt: string
   form: InterruptionForm
@@ -183,6 +185,8 @@ export function getServerTaskInterruptions(taskId: number) {
     const rawForm = item?.form ?? item?.Form ?? {}
     const rawElements = rawForm?.elements ?? rawForm?.Elements ?? []
     const rawValues = rawForm?.values ?? rawForm?.Values ?? {}
+    const responsibleTeamIdsRaw = item?.responsibleTeamIds ?? item?.ResponsibleTeamIds
+    const responsibleTeamIds = responsibleTeamIdsRaw == null ? null : String(responsibleTeamIdsRaw).trim() || null
 
     return {
       id: Number(item?.id ?? item?.Id ?? 0),
@@ -192,8 +196,10 @@ export function getServerTaskInterruptions(taskId: number) {
       actionName: String(item?.actionName ?? item?.ActionName ?? ''),
       machineName: item?.machineName ?? item?.MachineName ?? null,
       responsibleUserId: item?.responsibleUserId ?? item?.ResponsibleUserId ?? null,
+      responsibleTeamIds,
+      canTakeResponsibility: Boolean(item?.canTakeResponsibility ?? item?.CanTakeResponsibility ?? true),
       isPending: Boolean(item?.isPending ?? item?.IsPending ?? false),
-      createdAt: String(item?.createdAt ?? item?.CreatedAt ?? ''),
+      createdAt: String(item?.createdAt ?? item?.CreatedAt ?? item?.createdDate ?? item?.CreatedDate ?? ''),
       form: {
         elements: Array.isArray(rawElements)
           ? rawElements.map((element: any): InterruptionFormElement => ({

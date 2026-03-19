@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { login, register } from 'pages/apis/account'
+import { login } from 'pages/apis/account'
 import { setAuthSession } from 'utils/auth'
 
 function readRedirect(search: string): string {
@@ -17,8 +17,6 @@ const SignInPage = () => {
 
   const [userName, setUserName] = useState('')
   const [password, setPassword] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [mode, setMode] = useState<'signin' | 'register'>('signin')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,7 +25,6 @@ const SignInPage = () => {
   const canSubmit =
     userName.trim().length > 0 &&
     password.length > 0 &&
-    (mode === 'signin' || displayName.trim().length > 0) &&
     !submitting
 
   const handleSubmit = async (e: FormEvent) => {
@@ -37,14 +34,6 @@ const SignInPage = () => {
     setSubmitting(true)
     setError(null)
     try {
-      if (mode === 'register') {
-        await register({
-          userName: userName.trim(),
-          password,
-          displayName: displayName.trim(),
-        })
-      }
-
       const result = await login({
         userName: userName.trim(),
         password,
@@ -54,7 +43,15 @@ const SignInPage = () => {
         id: result.userAccount.id,
         userName: result.userAccount.userName,
         displayName: result.userAccount.displayName,
+      }, {
+        expiresAtUtc: result.expiresAtUtc,
+        mustChangePassword: result.mustChangePassword,
       })
+
+      if (result.mustChangePassword) {
+        navigate(`/users/change-password?redirect=${encodeURIComponent(redirectTo)}`, { replace: true })
+        return
+      }
 
       navigate(redirectTo, { replace: true })
     } catch (err: any) {
@@ -125,33 +122,11 @@ const SignInPage = () => {
 
           <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-[0_18px_40px_rgba(15,23,42,0.08)] p-6 sm:p-7">
             <div className="mb-6">
-              <h2 className="m-0 text-2xl font-semibold text-slate-900">
-                {mode === 'signin' ? 'Sign in to Squid' : 'Create your account'}
-              </h2>
-              <p className="mt-2 mb-0 text-sm text-slate-500">
-                {mode === 'signin'
-                  ? 'Use your Squid account credentials.'
-                  : 'Register a local account, then we will sign you in automatically.'}
-              </p>
+              <h2 className="m-0 text-2xl font-semibold text-slate-900">Sign in to Squid</h2>
+              <p className="mt-2 mb-0 text-sm text-slate-500">Use your Squid account credentials.</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {mode === 'register' && (
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Display name
-                  </label>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    autoComplete="name"
-                    className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm text-slate-800 outline-none focus:border-squid-blue focus:ring-2 focus:ring-blue-100"
-                    placeholder="Enter display name"
-                  />
-                </div>
-              )}
-
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">
                   Username
@@ -192,27 +167,9 @@ const SignInPage = () => {
                 className="w-full h-11 rounded-lg border-0 text-white font-semibold text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#0d80d8' }}
               >
-                {submitting
-                  ? (mode === 'signin' ? 'Signing in...' : 'Creating account...')
-                  : (mode === 'signin' ? 'Sign in' : 'Register and sign in')}
+                {submitting ? 'Signing in...' : 'Sign in'}
               </button>
             </form>
-
-            <div className="mt-4 pt-4 border-t border-slate-100 text-sm text-slate-600 flex items-center justify-between gap-3">
-              <span>
-                {mode === 'signin' ? "Don't have an account?" : 'Already have an account?'}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null)
-                  setMode((prev) => (prev === 'signin' ? 'register' : 'signin'))
-                }}
-                className="border-0 bg-transparent p-0 text-squid-blue font-medium cursor-pointer hover:underline"
-              >
-                {mode === 'signin' ? 'Register' : 'Sign in'}
-              </button>
-            </div>
           </div>
         </div>
       </div>
