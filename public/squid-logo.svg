@@ -1,28 +1,69 @@
-<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" fill="none">
   <defs>
-    <linearGradient id="squidRocket" x1="42" y1="214" x2="198" y2="34" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#24C7EE"/>
-      <stop offset="1" stop-color="#7A54B5"/>
+    <linearGradient id="squidBody" x1="90" y1="66" x2="170" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#52D8FF"/>
+      <stop offset="1" stop-color="#2AB6E8"/>
+    </linearGradient>
+    <linearGradient id="tentacleShade" x1="108" y1="152" x2="162" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2CBEEB"/>
+      <stop offset="1" stop-color="#1EA7D9"/>
     </linearGradient>
   </defs>
 
-  <g transform="rotate(18 128 128)">
-    <path
-      d="M162 38C180 36 192 45 190 63C186 101 166 134 135 160C111 180 85 188 66 183C56 180 51 171 54 161C61 139 78 114 104 88C128 64 148 47 162 38Z"
-      fill="url(#squidRocket)"
-    />
-    <path
-      d="M106 146C94 156 83 163 72 167C64 170 57 166 54 158C52 152 55 145 62 142C74 137 85 130 95 121L106 146Z"
-      fill="url(#squidRocket)"
-    />
-    <path
-      d="M133 160C127 170 122 182 120 194C118 203 111 208 103 206C95 204 90 196 92 188C95 175 101 161 109 148L133 160Z"
-      fill="url(#squidRocket)"
-    />
-    <circle cx="162" cy="72" r="12" fill="#F8FAFC"/>
+  <!-- Deep blue circle background -->
+  <circle cx="128" cy="128" r="104" fill="#0B2F6F"/>
 
-    <path d="M72 181C56 187 46 199 45 214" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
-    <path d="M98 188C82 199 72 215 69 233" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
-    <path d="M121 178C110 188 102 200 101 214" stroke="url(#squidRocket)" stroke-width="11" stroke-linecap="round"/>
+  <!-- Rocket body behind squid -->
+  <g transform="rotate(-35 95 142)">
+    <path d="M54 92L108 124L74 180L20 148Z" fill="#FFFFFF"/>
+    <path d="M67 177L84 205L61 210L47 188Z" fill="#3CD6FF"/>
+    <path d="M70 206L84 224L64 229L54 214Z" fill="#3CD6FF"/>
+    <path d="M35 128L55 112L58 140Z" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Squid head + body -->
+  <g transform="rotate(-10 132 128)">
+    <!-- mantle -->
+    <path d="M130 44C96 46 73 71 72 104C71 126 79 142 95 153C102 158 106 166 106 176C106 188 99 199 91 210C85 217 89 224 97 223C108 221 117 214 124 205C125 217 127 226 132 230C135 233 139 233 142 230C147 226 149 217 150 205C157 214 166 221 177 223C185 224 189 217 183 210C175 199 168 188 168 176C168 166 172 158 179 153C195 142 203 126 202 104C201 71 178 46 144 44H130Z" fill="url(#squidBody)"/>
+
+    <!-- side fin -->
+    <path d="M177 78C189 84 197 95 200 108C189 105 180 97 173 85C171 82 173 79 177 78Z" fill="#25ACDE"/>
+
+    <!-- highlight streak -->
+    <path d="M92 84C109 64 131 52 157 49" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+
+    <!-- eyes -->
+    <circle cx="115" cy="129" r="11" fill="#0B2F6F"/>
+    <circle cx="153" cy="129" r="11" fill="#0B2F6F"/>
+    <circle cx="118" cy="125" r="3" fill="#FFFFFF"/>
+    <circle cx="156" cy="125" r="3" fill="#FFFFFF"/>
+
+    <!-- smile -->
+    <path d="M126 147C129 150 133 151.5 137 151.5C141 151.5 145 150 148 147" stroke="#0B2F6F" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- arms -->
+    <g fill="url(#tentacleShade)">
+      <path d="M112 160C103 166 96 177 94 189C92 198 97 205 104 203C114 200 120 188 122 175C123 168 119 157 112 160Z"/>
+      <path d="M129 164C122 173 119 185 120 198C120 208 126 214 133 214C140 214 146 208 146 198C147 185 143 173 136 164C134 161 131 161 129 164Z"/>
+      <path d="M145 160C154 166 161 177 163 189C165 198 160 205 153 203C143 200 137 188 135 175C134 168 138 157 145 160Z"/>
+    </g>
+
+    <!-- cute side bubbles on head -->
+    <circle cx="178" cy="90" r="4" fill="#1E9ED2"/>
+    <circle cx="184" cy="104" r="6" fill="#1E9ED2"/>
+    <circle cx="187" cy="122" r="8" fill="#1E9ED2"/>
+
+    <!-- little arm holding rocket -->
+    <ellipse cx="94" cy="152" rx="11" ry="9" fill="#2AB6E8"/>
+    <ellipse cx="166" cy="165" rx="8" ry="7" fill="#2AB6E8"/>
+  </g>
+
+  <!-- stars on background (reduced for small size clarity) -->
+  <g fill="#FFFFFF" opacity="0.95">
+    <circle cx="61" cy="88" r="2.2"/>
+    <circle cx="73" cy="116" r="1.8"/>
+    <circle cx="52" cy="143" r="1.8"/>
+    <rect x="174" y="168" width="6" height="6" rx="1" transform="rotate(35 174 168)"/>
+    <rect x="66" y="68" width="7" height="7" rx="1" transform="rotate(35 66 68)"/>
   </g>
 </svg>

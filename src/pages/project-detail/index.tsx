@@ -220,13 +220,21 @@ const ProjectDetail: React.FC = () => {
                 )}
                 {section.map((item, itemIdx) => {
                   const active = isActive(item.path);
+                  const isFirstInSection = itemIdx === 0;
+                  const isLastInSection = itemIdx === section.length - 1;
+                  const spacingClass = (() => {
+                    if (sectionIdx > 0 && isFirstInSection && isLastInSection) return "mt-2 mb-2";
+                    if (sectionIdx > 0 && isFirstInSection) return "mt-2 mb-0.5";
+                    if (isLastInSection) return "mt-0.5 mb-2";
+                    return "my-0.5";
+                  })();
                   return (
                     <Link
                       key={item.path}
                       to={`${base}/${item.path}`}
                       className={[
                         "relative flex items-center mx-3 rounded-lg px-3 py-2 text-sm transition-all select-none",
-                        sectionIdx > 0 && itemIdx === 0 ? "mt-2 mb-0.5" : "my-0.5",
+                        spacingClass,
                         active
                           ? "text-squid-blue bg-blue-50/80 font-semibold shadow-sm ring-1 ring-blue-100"
                           : "text-slate-700 hover:bg-slate-50 hover:text-slate-900",

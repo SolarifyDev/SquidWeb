@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Button, Dropdown, Input, Select, Spin, message, type MenuProps } from 'antd'
+import { Button, Dropdown, Input, Select, Spin, Tooltip, message, type MenuProps } from 'antd'
 import {
   CheckOutlined,
   CloseOutlined,
@@ -39,6 +39,20 @@ type ActiveTabKey = 'taskSummary' | 'taskLog'
 type NormalizedNodeStatus = 'Pending' | 'Running' | 'Success' | 'Failed' | 'Unknown'
 type NormalizedNodeType = 'Task' | 'Step' | 'Action' | 'LogEntry' | 'Unknown'
 type NormalizedLogCategory = 'Info' | 'Warning' | 'Error' | 'Unknown'
+type HealthCheckEventKind = 'starting' | 'target' | 'completed'
+
+interface InterruptionButtonUi {
+  type: 'primary' | 'default'
+  danger?: boolean
+  className?: string
+  tooltip?: string
+}
+
+interface FormattedHealthCheckLog {
+  messageText: string
+  detail?: string | null
+  category?: NormalizedLogCategory
+}
 
 interface LocationState {
   taskId?: number
@@ -354,6 +368,148 @@ function logCategoryClass(category: NormalizedLogCategory): string {
   if (category === 'Error') return 'text-rose-700'
   if (category === 'Warning') return 'text-amber-700'
   return 'text-slate-700'
+}
+
+function parseJsonObject(value: string | null | undefined): Record<string, unknown> | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{')) return null
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function readStringField(source: Record<string, unknown> | null, names: string[]): string | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function readNumberField(source: Record<string, unknown> | null, names: string[]): number | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return null
+}
+
+function readBooleanField(source: Record<string, unknown> | null, names: string[]): boolean | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'number') return value !== 0
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      if (normalized === 'true') return true
+      if (normalized === 'false') return false
+    }
+  }
+  return null
+}
+
+function detectHealthCheckEventKind(log: ServerTaskLogElementDto, payload: Record<string, unknown> | null): HealthCheckEventKind | null {
+  const eventType = readStringField(payload, ['eventType', 'EventType', 'type', 'Type', 'name', 'Name'])
+  if (eventType) {
+    const normalized = eventType.toLowerCase().replace(/\s+/g, '')
+    if (normalized.includes('healthcheckstartingevent')) return 'starting'
+    if (normalized.includes('healthchecktargetresultevent')) return 'target'
+    if (normalized.includes('healthcheckcompletedevent')) return 'completed'
+  }
+
+  const combined = `${log.messageText ?? ''} ${log.detail ?? ''} ${log.source ?? ''}`.toLowerCase()
+  if (combined.includes('healthcheckstartingevent')) return 'starting'
+  if (combined.includes('healthchecktargetresultevent')) return 'target'
+  if (combined.includes('healthcheckcompletedevent')) return 'completed'
+  return null
+}
+
+function parseCountFromText(sourceText: string, pattern: RegExp): number | null {
+  const matched = sourceText.match(pattern)
+  if (!matched || matched.length < 2) return null
+  const parsed = Number(matched[1])
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatHealthCheckLog(log: ServerTaskLogElementDto): FormattedHealthCheckLog | null {
+  const detailObject = parseJsonObject(log.detail)
+  const messageObject = parseJsonObject(log.messageText)
+  const payload = detailObject ?? messageObject
+  const kind = detectHealthCheckEventKind(log, payload)
+  if (!kind) return null
+
+  const sourceText = `${log.messageText ?? ''} ${log.detail ?? ''}`
+
+  if (kind === 'starting') {
+    const targetCount = readNumberField(payload, ['targetCount', 'TargetCount', 'healthCheckTargetCount', 'HealthCheckTargetCount'])
+      ?? parseCountFromText(sourceText, /(\d+)\s+targets?/i)
+    const stepName = readStringField(payload, ['stepName', 'StepName'])
+    const actionName = readStringField(payload, ['actionName', 'ActionName'])
+    const messageText = targetCount != null
+      ? `[Health Check] Starting health check for ${targetCount} target${targetCount === 1 ? '' : 's'}...`
+      : '[Health Check] Starting health check...'
+    const detail = [stepName, actionName].filter(Boolean).join(' / ') || null
+    return { messageText, detail }
+  }
+
+  if (kind === 'target') {
+    const machineName = readStringField(payload, ['machineName', 'MachineName']) ?? 'target'
+    const healthy = readBooleanField(payload, ['healthCheckHealthy', 'HealthCheckHealthy', 'healthy', 'Healthy'])
+    const healthCheckDetail = readStringField(payload, ['healthCheckDetail', 'HealthCheckDetail', 'detail', 'Detail'])
+    const isHealthy = healthy !== false
+    const icon = isHealthy ? '✅' : '❌'
+    const fallback = isHealthy ? 'ok' : 'unhealthy'
+    return {
+      messageText: `${icon} ${machineName}: ${healthCheckDetail || fallback}`,
+      detail: isHealthy ? null : '⚠️ Excluded from remaining steps',
+      category: isHealthy ? 'Info' : 'Warning',
+    }
+  }
+
+  const healthyCount = readNumberField(payload, ['healthCheckHealthyCount', 'HealthCheckHealthyCount', 'healthyCount', 'HealthyCount'])
+    ?? parseCountFromText(sourceText, /(\d+)\s+healthy/i)
+  const unhealthyCount = readNumberField(payload, ['healthCheckUnhealthyCount', 'HealthCheckUnhealthyCount', 'unhealthyCount', 'UnhealthyCount'])
+    ?? parseCountFromText(sourceText, /(\d+)\s+unhealthy/i)
+  const messageText = healthyCount != null && unhealthyCount != null
+    ? `[Health Check] Completed: ${healthyCount} healthy, ${unhealthyCount} unhealthy`
+    : '[Health Check] Completed'
+  const detail = (unhealthyCount ?? 0) > 0
+    ? `⚠️ ${unhealthyCount} unhealthy target${unhealthyCount === 1 ? '' : 's'} excluded from remaining steps`
+    : null
+  return {
+    messageText,
+    detail,
+    category: (unhealthyCount ?? 0) > 0 ? 'Warning' : 'Info',
+  }
+}
+
+function interruptionButtonUi(buttonLabel: string): InterruptionButtonUi {
+  const normalized = buttonLabel.trim().toLowerCase()
+  if (normalized === 'abort') return { type: 'default', danger: true }
+  if (normalized === 'retry') return { type: 'primary' }
+  if (normalized === 'ignore') return { type: 'default' }
+  if (normalized === 'exclude machine') {
+    return {
+      type: 'default',
+      className: '!border-amber-400 !text-amber-700 hover:!border-amber-500 hover:!text-amber-800 hover:!bg-amber-50',
+      tooltip: '排除此机器，后续步骤将不再在此机器上执行',
+    }
+  }
+  return { type: 'default' }
 }
 
 function sortActivityNodes(nodes: ServerTaskActivityNodeDto[]): ServerTaskActivityNodeDto[] {
@@ -997,14 +1153,17 @@ const DeploymentDetail: React.FC = () => {
   }
 
   const renderLogLine = (nodeId: number, log: ServerTaskLogElementDto, index: number, depth: number) => {
-    const category = normalizeLogCategory(log.category)
+    const healthCheckLog = formatHealthCheckLog(log)
+    const category = healthCheckLog?.category ?? normalizeLogCategory(log.category)
+    const messageText = healthCheckLog?.messageText ?? log.messageText
+    const detailText = healthCheckLog?.detail ?? (verbose ? log.detail : null)
 
     return (
       <div key={`${nodeId}-log-${log.id}-${log.sequenceNumber}`} className="grid grid-cols-[42px_minmax(0,1fr)] gap-1.5 py-1" style={{ paddingLeft: `${depth * 8 + 2}px` }}>
         <span className="text-right text-xs text-slate-400">{log.sequenceNumber || index + 1}</span>
         <div className="min-w-0">
-          <div className={`break-words text-[13px] ${logCategoryClass(category)}`}>{log.messageText}</div>
-          {verbose && log.detail ? <div className="mt-0.5 break-words text-xs text-slate-500">{log.detail}</div> : null}
+          <div className={`break-words text-[13px] ${logCategoryClass(category)}`}>{messageText}</div>
+          {detailText ? <div className="mt-0.5 break-words text-xs text-slate-500">{detailText}</div> : null}
         </div>
       </div>
     )
@@ -1304,19 +1463,29 @@ const DeploymentDetail: React.FC = () => {
                         if (control.type === 'SubmitButtonGroup') {
                           return (
                             <div key={key} className="flex flex-wrap items-center gap-2">
-                              {control.buttons.map((buttonLabel) => (
-                                <Button
-                                  key={`${key}-${buttonLabel}`}
-                                  size="small"
-                                  type={buttonLabel === 'Abort' ? 'default' : 'primary'}
-                                  danger={buttonLabel === 'Abort'}
-                                  disabled={submitDisabled}
-                                  loading={submittingInterruptionId === activeInterruption.id}
-                                  onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
-                                >
-                                  {buttonLabel}
-                                </Button>
-                              ))}
+                              {control.buttons.map((buttonLabel) => {
+                                const ui = interruptionButtonUi(buttonLabel)
+                                const button = (
+                                  <Button
+                                    key={`${key}-${buttonLabel}`}
+                                    size="small"
+                                    type={ui.type}
+                                    danger={ui.danger}
+                                    className={ui.className}
+                                    disabled={submitDisabled}
+                                    loading={submittingInterruptionId === activeInterruption.id}
+                                    onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
+                                  >
+                                    {buttonLabel}
+                                  </Button>
+                                )
+
+                                return ui.tooltip ? (
+                                  <Tooltip key={`${key}-${buttonLabel}-tooltip`} title={ui.tooltip}>
+                                    {button}
+                                  </Tooltip>
+                                ) : button
+                              })}
                             </div>
                           )
                         }

@@ -281,51 +281,37 @@ function App() {
         }}
       >
         <div className="relative flex-shrink-0" ref={spaceSwitcherRef}>
-          <div className="flex items-center">
-            <button
-              aria-label="Current space icon"
-              aria-haspopup="dialog"
-              aria-expanded={showSpaceSwitcher}
-              onClick={() => setShowSpaceSwitcher(p => !p)}
-              className="flex h-10 w-11 items-center justify-center rounded-l-lg rounded-r-none border transition-all hover:-translate-y-[1px] relative z-[1]"
+          <button
+            aria-label="Space switcher"
+            aria-haspopup="dialog"
+            aria-expanded={showSpaceSwitcher}
+            onClick={() => setShowSpaceSwitcher(p => !p)}
+            className="group flex h-9 items-center rounded-lg pl-1 pr-2.5 text-left transition-all hover:-translate-y-[1px]"
+            style={{
+              width: 'clamp(220px, 20vw, 290px)',
+              backgroundColor: 'rgba(241, 245, 249, 0.96)',
+              boxShadow: showSpaceSwitcher
+                ? '0 4px 10px rgba(15,23,42,0.09), inset 0 0 0 1px rgba(148,163,184,0.22)'
+                : '0 1px 2px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(148,163,184,0.18)',
+            }}
+          >
+            <span
+              className="flex items-center justify-center flex-shrink-0 overflow-hidden"
               style={{
-                backgroundColor: 'rgba(255,255,255,0.96)',
-                borderColor: 'rgba(148, 163, 184, 0.28)',
-                boxShadow: showSpaceSwitcher
-                  ? '0 8px 18px rgba(15,23,42,0.08)'
-                  : '0 1px 2px rgba(15,23,42,0.04)',
+                width: '2rem',
+                height: '2rem',
+                borderRadius: '8px',
+                backgroundColor: '#fff',
+                boxShadow: '0 1px 4px rgba(15,23,42,0.10), inset 0 0 0 1px rgba(148,163,184,0.20)',
               }}
             >
-              <div
-                className="flex items-center justify-center flex-shrink-0 overflow-hidden"
-                style={{
-                  width: '2rem',
-                  height: '2rem',
-                  backgroundColor: '#fff',
-                  borderRadius: '6px',
-                  boxShadow: '0 1px 2px rgba(15,23,42,0.08), 0 6px 12px rgba(15,23,42,0.06)',
-                }}
-              >
-                <img src="/squid-logo.svg" alt="Space Default Logo" className="w-full h-full object-contain" />
-              </div>
-            </button>
-
-            <button
-              aria-label="Space switcher"
-              aria-haspopup="dialog"
-              aria-expanded={showSpaceSwitcher}
-              onClick={() => setShowSpaceSwitcher(p => !p)}
-              className="ml-[-1px] flex items-center gap-2 px-3 h-10 rounded-r-lg rounded-l-none cursor-pointer flex-shrink-0 transition-all group shadow-sm hover:-translate-y-[1px]"
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.94)',
-                border: '1px solid rgba(148, 163, 184, 0.28)',
-                boxShadow: showSpaceSwitcher ? '0 8px 18px rgba(15,23,42,0.08)' : undefined,
-              }}
-            >
-              <span className="pr-0.5 text-sm font-medium text-slate-700 transition-colors select-none">{currentSpace.name}</span>
-              <ChevronDownIcon className={`w-3 h-3 flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-slate-700 rotate-180' : 'text-slate-500 group-hover:text-slate-700'}`} />
-            </button>
-          </div>
+              <img src="/squid-logo.png" alt="Space Default Logo" className="w-full h-full object-contain" />
+            </span>
+            <span className="ml-2.5 min-w-0 flex-1 truncate text-base font-semibold tracking-[-0.01em] text-slate-600">
+              {currentSpace.name}
+            </span>
+            <ChevronDownIcon className={`w-[18px] h-[18px] flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-slate-600 rotate-180' : 'text-slate-500 group-hover:text-slate-600'}`} />
+          </button>
           {showSpaceSwitcher && (
             <SpaceSwitcherDropdown
               spaces={spaces}

@@ -18,6 +18,7 @@ import { KubernetesServiceEditor } from './step-editors/kubernetes-service/Kuber
 import { KubernetesConfigMapEditor } from './step-editors/kubernetes-configmap/KubernetesConfigMapEditor'
 import { KubernetesSecretEditor } from './step-editors/kubernetes-secret/KubernetesSecretEditor'
 import { ManualInterventionEditor } from './step-editors/manual/ManualInterventionEditor'
+import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
@@ -32,6 +33,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,
+  'Squid.HealthCheck':                HealthCheckEditor,
 }
 
 // ── API base for image URLs ────────────────────────────────────────────────────
@@ -58,6 +60,7 @@ function actionSummary(actionType: string): string {
     'Squid.AzureAppService': 'Deploy an Azure App Service',
     'Squid.AzurePowerShell': 'Run an Azure Script',
     'Squid.AwsRunScript': 'Run an AWS CLI Script',
+    'Squid.HealthCheck': 'Perform a health check and take action based on the result.',
   }
   return map[actionType] ?? actionType.replace(/^Squid\./, '')
 }
@@ -390,6 +393,14 @@ const STEP_TEMPLATES: StepTemplate[] = [
     actionType: 'Squid.AzureAppService',
     bullets: ['Deploy a package or container image to an Azure App Service (Azure Web App)'],
     categoryIds: ['azure'],
+  },
+  {
+    id: 'health-check',
+    title: 'Health Check',
+    actionType: 'Squid.HealthCheck',
+    bullets: ['Perform a health check and take action based on the result.'],
+    categoryIds: ['other'],
+    featured: true,
   },
   {
     id: 'manual',

@@ -21,6 +21,7 @@ import Process from "pages/project-detail/DeploymentProcess";
 import ProjectVariables from "pages/project-detail/ProjectVariables";
 import ProjectVariableSets from "pages/project-detail/ProjectVariableSets";
 import ProjectAllVariables from "pages/project-detail/ProjectAllVariables";
+import ProjectVariablePreview from "pages/project-detail/ProjectVariablePreview";
 import Channels from "pages/project-detail/Channels";
 import ChannelDetail from "pages/project-detail/ChannelDetail";
 import Releases from "pages/project-detail/Releases";
@@ -236,6 +237,11 @@ const routes = [
                 path: "variables/all",
                 component: ProjectAllVariables,
                 name: "ProjectAllVariables",
+              },
+              {
+                path: "variables/preview",
+                component: ProjectVariablePreview,
+                name: "ProjectVariablePreview",
               },
             ],
           },

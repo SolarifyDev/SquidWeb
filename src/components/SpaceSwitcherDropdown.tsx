@@ -214,7 +214,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                 }}
               >
-                <img src="/squid-logo.svg" alt="" className="w-full h-full object-contain" />
+                <img src="/squid-logo.png" alt="" className="w-full h-full object-contain" />
               </div>
               <span className={`flex-1 font-medium ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
                 {space.name}

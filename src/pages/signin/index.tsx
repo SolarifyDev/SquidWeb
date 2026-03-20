@@ -84,7 +84,7 @@ const SignInPage = () => {
           <div className="relative z-10">
             <div className="inline-flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
               <div className="h-9 w-9 rounded-lg bg-white flex items-center justify-center">
-                <img src="/squid-logo.svg" alt="Squid" className="h-7 w-7 object-contain" />
+                <img src="/squid-logo.png" alt="Squid" className="h-7 w-7 object-contain" />
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.12em] text-white/75">Squid Deploy</div>
@@ -112,7 +112,7 @@ const SignInPage = () => {
         <div className="w-full max-w-[440px]">
           <div className="lg:hidden mb-6 flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-white shadow-sm border border-slate-200 flex items-center justify-center">
-              <img src="/squid-logo.svg" alt="Squid" className="h-7 w-7 object-contain" />
+              <img src="/squid-logo.png" alt="Squid" className="h-7 w-7 object-contain" />
             </div>
             <div>
               <div className="text-xs text-slate-500 uppercase tracking-[0.12em]">Squid Deploy</div>
