@@ -98,3 +98,28 @@ export function searchExternalFeedPackages(params: SearchExternalFeedPackagesReq
 
   return get<SearchExternalFeedPackagesResponseData>('/external-feeds/search-packages', { params: query })
 }
+
+export interface ListExternalFeedPackageVersionsRequest {
+  feedId: number
+  packageId: string
+  take?: number
+  includePreRelease?: boolean
+  filter?: string
+}
+
+export interface ListExternalFeedPackageVersionsResponseData {
+  versions: string[]
+}
+
+export function listExternalFeedPackageVersions(params: ListExternalFeedPackageVersionsRequest) {
+  const filter = params.filter?.trim()
+  const query = {
+    feedId: params.feedId,
+    packageId: params.packageId,
+    take: params.take ?? 30,
+    includePreRelease: params.includePreRelease ?? false,
+    ...(filter ? { filter } : {}),
+  }
+
+  return get<ListExternalFeedPackageVersionsResponseData>('/external-feeds/package-versions', { params: query })
+}

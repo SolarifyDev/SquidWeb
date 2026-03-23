@@ -12,6 +12,7 @@ import AddDeploymentTargetPage from 'pages/deploymentTargets/add'
 import DeploymentTargetDetailPage from 'pages/deploymentTargets/detail'
 import Environments from 'pages/Environments/index'
 import MachinePolicies from 'pages/machinePolicies'
+import MachinePolicyDetail from 'pages/machinePolicies/detail'
 import Accounts from 'pages/accounts'
 import AccountsCreatePage from 'pages/accounts/create'
 import AccountsDetailPage from 'pages/accounts/detail'
@@ -22,6 +23,7 @@ import ProjectVariables from "pages/project-detail/ProjectVariables";
 import ProjectVariableSets from "pages/project-detail/ProjectVariableSets";
 import ProjectAllVariables from "pages/project-detail/ProjectAllVariables";
 import ProjectVariablePreview from "pages/project-detail/ProjectVariablePreview";
+import ProjectTasks from "pages/project-detail/ProjectTasks";
 import Channels from "pages/project-detail/Channels";
 import ChannelDetail from "pages/project-detail/ChannelDetail";
 import Releases from "pages/project-detail/Releases";
@@ -30,6 +32,8 @@ import ReleaseDetail from "pages/project-detail/ReleaseDetail";
 import DeployCreate from "pages/project-detail/DeployCreate";
 import DeploymentDetail from "pages/project-detail/DeploymentDetail";
 import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
+import ProjectSettings from "pages/project-detail/ProjectSettings";
+import ProjectVersionControl from "pages/project-detail/ProjectVersionControl";
 import SettingsPage from 'pages/settings'
 import PersonalSettingsPage from 'pages/account/PersonalSettingsPage'
 
@@ -97,6 +101,21 @@ const routes = [
             path: "environments",
             component: Environments,
             name: "Environments",
+          },
+          {
+            path: "infrastructure/machinepolicies/:policyId",
+            component: MachinePolicyDetail,
+            name: "MachinePolicyDetail",
+          },
+          {
+            path: "infrastructure/machinepolicies",
+            component: MachinePolicies,
+            name: "MachinePoliciesInfrastructure",
+          },
+          {
+            path: "machine/policies/:policyId",
+            component: MachinePolicyDetail,
+            name: "MachinePolicyDetailLegacy",
           },
           {
             path: "machine/policies",
@@ -224,6 +243,16 @@ const routes = [
                 name: "ReleaseDetail",
               },
               {
+                path: "settings",
+                component: ProjectSettings,
+                name: "ProjectSettings",
+              },
+              {
+                path: "settings/versioncontrol",
+                component: ProjectVersionControl,
+                name: "ProjectVersionControl",
+              },
+              {
                 path: "variables",
                 component: ProjectVariables,
                 name: "ProjectVariables",
@@ -242,6 +271,11 @@ const routes = [
                 path: "variables/preview",
                 component: ProjectVariablePreview,
                 name: "ProjectVariablePreview",
+              },
+              {
+                path: "tasks",
+                component: ProjectTasks,
+                name: "ProjectTasks",
               },
             ],
           },

@@ -12,6 +12,7 @@ import {
   getMachines,
   MachineHealthCheckData,
   MachineDto,
+  updateMachine,
 } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
@@ -669,9 +670,25 @@ const DeploymentTargetDetailPage: React.FC = () => {
     if (!machine) return
     setSaving(true)
     try {
-      // TODO: Backend does not yet have a machine update endpoint
-      message.warning('Save is not yet supported by the backend')
+      const trimmedName = name.trim()
+      const nextIsDisabled = !enabled
+      const payload = {
+        machineId: machine.id,
+        ...(trimmedName && trimmedName !== machine.name ? { name: trimmedName } : {}),
+        ...(nextIsDisabled !== machine.isDisabled ? { isDisabled: nextIsDisabled } : {}),
+      }
+
+      if (Object.keys(payload).length === 1) {
+        setDirty(false)
+        return
+      }
+
+      const updated = await updateMachine(payload)
+      setMachine(updated)
+      setName(updated.name)
+      setEnabled(!updated.isDisabled)
       setDirty(false)
+      message.success('Saved')
     } catch {
       message.error('Failed to save')
     } finally {

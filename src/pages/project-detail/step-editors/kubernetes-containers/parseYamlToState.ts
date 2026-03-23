@@ -9,9 +9,30 @@ function str(v: unknown): string {
   return String(v)
 }
 
+function toStringArray(v: unknown): string[] {
+  if (Array.isArray(v)) return (v as unknown[]).map((item) => str(item)).filter((item) => item.trim())
+  if (typeof v === 'string') return v.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  return []
+}
+
 function mapToKv(obj: unknown): KeyValueItem[] {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return []
   return Object.entries(obj as Record<string, unknown>).map(([key, value]) => ({ key, value: str(value) }))
+}
+
+function parseResourceMap(value: unknown): Record<string, string | undefined> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const map = value as Record<string, unknown>
+  const out: Record<string, string | undefined> = {}
+  for (const [key, raw] of Object.entries(map)) {
+    const text = str(raw).trim()
+    if (!text) continue
+    if (key === 'ephemeral-storage') out.ephemeralStorage = text
+    else if (key === 'nvidia.com/gpu') out.nvidiaGpu = text
+    else if (key === 'amd.com/gpu') out.amdGpu = text
+    else out[key] = text
+  }
+  return out
 }
 
 function parseProbe(p: Record<string, unknown>): ProbeConfig {
@@ -27,19 +48,62 @@ function parseProbe(p: Record<string, unknown>): ProbeConfig {
   if (p.httpGet && typeof p.httpGet === 'object') {
     const hg = p.httpGet as Record<string, unknown>
     probe.type = 'httpGet'
-    probe.httpGet = { path: str(hg.path), port: str(hg.port), scheme: str(hg.scheme) || 'HTTP' }
+    probe.httpGet = {
+      path: str(hg.path),
+      port: str(hg.port),
+      scheme: str(hg.scheme) || 'HTTP',
+      host: str(hg.host),
+      httpHeaders: Array.isArray(hg.httpHeaders)
+        ? (hg.httpHeaders as Record<string, unknown>[]).map((header) => ({ name: str(header.name), value: str(header.value) }))
+        : [],
+    }
   } else if (p.tcpSocket && typeof p.tcpSocket === 'object') {
     const ts = p.tcpSocket as Record<string, unknown>
     probe.type = 'tcpSocket'
-    probe.tcpSocket = { port: str(ts.port) }
+    probe.tcpSocket = { host: str(ts.host), port: str(ts.port) }
   } else if (p.exec && typeof p.exec === 'object') {
     const ex = p.exec as Record<string, unknown>
     probe.type = 'exec'
-    const cmd = Array.isArray(ex.command) ? (ex.command as unknown[]).join(' ') : str(ex.command)
+    const cmd = toStringArray(ex.command).join(' ')
     probe.exec = { command: cmd }
   }
 
   return probe
+}
+
+function parseLifecycleHandler(value: unknown): { type: string; command?: string; httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }; tcpSocket?: { host?: string; port: string } } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const handler = value as Record<string, unknown>
+  if (handler.exec && typeof handler.exec === 'object') {
+    const exec = handler.exec as Record<string, unknown>
+    return { type: 'exec', command: toStringArray(exec.command).join(' ') }
+  }
+  if (handler.httpGet && typeof handler.httpGet === 'object') {
+    const httpGet = handler.httpGet as Record<string, unknown>
+    return {
+      type: 'httpGet',
+      httpGet: {
+        path: str(httpGet.path),
+        port: str(httpGet.port),
+        scheme: str(httpGet.scheme) || 'HTTP',
+        host: str(httpGet.host),
+        httpHeaders: Array.isArray(httpGet.httpHeaders)
+          ? (httpGet.httpHeaders as Record<string, unknown>[]).map((header) => ({ name: str(header.name), value: str(header.value) }))
+          : [],
+      },
+    }
+  }
+  if (handler.tcpSocket && typeof handler.tcpSocket === 'object') {
+    const tcpSocket = handler.tcpSocket as Record<string, unknown>
+    return {
+      type: 'tcpSocket',
+      tcpSocket: {
+        host: str(tcpSocket.host),
+        port: str(tcpSocket.port),
+      },
+    }
+  }
+  return undefined
 }
 
 function parseContainer(c: Record<string, unknown>, isInitContainer = false): ContainerSpec {
@@ -52,8 +116,6 @@ function parseContainer(c: Record<string, unknown>, isInitContainer = false): Co
     : []
 
   const res = (c.resources ?? {}) as Record<string, unknown>
-  const req = (res.requests ?? {}) as Record<string, unknown>
-  const lim = (res.limits ?? {}) as Record<string, unknown>
 
   const mounts = Array.isArray(c.volumeMounts)
     ? (c.volumeMounts as Record<string, unknown>[]).map((m) => ({
@@ -63,32 +125,98 @@ function parseContainer(c: Record<string, unknown>, isInitContainer = false): Co
       }))
     : []
 
-  const envFrom = Array.isArray(c.envFrom)
+  const configMapEnvFrom = Array.isArray(c.envFrom)
     ? (c.envFrom as Record<string, unknown>[])
         .filter((e) => e.configMapRef && typeof e.configMapRef === 'object')
-        .map((e) => ({ key: str((e.configMapRef as Record<string, unknown>).name) }))
+        .map((e) => {
+          const configMapRef = e.configMapRef as Record<string, unknown>
+          const optional = configMapRef.optional === true ? 'True' : configMapRef.optional === false ? 'False' : ''
+          return { key: str(configMapRef.name), value: str(e.prefix), option: optional }
+        })
+    : []
+
+  const secretEnvFrom = Array.isArray(c.envFrom)
+    ? (c.envFrom as Record<string, unknown>[])
+        .filter((e) => e.secretRef && typeof e.secretRef === 'object')
+        .map((e) => {
+          const secretRef = e.secretRef as Record<string, unknown>
+          const optional = secretRef.optional === true ? 'True' : secretRef.optional === false ? 'False' : ''
+          return { key: str(secretRef.name), value: str(e.prefix), option: optional }
+        })
+    : []
+
+  const configMapEnvVars = Array.isArray(c.env)
+    ? (c.env as Record<string, unknown>[])
+        .filter((e) => e.valueFrom && typeof e.valueFrom === 'object' && (e.valueFrom as Record<string, unknown>).configMapKeyRef && typeof (e.valueFrom as Record<string, unknown>).configMapKeyRef === 'object')
+        .map((e) => {
+          const valueFrom = e.valueFrom as Record<string, unknown>
+          const keyRef = valueFrom.configMapKeyRef as Record<string, unknown>
+          const optional = keyRef.optional === true ? 'True' : keyRef.optional === false ? 'False' : ''
+          return { key: str(e.name), value: str(keyRef.name), option: str(keyRef.key), optional }
+        })
+    : []
+
+  const envVars = Array.isArray(c.env)
+    ? (c.env as Record<string, unknown>[])
+        .filter((e) => (!e.valueFrom || typeof e.valueFrom !== 'object') && e.name != null)
+        .map((e) => ({ key: str(e.name), value: str(e.value) }))
+    : []
+
+  const fieldRefEnvVars = Array.isArray(c.env)
+    ? (c.env as Record<string, unknown>[])
+        .filter((e) => e.valueFrom && typeof e.valueFrom === 'object' && (e.valueFrom as Record<string, unknown>).fieldRef && typeof (e.valueFrom as Record<string, unknown>).fieldRef === 'object')
+        .map((e) => {
+          const valueFrom = e.valueFrom as Record<string, unknown>
+          const fieldRef = valueFrom.fieldRef as Record<string, unknown>
+          return { key: str(e.name), value: str(fieldRef.fieldPath) }
+        })
+    : []
+
+  const secretEnvVars = Array.isArray(c.env)
+    ? (c.env as Record<string, unknown>[])
+        .filter((e) => e.valueFrom && typeof e.valueFrom === 'object' && (e.valueFrom as Record<string, unknown>).secretKeyRef && typeof (e.valueFrom as Record<string, unknown>).secretKeyRef === 'object')
+        .map((e) => {
+          const valueFrom = e.valueFrom as Record<string, unknown>
+          const keyRef = valueFrom.secretKeyRef as Record<string, unknown>
+          const optional = keyRef.optional === true ? 'True' : keyRef.optional === false ? 'False' : ''
+          return { key: str(e.name), value: str(keyRef.name), option: str(keyRef.key), optional }
+        })
     : []
 
   const sc = (c.securityContext ?? {}) as Record<string, unknown>
+  const capabilities = (sc.capabilities ?? {}) as Record<string, unknown>
+  const seLinuxOptions = (sc.seLinuxOptions ?? {}) as Record<string, unknown>
+  const parseCapabilities = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return []
+    return value.map((cap) => str(cap).trim()).filter((cap) => cap.length > 0)
+  }
 
   const lc = (c.lifecycle ?? {}) as Record<string, unknown>
-  const postCmd = (lc.postStart as Record<string, unknown> | undefined)?.exec
-  const preCmd = (lc.preStop as Record<string, unknown> | undefined)?.exec
+  const command = toStringArray(c.command)
+  const args = toStringArray(c.args)
 
   return {
     Name: str(c.name),
     Image: str(c.image),
+    ImagePullPolicy: ['IfNotPresent', 'Always', 'Never'].includes(str(c.imagePullPolicy)) ? (str(c.imagePullPolicy) as 'IfNotPresent' | 'Always' | 'Never') : '',
     PackageId: '',
     FeedId: null,
     CreateFeedSecrets: 'False',
     IsInitContainer: isInitContainer ? 'True' : 'False',
+    Command: command,
+    Args: args,
     Ports: ports,
     Resources: {
-      requests: { cpu: str(req.cpu), memory: str(req.memory) },
-      limits: { cpu: str(lim.cpu), memory: str(lim.memory) },
+      requests: parseResourceMap(res.requests),
+      limits: parseResourceMap(res.limits),
     },
     VolumeMounts: mounts,
-    ConfigMapEnvFromSource: envFrom,
+    EnvironmentVariables: envVars,
+    FieldRefEnvironmentVariables: fieldRefEnvVars,
+    ConfigMapEnvFromSource: configMapEnvFrom,
+    ConfigMapEnvironmentVariables: configMapEnvVars,
+    SecretEnvFromSource: secretEnvFrom,
+    SecretEnvironmentVariables: secretEnvVars,
     LivenessProbe: c.livenessProbe ? parseProbe(c.livenessProbe as Record<string, unknown>) : { type: '', initialDelaySeconds: '', periodSeconds: '', timeoutSeconds: '', successThreshold: '', failureThreshold: '' },
     ReadinessProbe: c.readinessProbe ? parseProbe(c.readinessProbe as Record<string, unknown>) : { type: '', initialDelaySeconds: '', periodSeconds: '', timeoutSeconds: '', successThreshold: '', failureThreshold: '' },
     StartupProbe: c.startupProbe ? parseProbe(c.startupProbe as Record<string, unknown>) : { type: '', initialDelaySeconds: '', periodSeconds: '', timeoutSeconds: '', successThreshold: '', failureThreshold: '' },
@@ -99,11 +227,19 @@ function parseContainer(c: Record<string, unknown>, isInitContainer = false): Co
       readOnlyRootFilesystem: sc.readOnlyRootFilesystem === true ? 'True' : sc.readOnlyRootFilesystem === false ? 'False' : undefined,
       allowPrivilegeEscalation: sc.allowPrivilegeEscalation === true ? 'True' : sc.allowPrivilegeEscalation === false ? 'False' : undefined,
       privileged: sc.privileged === true ? 'True' : sc.privileged === false ? 'False' : undefined,
+      addCapabilities: parseCapabilities(capabilities.add),
+      dropCapabilities: parseCapabilities(capabilities.drop),
+      seLinuxLevel: seLinuxOptions.level != null ? str(seLinuxOptions.level) : undefined,
+      seLinuxRole: seLinuxOptions.role != null ? str(seLinuxOptions.role) : undefined,
+      seLinuxType: seLinuxOptions.type != null ? str(seLinuxOptions.type) : undefined,
+      seLinuxUser: seLinuxOptions.user != null ? str(seLinuxOptions.user) : undefined,
     },
     Lifecycle: {
-      postStart: postCmd ? { type: 'exec', command: Array.isArray((postCmd as Record<string, unknown>).command) ? ((postCmd as Record<string, unknown>).command as unknown[]).join(' ') : str((postCmd as Record<string, unknown>).command) } : undefined,
-      preStop: preCmd ? { type: 'exec', command: Array.isArray((preCmd as Record<string, unknown>).command) ? ((preCmd as Record<string, unknown>).command as unknown[]).join(' ') : str((preCmd as Record<string, unknown>).command) } : undefined,
+      postStart: parseLifecycleHandler(lc.postStart),
+      preStop: parseLifecycleHandler(lc.preStop),
     },
+    TerminationMessagePath: str(c.terminationMessagePath),
+    TerminationMessagePolicy: str(c.terminationMessagePolicy) === 'FallbackToLogsOnError' ? 'FallbackToLogsOnError' : 'File',
   }
 }
 

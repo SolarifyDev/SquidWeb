@@ -68,6 +68,9 @@ export interface ProjectDashboardItem {
   projectId: number
   environmentId: number
   releaseVersion: string
+  deploymentId?: number | null
+  channelId?: number | null
+  channelName?: string | null
   state: ProjectDashboardState | string
   completedTime: string | null
   hasWarningsOrErrors: boolean

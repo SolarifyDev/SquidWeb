@@ -1,17 +1,35 @@
 import React, { useMemo, useState } from 'react'
-import { Button, Input, Modal, Radio, message } from 'antd'
-import { CloseOutlined, CopyOutlined } from '@ant-design/icons'
+import { Button, Input, Modal, Radio, Select, message } from 'antd'
+import { CloseOutlined, CopyOutlined, PlusOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { KeyValueListEditor } from '../../shared/KeyValueListEditor'
 import { generateIngressYaml } from '../generateYaml'
 import { parseYamlToState } from '../parseYamlToState'
-import type { ContainersEditorState } from '../types'
+import type { ContainersEditorState, IngressPath } from '../types'
 
 interface IngressSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
   showNamespaceSection?: boolean
 }
+
+const INGRESS_ANNOTATION_OPTIONS = [
+  'nginx.ingress.kubernetes.io/proxy-connect-timeout',
+  'nginx.ingress.kubernetes.io/proxy-send-timeout',
+  'nginx.ingress.kubernetes.io/proxy-read-timeout',
+  'nginx.ingress.kubernetes.io/proxy-body-size',
+  'nginx.ingress.kubernetes.io/limit-rpm',
+  'kubernetes.io/ingress.class',
+  'kubernetes.io/tls-acme',
+  'prometheus.io/probe',
+  'cert-manager.io/cluster-issuer',
+]
+
+const INGRESS_PATH_TYPE_OPTIONS = [
+  { label: 'Implementation Specific', value: 'ImplementationSpecific' },
+  { label: 'Prefix', value: 'Prefix' },
+  { label: 'Exact', value: 'Exact' },
+]
 
 function EditIngressYamlSubSection({
   state,
@@ -133,7 +151,12 @@ function EditIngressYamlSubSection({
 }
 
 export function IngressSection({ state, updateField, showNamespaceSection = false }: IngressSectionProps) {
+  const [hostRuleModalOpen, setHostRuleModalOpen] = useState(false)
+  const [hostRuleEditIndex, setHostRuleEditIndex] = useState<number | null>(null)
+  const [hostRuleHost, setHostRuleHost] = useState('')
+  const [hostRulePaths, setHostRulePaths] = useState<IngressPath[]>([])
   const [tlsModalOpen, setTlsModalOpen] = useState(false)
+  const [tlsEditIndex, setTlsEditIndex] = useState<number | null>(null)
   const [tlsMode, setTlsMode] = useState<'IngressDefault' | 'Octopus' | 'Secret'>('IngressDefault')
   const [tlsSecretName, setTlsSecretName] = useState('')
   const [tlsDraftHosts, setTlsDraftHosts] = useState<string[]>([])
@@ -148,23 +171,106 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
     }
   }
 
-  const handleAddHostRule = () => {
-    updateField('ingressRules', [
-      ...state.ingressRules,
-      {
-        host: '',
-        paths: [
-          {
-            path: '/',
-            pathType: 'Prefix',
-            backend: {
-              serviceName: state.serviceName || '',
-              servicePort: '',
-            },
+  const defaultServicePort = state.servicePorts.find((port) => port.targetPort?.trim())?.targetPort || state.servicePorts.find((port) => port.port?.trim())?.port || ''
+  const defaultServiceName = state.serviceName || ''
+  const buildDefaultPath = (): IngressPath => ({
+    path: '/',
+    pathType: 'ImplementationSpecific',
+    backend: {
+      serviceName: defaultServiceName,
+      servicePort: defaultServicePort,
+    },
+  })
+  const insertVariable = () => message.info('Insert Variable is not available yet')
+
+  const openAddHostRuleModal = () => {
+    setHostRuleEditIndex(null)
+    setHostRuleHost('')
+    setHostRulePaths([])
+    setHostRuleModalOpen(true)
+  }
+
+  const openEditHostRuleModal = (index: number) => {
+    const existingRule = state.ingressRules[index]
+    if (!existingRule) return
+    const existingPaths = existingRule.paths.length > 0
+      ? existingRule.paths.map((path) => ({
+          path: path.path || '/',
+          pathType: path.pathType || 'ImplementationSpecific',
+          backend: {
+            serviceName: path.backend.serviceName || defaultServiceName,
+            servicePort: path.backend.servicePort || defaultServicePort,
           },
-        ],
-      },
-    ])
+        }))
+      : [buildDefaultPath()]
+    setHostRuleEditIndex(index)
+    setHostRuleHost(existingRule.host || '')
+    setHostRulePaths(existingPaths)
+    setHostRuleModalOpen(true)
+  }
+
+  const updateHostRulePath = (index: number, field: 'path' | 'pathType', value: string) => {
+    setHostRulePaths((prev) => prev.map((path, i) => (i === index ? { ...path, [field]: value } : path)))
+  }
+
+  const updateHostRuleBackend = (index: number, field: 'serviceName' | 'servicePort', value: string) => {
+    setHostRulePaths((prev) =>
+      prev.map((path, i) => (i === index ? { ...path, backend: { ...path.backend, [field]: value } } : path)),
+    )
+  }
+
+  const addHostRulePath = () => {
+    setHostRulePaths((prev) => [...prev, buildDefaultPath()])
+  }
+
+  const removeHostRulePath = (index: number) => {
+    setHostRulePaths((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleAddHostRule = () => {
+    openAddHostRuleModal()
+  }
+
+  const confirmAddHostRule = () => {
+    const normalizedPaths = hostRulePaths
+      .map((path) => ({
+        path: path.path.trim(),
+        pathType: path.pathType || 'ImplementationSpecific',
+        backend: {
+          serviceName: path.backend.serviceName.trim(),
+          servicePort: path.backend.servicePort.trim(),
+        },
+      }))
+      .filter((path) => path.path || path.backend.serviceName || path.backend.servicePort)
+
+    if (normalizedPaths.length === 0) {
+      message.error('At least one path is required')
+      return
+    }
+    if (normalizedPaths.some((path) => !path.backend.serviceName)) {
+      message.error('Service name is required for every path')
+      return
+    }
+    if (normalizedPaths.some((path) => !path.backend.servicePort)) {
+      message.error('Service port is required for every path')
+      return
+    }
+
+    const nextRule = {
+      host: hostRuleHost.trim(),
+      paths: normalizedPaths.map((path) => ({
+        ...path,
+        path: path.path || '/',
+        pathType: path.pathType || 'ImplementationSpecific',
+      })),
+    }
+
+    if (hostRuleEditIndex != null) {
+      updateField('ingressRules', state.ingressRules.map((rule, index) => (index === hostRuleEditIndex ? nextRule : rule)))
+    } else {
+      updateField('ingressRules', [...state.ingressRules, nextRule])
+    }
+    setHostRuleModalOpen(false)
   }
 
   const handleSortRules = () => {
@@ -173,9 +279,20 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
   }
 
   const openTlsModal = () => {
+    setTlsEditIndex(null)
     setTlsMode('IngressDefault')
     setTlsSecretName('')
     setTlsDraftHosts([])
+    setTlsModalOpen(true)
+  }
+
+  const openEditTlsModal = (index: number) => {
+    const existing = state.ingressTls[index]
+    if (!existing) return
+    setTlsEditIndex(index)
+    setTlsMode(existing.secretName ? 'Secret' : 'IngressDefault')
+    setTlsSecretName(existing.secretName || '')
+    setTlsDraftHosts(existing.hosts.length > 0 ? [...existing.hosts] : [])
     setTlsModalOpen(true)
   }
 
@@ -202,14 +319,27 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
       return
     }
 
-    updateField('ingressTls', [
-      ...state.ingressTls,
-      {
-        hosts,
-        secretName: tlsMode === 'Secret' ? tlsSecretName.trim() : '',
-      },
-    ])
+    const nextItem = {
+      hosts,
+      secretName: tlsMode === 'Secret' ? tlsSecretName.trim() : '',
+    }
+    if (tlsEditIndex != null) {
+      updateField('ingressTls', state.ingressTls.map((tls, index) => (index === tlsEditIndex ? nextItem : tls)))
+    } else {
+      updateField('ingressTls', [...state.ingressTls, nextItem])
+    }
     setTlsModalOpen(false)
+    setTlsEditIndex(null)
+  }
+
+  const formatHostRuleSummary = (ruleHost: string, path: IngressPath) => {
+    const host = ruleHost.trim()
+    const normalizedPath = (path.path || '/').trim()
+    const displayPath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`
+    const hostAndPath = `${host || '(all hosts)'}${displayPath}`
+    const serviceName = path.backend.serviceName || state.serviceName || '(service)'
+    const servicePort = path.backend.servicePort || '(port)'
+    return `${hostAndPath} => ${serviceName}:${servicePort}`
   }
 
   return (
@@ -296,6 +426,8 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
           items={state.ingressAnnotations}
           onChange={(v) => updateField('ingressAnnotations', v)}
           addLabel="Add Annotation"
+          layout="octopus"
+          keyOptions={INGRESS_ANNOTATION_OPTIONS}
         />
       </CollapsibleSection>
 
@@ -336,20 +468,29 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
         {state.ingressRules.length > 0 && (
           <ul className="space-y-2">
             {state.ingressRules.map((rule, index) => {
-              const firstPath = rule.paths[0]
-              const pathCount = rule.paths.length
+              const validPaths = rule.paths.filter((path) => path.path || path.backend.serviceName || path.backend.servicePort)
+              const paths = validPaths.length > 0 ? validPaths : [{ path: '/', pathType: 'ImplementationSpecific', backend: { serviceName: state.serviceName || '', servicePort: '' } }]
               return (
-                <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
-                  <div className="text-sm text-slate-700 space-y-1">
-                    <p className="mb-0">Host: <strong>{rule.host || '(all hosts)'}</strong></p>
-                    <p className="mb-0">Path: <strong>{firstPath?.path || '/'}</strong></p>
-                    <p className="mb-0">Service: <strong>{firstPath?.backend.serviceName || state.serviceName || '(not set)'}</strong></p>
-                    <p className="mb-0">Service Port: <strong>{firstPath?.backend.servicePort || '(not set)'}</strong></p>
-                    {pathCount > 1 && <p className="mb-0 text-xs text-slate-500">+{pathCount - 1} additional path{pathCount - 1 > 1 ? 's' : ''}</p>}
+                <li
+                  key={index}
+                  className="flex items-center justify-between gap-3 border border-slate-200 rounded px-3 py-2 bg-white cursor-pointer hover:border-blue-300 transition-colors"
+                  onClick={() => openEditHostRuleModal(index)}
+                >
+                  <div className="text-sm text-slate-700 min-w-0">
+                    <ul className="list-disc pl-5 m-0 space-y-1">
+                      {paths.map((path, pathIndex) => (
+                        <li key={pathIndex} className="break-all">
+                          <strong>{formatHostRuleSummary(rule.host, path)}</strong>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                   <button
                     type="button"
-                    onClick={() => updateField('ingressRules', state.ingressRules.filter((_, i) => i !== index))}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      updateField('ingressRules', state.ingressRules.filter((_, i) => i !== index))
+                    }}
                     className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                     aria-label="Remove host rule"
                   >
@@ -360,6 +501,144 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
             })}
           </ul>
         )}
+
+        <Modal
+          title={hostRuleEditIndex != null ? 'Edit Host Rule' : 'Add Host Rule'}
+          open={hostRuleModalOpen}
+          onCancel={() => {
+            setHostRuleModalOpen(false)
+            setHostRuleEditIndex(null)
+          }}
+          onOk={confirmAddHostRule}
+          okText="Ok"
+          cancelText="Cancel"
+          width={600}
+        >
+          <div className="space-y-4">
+            <div className="flex items-end gap-2">
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs font-medium text-slate-600 mb-1">Host</label>
+                <Input
+                  value={hostRuleHost}
+                  onChange={(e) => setHostRuleHost(e.target.value)}
+                  placeholder="#{IngressBaseDomainName}"
+                />
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                aria-label="Insert Variable"
+                onClick={insertVariable}
+              >
+                <span className="text-[10px] font-semibold">{'{ }'}</span>
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed mb-0">
+              An optional value that defines the host that this ingress rule applies to. If left blank, this rule applies to all hosts.
+            </p>
+
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-700 mb-0">Paths</p>
+              <p className="text-xs text-slate-500 leading-relaxed mb-0">
+                Include the URL path and the service <code className="text-xs bg-slate-100 px-1 rounded">Port</code> this ingress path directs traffic to. The service port can be the service name, or the port number.
+              </p>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={addHostRulePath}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  <PlusOutlined style={{ fontSize: 11 }} />
+                  Add Path
+                </button>
+              </div>
+
+              <ul className="space-y-2">
+                {hostRulePaths.map((path, index) => (
+                  <li key={index} className="border border-slate-200 rounded px-4 pt-3 pb-5 bg-white">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium text-slate-600 mb-0">Path Item {index + 1}</p>
+                      <button
+                        type="button"
+                        onClick={() => removeHostRulePath(index)}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                        aria-label="Remove path"
+                      >
+                        <CloseOutlined style={{ fontSize: 13 }} />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4 pb-1">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Path</label>
+                        <div className="flex items-end gap-1">
+                          <Input value={path.path} onChange={(e) => updateHostRulePath(index, 'path', e.target.value)} placeholder="/" />
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                            aria-label="Insert Variable"
+                            onClick={insertVariable}
+                          >
+                            <span className="text-[10px] font-semibold">{'{ }'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Service port</label>
+                        <div className="flex items-end gap-1">
+                          <Input
+                            value={path.backend.servicePort}
+                            onChange={(e) => updateHostRuleBackend(index, 'servicePort', e.target.value)}
+                            placeholder="8080"
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                            aria-label="Insert Variable"
+                            onClick={insertVariable}
+                          >
+                            <span className="text-[10px] font-semibold">{'{ }'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Service name</label>
+                        <div className="flex items-end gap-1">
+                          <Input
+                            value={path.backend.serviceName}
+                            onChange={(e) => updateHostRuleBackend(index, 'serviceName', e.target.value)}
+                            placeholder={state.serviceName || 'service-name'}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                            aria-label="Insert Variable"
+                            onClick={insertVariable}
+                          >
+                            <span className="text-[10px] font-semibold">{'{ }'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Path Type</label>
+                        <Select
+                          value={path.pathType || 'ImplementationSpecific'}
+                          options={INGRESS_PATH_TYPE_OPTIONS}
+                          onChange={(value) => updateHostRulePath(index, 'pathType', value)}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </Modal>
       </CollapsibleSection>
 
       <CollapsibleSection title="Ingress TLS" subtitle="Configure TLS certificates" defaultOpen>
@@ -392,14 +671,21 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
         {state.ingressTls.length > 0 && (
           <ul className="space-y-2">
             {state.ingressTls.map((tls, index) => (
-              <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
+              <li
+                key={index}
+                className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3 cursor-pointer hover:border-blue-300 transition-colors"
+                onClick={() => openEditTlsModal(index)}
+              >
                 <div className="text-sm text-slate-700 space-y-1">
                   <p className="mb-0">Hosts: <strong>{tls.hosts.join(', ') || '(none)'}</strong></p>
                   <p className="mb-0">Certificate: <strong>{tls.secretName || 'Ingress default / controller-managed'}</strong></p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => updateField('ingressTls', state.ingressTls.filter((_, i) => i !== index))}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    updateField('ingressTls', state.ingressTls.filter((_, i) => i !== index))
+                  }}
                   className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                   aria-label="Remove TLS certificate"
                 >
@@ -411,9 +697,12 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
         )}
 
         <Modal
-          title="Configure TLS certificate"
+          title={tlsEditIndex != null ? 'Edit TLS certificate' : 'Configure TLS certificate'}
           open={tlsModalOpen}
-          onCancel={() => setTlsModalOpen(false)}
+          onCancel={() => {
+            setTlsModalOpen(false)
+            setTlsEditIndex(null)
+          }}
           onOk={handleAddTlsCertificate}
           okText="Ok"
           cancelText="Cancel"

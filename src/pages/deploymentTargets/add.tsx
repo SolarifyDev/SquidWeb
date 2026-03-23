@@ -12,6 +12,7 @@ import {
   getConnectionStatus,
   registerKubernetesApi,
   type GenerateKubernetesAgentInstallScriptData,
+  type KubernetesAgentStorageType,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
 import { createDeploymentAccount, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
@@ -42,10 +43,17 @@ const kubernetesOptions = [
   },
 ]
 
-function toShellScript(bash: string, shell: 'bash' | 'powershell'): string {
+function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
+  if (!bash) return ''
   if (shell === 'powershell') return bash.replace(/ \\\n/g, ' `\n')
   return bash
 }
+
+const kubernetesAgentStorageTypeOptions: Array<{ value: KubernetesAgentStorageType; label: string }> = [
+  { value: 'builtin-nfs', label: 'Built-in NFS (default)' },
+  { value: 'external-nfs', label: 'External NFS' },
+  { value: 'custom', label: 'Custom PVC' },
+]
 
 function InfoHint() {
   return (
@@ -241,8 +249,11 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [agentName, setAgentName] = useState('')
   const [agentEnvironments, setAgentEnvironments] = useState<string[]>([])
   const [agentTags, setAgentTags] = useState<string[]>([])
+  const [agentStorageType, setAgentStorageType] = useState<KubernetesAgentStorageType>('builtin-nfs')
+  const [agentNfsServer, setAgentNfsServer] = useState('')
+  const [agentNfsPath, setAgentNfsPath] = useState('')
+  const [agentCustomStorageClassName, setAgentCustomStorageClassName] = useState('')
   const [agentNamespace, setAgentNamespace] = useState('')
-  const [agentStorageClass, setAgentStorageClass] = useState('')
   const [agentServerUrl, setAgentServerUrl] = useState(() => window.location.origin)
   const [agentCommsUrl, setAgentCommsUrl] = useState(() => {
     const url = new URL(window.location.origin)
@@ -317,8 +328,11 @@ const AddDeploymentTargetPage: React.FC = () => {
     setAgentName('')
     setAgentEnvironments([])
     setAgentTags([])
+    setAgentStorageType('builtin-nfs')
+    setAgentNfsServer('')
+    setAgentNfsPath('')
+    setAgentCustomStorageClassName('')
     setAgentNamespace('')
-    setAgentStorageClass('')
     setAgentServerUrl(window.location.origin)
     const url = new URL(window.location.origin)
     setAgentCommsUrl(`${url.protocol}//${url.hostname}:10943`)
@@ -459,6 +473,8 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (!agentName.trim()) { message.warning('Please enter an agent name'); return }
     if (agentEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
     if (agentTags.length === 0) { message.warning('Please add at least one target tag'); return }
+    if (agentStorageType === 'external-nfs' && !agentNfsServer.trim()) { message.warning('Please provide an NFS server for External NFS'); return }
+    if (agentStorageType === 'custom' && !agentCustomStorageClassName.trim()) { message.warning('Please provide a storage class name for Custom PVC'); return }
     if (!agentServerUrl.trim()) { message.warning('Please provide Squid Server URL'); return }
     if (!agentCommsUrl.trim()) { message.warning('Please provide Squid Server Communications URL'); return }
 
@@ -468,6 +484,10 @@ const AddDeploymentTargetPage: React.FC = () => {
         agentName: agentName.trim(),
         serverUrl: agentServerUrl.trim(),
         serverCommsUrl: agentCommsUrl.trim(),
+        storageType: agentStorageType,
+        nfsServer: agentStorageType === 'external-nfs' ? agentNfsServer.trim() : undefined,
+        nfsPath: agentStorageType === 'external-nfs' && agentNfsPath.trim() ? agentNfsPath.trim() : undefined,
+        storageClassName: agentStorageType === 'custom' ? agentCustomStorageClassName.trim() : undefined,
         environments: agentEnvironments,
         tags: agentTags,
         spaceId: space.id,
@@ -675,6 +695,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     void loadCertificates()
   }, [apiAuthType, loadCertificates])
 
+  const nfsCsiDriverRequired = Boolean(scriptData && (scriptData.nfsCsiDriverRequired ?? scriptData.nfsCsiDriverScript))
+  const agentInstallStepNumber = nfsCsiDriverRequired ? 2 : 1
+
   return (
     <div className="bg-white min-h-screen">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
@@ -838,6 +861,41 @@ const AddDeploymentTargetPage: React.FC = () => {
                       onCreateFromSearch={(name) => { void handleCreateTargetTagFromSearch(name, setAgentTags, () => setAgentTagSearchValue('')) }}
                     />
 
+                    <SelectField
+                      label="Storage type"
+                      helper="Choose how agent storage should be provisioned."
+                      options={kubernetesAgentStorageTypeOptions.map((option) => ({ value: option.value, label: option.label }))}
+                      value={agentStorageType}
+                      onChange={(value) => setAgentStorageType(value as KubernetesAgentStorageType)}
+                    />
+
+                    {agentStorageType === 'external-nfs' && (
+                      <>
+                        <FormField
+                          label="NFS Server IP/Host"
+                          helper="Required for External NFS mode."
+                          value={agentNfsServer}
+                          onChange={setAgentNfsServer}
+                        />
+                        <FormField
+                          label="NFS Path"
+                          placeholder="/export/path"
+                          helper="Optional. Leave empty to use backend default."
+                          value={agentNfsPath}
+                          onChange={setAgentNfsPath}
+                        />
+                      </>
+                    )}
+
+                    {agentStorageType === 'custom' && (
+                      <FormField
+                        label="Storage class name"
+                        helper="Required for Custom PVC mode."
+                        value={agentCustomStorageClassName}
+                        onChange={setAgentCustomStorageClassName}
+                      />
+                    )}
+
                     <button
                       onClick={() => setShowOptional(!showOptional)}
                       className="text-base text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0 mb-5"
@@ -853,18 +911,6 @@ const AddDeploymentTargetPage: React.FC = () => {
                           helper="Default namespace can be overridden by your step configuration and YAML"
                           value={agentNamespace}
                           onChange={setAgentNamespace}
-                        />
-                        <FormField
-                          label="Storage class"
-                          helper={
-                            <span className="inline-flex items-center gap-1 flex-wrap">
-                              <span>Provide a Storage Class</span>
-                              <InfoHint />
-                              <span>or leave this blank to use the default NFS storage</span>
-                            </span>
-                          }
-                          value={agentStorageClass}
-                          onChange={setAgentStorageClass}
                         />
                         <FormField
                           label="Squid Server URL"
@@ -907,20 +953,23 @@ const AddDeploymentTargetPage: React.FC = () => {
                       Run the following commands in your Kubernetes cluster to install the agent.
                     </p>
 
-                    <div className="mb-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">1. Install NFS CSI Driver (one-time setup)</label>
-                        <div className="flex items-center gap-2">
-                          <Select
-                            size="small"
-                            value={scriptShell}
-                            onChange={setScriptShell}
-                            options={[
-                              { value: 'bash', label: 'Bash' },
-                              { value: 'powershell', label: 'PowerShell' },
-                            ]}
-                            style={{ width: 120 }}
-                          />
+                    <div className="mb-4 flex items-center justify-end">
+                      <Select
+                        size="small"
+                        value={scriptShell}
+                        onChange={setScriptShell}
+                        options={[
+                          { value: 'bash', label: 'Bash' },
+                          { value: 'powershell', label: 'PowerShell' },
+                        ]}
+                        style={{ width: 120 }}
+                      />
+                    </div>
+
+                    {nfsCsiDriverRequired && scriptData.nfsCsiDriverScript ? (
+                      <div className="mb-6">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-gray-700">1. Install NFS CSI Driver (one-time setup)</label>
                           <Button
                             type="text"
                             size="small"
@@ -930,15 +979,15 @@ const AddDeploymentTargetPage: React.FC = () => {
                             Copy
                           </Button>
                         </div>
+                        <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-md overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                          {toShellScript(scriptData.nfsCsiDriverScript, scriptShell)}
+                        </pre>
                       </div>
-                      <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-md overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
-                        {toShellScript(scriptData.nfsCsiDriverScript, scriptShell)}
-                      </pre>
-                    </div>
+                    ) : null}
 
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">2. Install Squid Agent</label>
+                        <label className="text-sm font-medium text-gray-700">{agentInstallStepNumber}. Install Squid Agent</label>
                         <Button
                           type="text"
                           size="small"

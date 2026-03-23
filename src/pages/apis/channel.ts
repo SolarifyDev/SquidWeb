@@ -1,5 +1,25 @@
 import { get, post } from 'utils/request'
 
+export interface ChannelActionPackageDto {
+  actionName?: string | null
+  packageReferenceName?: string | null
+  deploymentAction?: string | null
+  packageReference?: string | null
+}
+
+export interface ChannelVersionRuleDto {
+  id?: number
+  channelId?: number
+  actionNames?: string | null
+  actionName?: string | null
+  packageReferenceName?: string | null
+  packageId?: string | null
+  versionRange?: string | null
+  preReleaseTag?: string | null
+  sortOrder?: number
+  actionPackage?: ChannelActionPackageDto | null
+}
+
 export interface ChannelDto {
   id: number
   name: string
@@ -9,6 +29,7 @@ export interface ChannelDto {
   spaceId: number
   slug: string
   isDefault: boolean
+  versionRules?: ChannelVersionRuleDto[]
 }
 
 export interface GetChannelsRequest {
@@ -42,6 +63,26 @@ export async function getChannels(params?: GetChannelsRequest) {
   } catch {
     // Backward-compatible endpoint
     return get<GetChannelsResponseData>('/channel', { params: query })
+  }
+}
+
+export async function getChannel(id: number) {
+  try {
+    return await get<ChannelDto>(`/channels/${id}`)
+  } catch {
+    return get<ChannelDto>(`/channel/${id}`)
+  }
+}
+
+export async function getChannelVersionRules(channelId: number) {
+  try {
+    return await get<ChannelVersionRuleDto[]>(`/channels/${channelId}/rules`)
+  } catch {
+    try {
+      return await get<ChannelVersionRuleDto[]>(`/channel/${channelId}/rules`)
+    } catch {
+      return []
+    }
   }
 }
 

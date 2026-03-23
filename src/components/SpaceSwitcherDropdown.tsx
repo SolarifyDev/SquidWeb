@@ -226,9 +226,9 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50">
+      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex justify-center">
         <button
-          className="text-xs text-blue-600 hover:underline font-medium bg-transparent border-0 cursor-pointer p-0"
+          className="inline-flex items-center justify-center rounded-md bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-semibold text-white border-0 cursor-pointer transition-colors shadow-sm"
           onClick={onClose}
         >
           Create new space

@@ -216,20 +216,35 @@ export class KubernetesContainerPayloadKeys {
   static readonly Name = 'Name' // Container name.
   static readonly Image = 'Image' // Container image reference.
   static readonly PackageId = 'PackageId' // Selected package id.
-  static readonly FeedId = 'FeedId' // External feed id (number).
+  static readonly FeedId = 'FeedId' // External feed id (serialized as string for backend compatibility).
   static readonly CreateFeedSecrets = 'CreateFeedSecrets' // "True" | "False".
   static readonly IsInitContainer = 'IsInitContainer' // "True" | "False".
+  static readonly ImagePullPolicy = 'ImagePullPolicy'
+  static readonly TerminationMessagePath = 'TerminationMessagePath'
+  static readonly TerminationMessagePolicy = 'TerminationMessagePolicy'
+  static readonly Command = 'Command'
+  static readonly Args = 'Args'
 
   // Complex object fields for each container item.
   static readonly Ports = 'Ports'
   static readonly Resources = 'Resources'
   static readonly VolumeMounts = 'VolumeMounts'
+  static readonly EnvironmentVariables = 'EnvironmentVariables'
+  static readonly FieldRefEnvironmentVariables = 'FieldRefEnvironmentVariables'
   static readonly ConfigMapEnvFromSource = 'ConfigMapEnvFromSource'
+  static readonly ConfigMapEnvironmentVariables = 'ConfigMapEnvironmentVariables'
+  static readonly SecretEnvFromSource = 'SecretEnvFromSource'
+  static readonly SecretEnvironmentVariables = 'SecretEnvironmentVariables'
   static readonly LivenessProbe = 'LivenessProbe'
   static readonly ReadinessProbe = 'ReadinessProbe'
   static readonly StartupProbe = 'StartupProbe'
   static readonly SecurityContext = 'SecurityContext'
   static readonly Lifecycle = 'Lifecycle'
+
+  // Legacy aliases kept for backward compatibility with existing persisted JSON.
+  static readonly FieldRefEnvVariables = 'FieldRefEnvVariables'
+  static readonly ConfigMapEnvVariables = 'ConfigMapEnvVariables'
+  static readonly SecretEnvVariables = 'SecretEnvVariables'
 }
 
 // Keys for item objects under Containers[].Ports.
@@ -265,6 +280,18 @@ export class KubernetesContainerEnvFromPayloadKeys {
   private constructor() {}
 
   static readonly ConfigMapName = 'key'
+  static readonly Prefix = 'value'
+  static readonly Optional = 'option'
+}
+
+// Keys for item objects under Containers[].ConfigMapEnvironmentVariables and Containers[].SecretEnvironmentVariables.
+export class KubernetesContainerEnvVarPayloadKeys {
+  private constructor() {}
+
+  static readonly Name = 'key'
+  static readonly SourceName = 'value'
+  static readonly SourceKey = 'option'
+  static readonly Optional = 'optional'
 }
 
 // Keys for Containers[].SecurityContext.
@@ -277,6 +304,12 @@ export class KubernetesContainerSecurityContextPayloadKeys {
   static readonly ReadOnlyRootFilesystem = 'readOnlyRootFilesystem'
   static readonly AllowPrivilegeEscalation = 'allowPrivilegeEscalation'
   static readonly Privileged = 'privileged'
+  static readonly AddCapabilities = 'addCapabilities'
+  static readonly DropCapabilities = 'dropCapabilities'
+  static readonly SeLinuxLevel = 'seLinuxLevel'
+  static readonly SeLinuxRole = 'seLinuxRole'
+  static readonly SeLinuxType = 'seLinuxType'
+  static readonly SeLinuxUser = 'seLinuxUser'
 }
 
 // Keys for Containers[].Lifecycle.

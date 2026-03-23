@@ -122,6 +122,58 @@ export interface GetServerTaskLogsParams {
   take?: number
 }
 
+export type ServerTaskStateValue =
+  | 'Pending'
+  | 'Executing'
+  | 'Success'
+  | 'Failed'
+  | 'Cancelling'
+  | 'Cancelled'
+  | 'TimedOut'
+  | 'Paused'
+
+export interface ServerTaskListItemDto {
+  id: number
+  name: string
+  description: string
+  state: ServerTaskStateValue | string
+  queueTime: string
+  startTime: string | null
+  completedTime: string | null
+  lastModifiedDate: string
+  errorMessage: string | null
+  hasWarningsOrErrors: boolean
+  hasPendingInterruptions: boolean
+  spaceId: number | null
+  projectId: number
+  environmentId: number
+  durationSeconds: number
+  isCompleted: boolean
+}
+
+export interface GetServerTaskListResponseData {
+  totalCount: number
+  items: ServerTaskListItemDto[]
+}
+
+export interface GetServerTaskListParams {
+  projectId: number
+  state?: ServerTaskStateValue
+  pageIndex?: number
+  pageSize?: number
+}
+
+export function getServerTaskList(params: GetServerTaskListParams) {
+  const query = {
+    projectId: params.projectId,
+    ...(params.state ? { state: params.state } : {}),
+    pageIndex: params.pageIndex ?? 1,
+    pageSize: params.pageSize ?? 30,
+  }
+
+  return get<GetServerTaskListResponseData>('/tasks', { params: query })
+}
+
 export function getServerTask(taskId: number) {
   return get<ServerTaskSummaryDto>(`/tasks/${taskId}`)
 }

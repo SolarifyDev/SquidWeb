@@ -80,6 +80,38 @@ export function getRegistryHost(feed: ExternalFeedDto | null | undefined): strin
 
 // ── Probe YAML ───────────────────────────────────────────────────────────────
 
+function splitCommandParts(command: string): string[] {
+  const value = command.trim()
+  if (!value) return []
+  const newlineParts = value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  if (newlineParts.length > 1) return newlineParts
+  return value.split(/\s+/).filter(Boolean)
+}
+
+function emitStringArrayBlock(lines: string[], indentLevel: number, key: string, values: string[]): void {
+  if (values.length === 0) return
+  const pad = ' '.repeat(indentLevel)
+  lines.push(`${pad}${key}:`)
+  for (const value of values) lines.push(`${pad}  - ${JSON.stringify(value)}`)
+}
+
+function normalizeResourceKey(key: string): string {
+  if (key === 'ephemeralStorage') return 'ephemeral-storage'
+  if (key === 'nvidiaGpu') return 'nvidia.com/gpu'
+  if (key === 'amdGpu') return 'amd.com/gpu'
+  return key
+}
+
+function normalizedResources(values: Record<string, string | undefined>): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const [rawKey, rawValue] of Object.entries(values ?? {})) {
+    const value = String(rawValue ?? '').trim()
+    if (!value) continue
+    map[normalizeResourceKey(rawKey)] = value
+  }
+  return map
+}
+
 function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
   if (!probe.type) return null
   const pad = ' '.repeat(indentLevel)
@@ -89,18 +121,25 @@ function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
     lines.push(`${pad}httpGet:`)
     lines.push(`${pad}  path: ${probe.httpGet.path || '/'}`)
     lines.push(`${pad}  port: ${probe.httpGet.port || '80'}`)
+    if (probe.httpGet.host?.trim()) lines.push(`${pad}  host: ${JSON.stringify(probe.httpGet.host.trim())}`)
     if (probe.httpGet.scheme && probe.httpGet.scheme !== 'HTTP') {
       lines.push(`${pad}  scheme: ${probe.httpGet.scheme}`)
     }
+    const headers = (probe.httpGet.httpHeaders ?? []).filter((header) => header.name?.trim())
+    if (headers.length > 0) {
+      lines.push(`${pad}  httpHeaders:`)
+      for (const header of headers) {
+        lines.push(`${pad}    - name: ${JSON.stringify(header.name)}`)
+        lines.push(`${pad}      value: ${JSON.stringify(header.value ?? '')}`)
+      }
+    }
   } else if (probe.type === 'tcpSocket' && probe.tcpSocket) {
     lines.push(`${pad}tcpSocket:`)
+    if (probe.tcpSocket.host?.trim()) lines.push(`${pad}  host: ${JSON.stringify(probe.tcpSocket.host.trim())}`)
     lines.push(`${pad}  port: ${probe.tcpSocket.port || '80'}`)
   } else if (probe.type === 'exec' && probe.exec?.command) {
     lines.push(`${pad}exec:`)
-    lines.push(`${pad}  command:`)
-    for (const part of probe.exec.command.split(/\s+/)) {
-      lines.push(`${pad}    - ${part}`)
-    }
+    emitStringArrayBlock(lines, indentLevel + 2, 'command', splitCommandParts(probe.exec.command))
   }
 
   if (probe.initialDelaySeconds) lines.push(`${pad}initialDelaySeconds: ${probe.initialDelaySeconds}`)
@@ -128,6 +167,7 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
 
   lines.push(`${pad}- name: ${container.Name || 'unnamed'}`)
   lines.push(`${pad}  image: ${resolveContainerImage(container, registryHost, statePackageId)}`)
+  if (container.ImagePullPolicy) lines.push(`${pad}  imagePullPolicy: ${container.ImagePullPolicy}`)
 
   // Ports
   const ports = container.Ports.filter((p) => p.value)
@@ -141,19 +181,23 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   }
 
   // Resources
-  const hasRequests = container.Resources.requests.cpu || container.Resources.requests.memory
-  const hasLimits = container.Resources.limits.cpu || container.Resources.limits.memory
+  const requestResources = normalizedResources(container.Resources.requests)
+  const limitResources = normalizedResources(container.Resources.limits)
+  const hasRequests = Object.keys(requestResources).length > 0
+  const hasLimits = Object.keys(limitResources).length > 0
   if (hasRequests || hasLimits) {
     lines.push(`${pad}  resources:`)
     if (hasRequests) {
       lines.push(`${pad}    requests:`)
-      if (container.Resources.requests.cpu) lines.push(`${pad}      cpu: "${container.Resources.requests.cpu}"`)
-      if (container.Resources.requests.memory) lines.push(`${pad}      memory: "${container.Resources.requests.memory}"`)
+      for (const [key, value] of Object.entries(requestResources)) {
+        lines.push(`${pad}      ${key}: "${value}"`)
+      }
     }
     if (hasLimits) {
       lines.push(`${pad}    limits:`)
-      if (container.Resources.limits.cpu) lines.push(`${pad}      cpu: "${container.Resources.limits.cpu}"`)
-      if (container.Resources.limits.memory) lines.push(`${pad}      memory: "${container.Resources.limits.memory}"`)
+      for (const [key, value] of Object.entries(limitResources)) {
+        lines.push(`${pad}      ${key}: "${value}"`)
+      }
     }
   }
 
@@ -168,13 +212,64 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     }
   }
 
-  // Env from ConfigMap
-  const envFrom = container.ConfigMapEnvFromSource.filter((s) => s.key)
-  if (envFrom.length > 0) {
+  // Container command/args.
+  emitStringArrayBlock(lines, indentLevel + 2, 'command', container.Command ?? [])
+  emitStringArrayBlock(lines, indentLevel + 2, 'args', container.Args ?? [])
+
+  // EnvFrom (ConfigMap + Secret)
+  const configMapEnvFrom = (container.ConfigMapEnvFromSource ?? []).filter((s) => s.key)
+  const secretEnvFrom = (container.SecretEnvFromSource ?? []).filter((s) => s.key)
+  if (configMapEnvFrom.length > 0 || secretEnvFrom.length > 0) {
     lines.push(`${pad}  envFrom:`)
-    for (const src of envFrom) {
+    for (const src of configMapEnvFrom) {
       lines.push(`${pad}    - configMapRef:`)
       lines.push(`${pad}        name: ${src.key}`)
+      if (src.option === 'True') lines.push(`${pad}        optional: true`)
+      if (src.option === 'False') lines.push(`${pad}        optional: false`)
+      if (src.value) lines.push(`${pad}      prefix: ${JSON.stringify(src.value)}`)
+    }
+    for (const src of secretEnvFrom) {
+      lines.push(`${pad}    - secretRef:`)
+      lines.push(`${pad}        name: ${src.key}`)
+      if (src.option === 'True') lines.push(`${pad}        optional: true`)
+      if (src.option === 'False') lines.push(`${pad}        optional: false`)
+      if (src.value) lines.push(`${pad}      prefix: ${JSON.stringify(src.value)}`)
+    }
+  }
+
+  const envVars = (container.EnvironmentVariables ?? []).filter((v) => v.key)
+  const fieldRefEnvVars = (container.FieldRefEnvironmentVariables ?? []).filter((v) => v.key && v.value)
+  const configMapEnvVars = (container.ConfigMapEnvironmentVariables ?? []).filter((v) => v.key && v.value && v.option)
+  const secretEnvVars = (container.SecretEnvironmentVariables ?? []).filter((v) => v.key && v.value && v.option)
+  if (envVars.length > 0 || fieldRefEnvVars.length > 0 || configMapEnvVars.length > 0 || secretEnvVars.length > 0) {
+    lines.push(`${pad}  env:`)
+    for (const envVar of envVars) {
+      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}      value: ${JSON.stringify(envVar.value ?? '')}`)
+    }
+    for (const envVar of fieldRefEnvVars) {
+      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}      valueFrom:`)
+      lines.push(`${pad}        fieldRef:`)
+      lines.push(`${pad}          fieldPath: ${JSON.stringify(envVar.value)}`)
+    }
+    for (const envVar of configMapEnvVars) {
+      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}      valueFrom:`)
+      lines.push(`${pad}        configMapKeyRef:`)
+      lines.push(`${pad}          name: ${envVar.value}`)
+      lines.push(`${pad}          key: ${envVar.option}`)
+      if (envVar.optional === 'True') lines.push(`${pad}          optional: true`)
+      if (envVar.optional === 'False') lines.push(`${pad}          optional: false`)
+    }
+    for (const envVar of secretEnvVars) {
+      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}      valueFrom:`)
+      lines.push(`${pad}        secretKeyRef:`)
+      lines.push(`${pad}          name: ${envVar.value}`)
+      lines.push(`${pad}          key: ${envVar.option}`)
+      if (envVar.optional === 'True') lines.push(`${pad}          optional: true`)
+      if (envVar.optional === 'False') lines.push(`${pad}          optional: false`)
     }
   }
 
@@ -197,8 +292,65 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     lines.push(startupYaml)
   }
 
+  // Lifecycle
+  const emitLifecycleHandler = (handler: ContainerSpec['Lifecycle']['postStart'], handlerIndentLevel: number): string[] => {
+    if (!handler || !handler.type) return []
+    const handlerPad = ' '.repeat(handlerIndentLevel)
+    const lifecycleLines: string[] = []
+    if (handler.type === 'exec' && handler.command?.trim()) {
+      lifecycleLines.push(`${handlerPad}exec:`)
+      emitStringArrayBlock(lifecycleLines, handlerIndentLevel + 2, 'command', splitCommandParts(handler.command))
+      return lifecycleLines
+    }
+    if (handler.type === 'httpGet' && handler.httpGet) {
+      lifecycleLines.push(`${handlerPad}httpGet:`)
+      lifecycleLines.push(`${handlerPad}  path: ${handler.httpGet.path || '/'}`)
+      lifecycleLines.push(`${handlerPad}  port: ${handler.httpGet.port || '80'}`)
+      if (handler.httpGet.host?.trim()) lifecycleLines.push(`${handlerPad}  host: ${JSON.stringify(handler.httpGet.host.trim())}`)
+      if (handler.httpGet.scheme && handler.httpGet.scheme !== 'HTTP') lifecycleLines.push(`${handlerPad}  scheme: ${handler.httpGet.scheme}`)
+      const headers = (handler.httpGet.httpHeaders ?? []).filter((header) => header.name?.trim())
+      if (headers.length > 0) {
+        lifecycleLines.push(`${handlerPad}  httpHeaders:`)
+        for (const header of headers) {
+          lifecycleLines.push(`${handlerPad}    - name: ${JSON.stringify(header.name)}`)
+          lifecycleLines.push(`${handlerPad}      value: ${JSON.stringify(header.value ?? '')}`)
+        }
+      }
+      return lifecycleLines
+    }
+    if (handler.type === 'tcpSocket' && handler.tcpSocket?.port) {
+      lifecycleLines.push(`${handlerPad}tcpSocket:`)
+      if (handler.tcpSocket.host?.trim()) lifecycleLines.push(`${handlerPad}  host: ${JSON.stringify(handler.tcpSocket.host.trim())}`)
+      lifecycleLines.push(`${handlerPad}  port: ${handler.tcpSocket.port}`)
+      return lifecycleLines
+    }
+    return []
+  }
+
+  if (container.Lifecycle.postStart || container.Lifecycle.preStop) {
+    const postStartLines = emitLifecycleHandler(container.Lifecycle.postStart, indentLevel + 4)
+    const preStopLines = emitLifecycleHandler(container.Lifecycle.preStop, indentLevel + 4)
+    if (postStartLines.length > 0 || preStopLines.length > 0) {
+      lines.push(`${pad}  lifecycle:`)
+      if (postStartLines.length > 0) {
+        lines.push(`${pad}    postStart:`)
+        lines.push(...postStartLines)
+      }
+      if (preStopLines.length > 0) {
+        lines.push(`${pad}    preStop:`)
+        lines.push(...preStopLines)
+      }
+    }
+  }
+
+  if (container.TerminationMessagePath?.trim()) lines.push(`${pad}  terminationMessagePath: ${container.TerminationMessagePath.trim()}`)
+  if ((container.TerminationMessagePolicy || 'File') !== 'File') lines.push(`${pad}  terminationMessagePolicy: ${container.TerminationMessagePolicy}`)
+
   // Security context
   const sc = container.SecurityContext
+  const addedCapabilities = (sc.addCapabilities ?? []).map((cap) => cap.trim()).filter((cap) => cap.length > 0)
+  const droppedCapabilities = (sc.dropCapabilities ?? []).map((cap) => cap.trim()).filter((cap) => cap.length > 0)
+  const hasSeLinuxOptions = Boolean(sc.seLinuxLevel || sc.seLinuxRole || sc.seLinuxType || sc.seLinuxUser)
   const scEntries: string[] = []
   if (sc.runAsUser) scEntries.push(`${pad}      runAsUser: ${sc.runAsUser}`)
   if (sc.runAsGroup) scEntries.push(`${pad}      runAsGroup: ${sc.runAsGroup}`)
@@ -206,30 +358,27 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   if (sc.readOnlyRootFilesystem === 'True') scEntries.push(`${pad}      readOnlyRootFilesystem: true`)
   if (sc.privileged === 'True') scEntries.push(`${pad}      privileged: true`)
   if (sc.allowPrivilegeEscalation === 'True') scEntries.push(`${pad}      allowPrivilegeEscalation: true`)
+  if (addedCapabilities.length > 0 || droppedCapabilities.length > 0) {
+    scEntries.push(`${pad}      capabilities:`)
+    if (addedCapabilities.length > 0) {
+      scEntries.push(`${pad}        add:`)
+      for (const capability of addedCapabilities) scEntries.push(`${pad}          - ${capability}`)
+    }
+    if (droppedCapabilities.length > 0) {
+      scEntries.push(`${pad}        drop:`)
+      for (const capability of droppedCapabilities) scEntries.push(`${pad}          - ${capability}`)
+    }
+  }
+  if (hasSeLinuxOptions) {
+    scEntries.push(`${pad}      seLinuxOptions:`)
+    if (sc.seLinuxLevel) scEntries.push(`${pad}        level: ${JSON.stringify(sc.seLinuxLevel)}`)
+    if (sc.seLinuxRole) scEntries.push(`${pad}        role: ${JSON.stringify(sc.seLinuxRole)}`)
+    if (sc.seLinuxType) scEntries.push(`${pad}        type: ${JSON.stringify(sc.seLinuxType)}`)
+    if (sc.seLinuxUser) scEntries.push(`${pad}        user: ${JSON.stringify(sc.seLinuxUser)}`)
+  }
   if (scEntries.length > 0) {
     lines.push(`${pad}  securityContext:`)
     lines.push(...scEntries)
-  }
-
-  // Lifecycle
-  if (container.Lifecycle.postStart?.command || container.Lifecycle.preStop?.command) {
-    lines.push(`${pad}  lifecycle:`)
-    if (container.Lifecycle.postStart?.command) {
-      lines.push(`${pad}    postStart:`)
-      lines.push(`${pad}      exec:`)
-      lines.push(`${pad}        command:`)
-      for (const part of container.Lifecycle.postStart.command.split(/\s+/)) {
-        lines.push(`${pad}          - ${part}`)
-      }
-    }
-    if (container.Lifecycle.preStop?.command) {
-      lines.push(`${pad}    preStop:`)
-      lines.push(`${pad}      exec:`)
-      lines.push(`${pad}        command:`)
-      for (const part of container.Lifecycle.preStop.command.split(/\s+/)) {
-        lines.push(`${pad}          - ${part}`)
-      }
-    }
   }
 
   return lines.join('\n')

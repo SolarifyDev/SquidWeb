@@ -159,16 +159,13 @@ function interruptionTypeLabel(type: InterruptionType): string {
 function interruptionTitle(interruption: InterruptionDto | null | undefined): string {
   if (!interruption) return 'Interruption'
 
-  const firstParagraph = (interruption.form?.elements ?? [])
-    .find((element) => element.control.type === 'Paragraph')
-
-  const paragraphText = firstParagraph?.control.type === 'Paragraph'
-    ? firstParagraph.control.text?.trim() ?? ''
-    : ''
+  const stepName = interruption.stepName?.trim() ?? ''
+  if (stepName) return stepName
 
   const actionName = interruption.actionName?.trim() ?? ''
-  const stepName = interruption.stepName?.trim() ?? ''
-  return paragraphText || actionName || stepName || 'Interruption'
+  if (actionName) return actionName
+
+  return interruptionTypeLabel(interruption.interruptionType)
 }
 
 function toInterruptionErrorMessage(error: any): string {
@@ -498,18 +495,20 @@ function formatHealthCheckLog(log: ServerTaskLogElementDto): FormattedHealthChec
 }
 
 function interruptionButtonUi(buttonLabel: string): InterruptionButtonUi {
+  const baseActionButtonClass = '!h-9 !px-4 !border-squid-blue !text-squid-blue !bg-transparent hover:!border-blue-700 hover:!text-blue-700 hover:!bg-blue-50'
   const normalized = buttonLabel.trim().toLowerCase()
-  if (normalized === 'abort') return { type: 'default', danger: true }
-  if (normalized === 'retry') return { type: 'primary' }
-  if (normalized === 'ignore') return { type: 'default' }
+  if (normalized === 'abort') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'retry') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'ignore') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'proceed') return { type: 'default', className: baseActionButtonClass }
   if (normalized === 'exclude machine') {
     return {
       type: 'default',
-      className: '!border-amber-400 !text-amber-700 hover:!border-amber-500 hover:!text-amber-800 hover:!bg-amber-50',
+      className: '!h-9 !px-4 !border-amber-400 !text-amber-700 !bg-transparent hover:!border-amber-500 hover:!text-amber-800 hover:!bg-amber-50',
       tooltip: '排除此机器，后续步骤将不再在此机器上执行',
     }
   }
-  return { type: 'default' }
+  return { type: 'default', className: baseActionButtonClass }
 }
 
 function sortActivityNodes(nodes: ServerTaskActivityNodeDto[]): ServerTaskActivityNodeDto[] {
@@ -693,6 +692,9 @@ const DeploymentDetail: React.FC = () => {
     activeInterruptionCanTakeResponsibility && activeInterruptionClaimedByCurrentUser,
   )
   const activeInterruptionTitle = interruptionTitle(activeInterruption)
+  const activeInterruptionElements = activeInterruption?.form?.elements ?? []
+  const activeInterruptionDetailElements = activeInterruptionElements.filter((element) => element.control.type !== 'SubmitButtonGroup')
+  const activeInterruptionSubmitGroups = activeInterruptionElements.filter((element) => element.control.type === 'SubmitButtonGroup')
   const showCancelButton = taskId != null && (
     taskState === 'Pending'
     || taskState === 'Executing'
@@ -965,6 +967,11 @@ const DeploymentDetail: React.FC = () => {
     activeInterruption?.id,
     activeInterruptionClaimedByCurrentUser,
   ])
+
+  useEffect(() => {
+    if (!shouldShowInterruptionPanel) return
+    setActiveTab('taskSummary')
+  }, [shouldShowInterruptionPanel, activeInterruption?.id])
 
   const toggleNode = (nodeId: number, expandable: boolean) => {
     if (!expandable) return
@@ -1344,55 +1351,58 @@ const DeploymentDetail: React.FC = () => {
                   </svg>
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-amber-900">{activeInterruptionTitle}</div>
+                  <div className="text-base font-semibold leading-6 text-amber-900">{activeInterruptionTitle}</div>
                   <div className="mt-1 text-sm text-amber-800">
                     {activeInterruptionRequiresAssignment
                       ? 'This task is waiting for manual intervention and must be assigned before proceeding.'
                       : 'This task is waiting for manual intervention.'}
                   </div>
 
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm text-amber-900">
-                      Assigned to:{' '}
-                      {activeInterruptionAssignedUserId == null ? (
-                        <strong><em>no one</em></strong>
-                      ) : (
-                        <strong>{activeInterruptionClaimedByCurrentUser ? 'you' : activeInterruptionAssignedUserId}</strong>
-                      )}
+                  <div className="mt-2 flex flex-col items-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-amber-900">
+                      <span>
+                        Assigned to:{' '}
+                        {activeInterruptionAssignedUserId == null ? (
+                          <strong><em>no one</em></strong>
+                        ) : (
+                          <strong>{activeInterruptionClaimedByCurrentUser ? 'you' : activeInterruptionAssignedUserId}</strong>
+                        )}
+                      </span>
+                      {activeInterruptionRequiresAssignment && activeInterruption ? (
+                        <Button
+                          type="primary"
+                          className="!h-10 !px-5 !bg-green-700 hover:!bg-green-800 !border-green-700"
+                          loading={responsibilityLoadingId === activeInterruption.id}
+                          disabled={!currentUserIdentifier || !activeInterruptionCanTakeResponsibility}
+                          onClick={() => handleTakeResponsibility(activeInterruption.id)}
+                        >
+                          Assign to me
+                        </Button>
+                      ) : null}
                     </div>
-                    {activeInterruptionRequiresAssignment && activeInterruption ? (
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={responsibilityLoadingId === activeInterruption.id}
-                        disabled={!currentUserIdentifier || !activeInterruptionCanTakeResponsibility}
-                        onClick={() => handleTakeResponsibility(activeInterruption.id)}
-                      >
-                        Assign to me
-                      </Button>
-                    ) : null}
-                  </div>
-                  {activeInterruptionTeamNames.length > 0 ? (
-                    <div className="mt-1 text-sm text-amber-900">
-                      Responsible teams: <strong>{activeInterruptionTeamNames.join(', ')}</strong>
-                    </div>
-                  ) : null}
 
-                  <div className="mt-2 flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="text-sm text-squid-blue hover:underline"
-                      onClick={() => setInterruptionDetailsVisible((prev) => !prev)}
-                    >
-                      {interruptionDetailsVisible ? 'Hide details' : 'Show details'}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-sm text-squid-blue hover:underline"
-                      onClick={() => setActiveTab('taskLog')}
-                    >
-                      View log
-                    </button>
+                    {activeInterruptionTeamNames.length > 0 ? (
+                      <div className="text-sm text-amber-900 text-right">
+                        Responsible teams: <strong>{activeInterruptionTeamNames.join(', ')}</strong>
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        className="text-sm text-squid-blue hover:underline"
+                        onClick={() => setInterruptionDetailsVisible((prev) => !prev)}
+                      >
+                        {interruptionDetailsVisible ? 'Hide details' : 'Show details'}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-sm text-squid-blue hover:underline"
+                        onClick={() => setActiveTab('taskLog')}
+                      >
+                        View log
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1433,11 +1443,10 @@ const DeploymentDetail: React.FC = () => {
                     </div>
 
                     <div className="mt-3 space-y-3">
-                      {(activeInterruption.form?.elements ?? []).map((element) => {
+                      {activeInterruptionDetailElements.map((element) => {
                         const control = element.control
                         const key = `${activeInterruption.id}-${element.name}`
                         const draftValues = interruptionDraftValues[activeInterruption.id] ?? {}
-                        const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionCanSubmit
 
                         if (control.type === 'Paragraph') {
                           return (
@@ -1460,36 +1469,6 @@ const DeploymentDetail: React.FC = () => {
                           )
                         }
 
-                        if (control.type === 'SubmitButtonGroup') {
-                          return (
-                            <div key={key} className="flex flex-wrap items-center gap-2">
-                              {control.buttons.map((buttonLabel) => {
-                                const ui = interruptionButtonUi(buttonLabel)
-                                const button = (
-                                  <Button
-                                    key={`${key}-${buttonLabel}`}
-                                    size="small"
-                                    type={ui.type}
-                                    danger={ui.danger}
-                                    className={ui.className}
-                                    disabled={submitDisabled}
-                                    loading={submittingInterruptionId === activeInterruption.id}
-                                    onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
-                                  >
-                                    {buttonLabel}
-                                  </Button>
-                                )
-
-                                return ui.tooltip ? (
-                                  <Tooltip key={`${key}-${buttonLabel}-tooltip`} title={ui.tooltip}>
-                                    {button}
-                                  </Tooltip>
-                                ) : button
-                              })}
-                            </div>
-                          )
-                        }
-
                         return (
                           <div key={key} className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                             Unsupported control payload for "{element.name}". Please verify backend JSON polymorphic serialization.
@@ -1497,6 +1476,41 @@ const DeploymentDetail: React.FC = () => {
                         )
                       })}
                     </div>
+
+                    {activeInterruptionSubmitGroups.length > 0 ? (
+                      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                        {activeInterruptionSubmitGroups.flatMap((element) => {
+                          const control = element.control
+                          if (control.type !== 'SubmitButtonGroup') return []
+                          const groupKey = `${activeInterruption.id}-${element.name}`
+                          const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionCanSubmit
+
+                          return control.buttons.map((buttonLabel) => {
+                            const ui = interruptionButtonUi(buttonLabel)
+                            const button = (
+                              <Button
+                                key={`${groupKey}-${buttonLabel}`}
+                                size="middle"
+                                type={ui.type}
+                                danger={ui.danger}
+                                className={ui.className}
+                                disabled={submitDisabled}
+                                loading={submittingInterruptionId === activeInterruption.id}
+                                onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
+                              >
+                                {buttonLabel}
+                              </Button>
+                            )
+
+                            return ui.tooltip ? (
+                              <Tooltip key={`${groupKey}-${buttonLabel}-tooltip`} title={ui.tooltip}>
+                                {button}
+                              </Tooltip>
+                            ) : button
+                          })
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 )
               ) : null}

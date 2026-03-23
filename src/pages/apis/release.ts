@@ -39,6 +39,7 @@ export interface CreateReleaseCommand {
   projectId: number
   releaseNote: string
   selectedPackages: CreateReleaseSelectedPackageDto[]
+  ignoreChannelRules?: boolean
 }
 
 export async function getReleases(params?: GetReleasesRequest) {

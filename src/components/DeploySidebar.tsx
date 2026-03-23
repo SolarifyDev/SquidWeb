@@ -25,7 +25,7 @@ function buildMenu(spaceSlug: string): MenuItem[] {
     { type: 'link', label: 'Overview', path: `/${spaceSlug}/infrastructure/overview` },
     { type: 'link', label: 'Deployment Targets', path: `/${spaceSlug}/deployment/targets` },
     { type: 'link', label: 'Environments', path: `/${spaceSlug}/environments` },
-    { type: 'link', label: 'Machine Policies', path: `/${spaceSlug}/machine/policies` },
+    { type: 'link', label: 'Machine Policies', path: `/${spaceSlug}/infrastructure/machinepolicies` },
 
     { type: 'divider' },
 
@@ -34,7 +34,6 @@ function buildMenu(spaceSlug: string): MenuItem[] {
     { type: 'link', label: 'Certificates', path: `/${spaceSlug}/library/certificates` },
     { type: 'link', label: 'External Feeds', path: `/${spaceSlug}/external/feeds` },
     { type: 'link', label: 'Lifecycles', path: `/${spaceSlug}/lifecycles` },
-    { type: 'link', label: 'Packages', path: `/${spaceSlug}/library/packages` },
   ];
 }
 
