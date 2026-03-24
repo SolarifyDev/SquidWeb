@@ -560,7 +560,6 @@ const DeploymentTargetDetailPage: React.FC = () => {
     setExpandedCards(new Set([
       'displayName', 'enabled', 'environments', 'targetTags',
       'authentication', 'kubernetesDetails', 'containerOptions',
-      'tenantedDeployments', 'associatedTenants',
     ]))
   }
 
@@ -1207,36 +1206,6 @@ function SettingsTab({
         </div>
       </ExpandableCard>
 
-      {/* Restrictions section */}
-      <SectionHeading>Restrictions</SectionHeading>
-
-      {/* Tenanted Deployments */}
-      <ExpandableCard
-        title="Tenanted Deployments"
-        summary={
-          <span>Available for both untenanted deployments, and deployments to the associated tenants</span>
-        }
-        expanded={expandedCards.has('tenantedDeployments')}
-        onToggle={() => toggleCard('tenantedDeployments')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-600">
-            This target is available for both untenanted deployments, and deployments to the associated tenants.
-          </span>
-        </div>
-      </ExpandableCard>
-
-      {/* Associated Tenants */}
-      <ExpandableCard
-        title="Associated Tenants"
-        summary={<span className="text-gray-400 italic">No associated tenants</span>}
-        expanded={expandedCards.has('associatedTenants')}
-        onToggle={() => toggleCard('associatedTenants')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-500">No tenants are associated with this target.</span>
-        </div>
-      </ExpandableCard>
     </div>
   )
 }

@@ -49,6 +49,33 @@ function normalizeServicePorts(value: string | undefined): ContainersEditorState
   })
 }
 
+function normalizeVolumes(value: string | undefined): ContainersEditorState['volumes'] {
+  const parsed = safeJsonParse<unknown[]>(value, [])
+  if (!Array.isArray(parsed)) return []
+
+  return parsed.map((item) => {
+    const volume = asObject(item)
+    const rawMode = String(volume.ResourceNameMode ?? '')
+    const resourceNameMode: 'LinkedResource' | 'CustomResource' | undefined =
+      rawMode === 'LinkedResource' || rawMode === 'CustomResource' ? rawMode : undefined
+    const items = asArray(volume.Items).map((entry) => {
+      const itemValue = asObject(entry)
+      return {
+        key: String(itemValue.key ?? ''),
+        path: String(itemValue.path ?? ''),
+      }
+    })
+
+    return {
+      Name: String(volume.Name ?? ''),
+      Type: String(volume.Type ?? ''),
+      ReferenceName: String(volume.ReferenceName ?? ''),
+      ResourceNameMode: resourceNameMode,
+      Items: items,
+    }
+  })
+}
+
 function normalizeIngressRules(value: string | undefined): ContainersEditorState['ingressRules'] {
   const parsed = safeJsonParse<unknown[]>(value, [])
   if (!Array.isArray(parsed)) return []
@@ -547,7 +574,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     feedId: firstContainer?.FeedId ?? null,
     packageId: firstContainer?.PackageId ?? '',
     containers,
-    volumes: safeJsonParse(get(KubernetesProperties.CombinedVolumes), []),
+    volumes: normalizeVolumes(get(KubernetesProperties.CombinedVolumes)),
     serviceName: get(KubernetesProperties.ServiceName) ?? '',
     serviceType: get(KubernetesProperties.ServiceType) ?? 'ClusterIP',
     serviceClusterIp: get(KubernetesProperties.ServiceClusterIp) ?? '',

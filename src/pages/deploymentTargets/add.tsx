@@ -43,6 +43,17 @@ const kubernetesOptions = [
   },
 ]
 
+type KubernetesApiAuthType =
+  | 'usernamepassword'
+  | 'token'
+  | 'azureserviceprincipal'
+  | 'azureoidc'
+  | 'awsaccount'
+  | 'awsoidc'
+  | 'googlecloud'
+  | 'certificate'
+  | 'podserviceaccount'
+
 function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
   if (!bash) return ''
   if (shell === 'powershell') return bash.replace(/ \\\n/g, ' `\n')
@@ -272,7 +283,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiDisplayName, setApiDisplayName] = useState('')
   const [apiEnvironments, setApiEnvironments] = useState<number[]>([])
   const [apiTargetTags, setApiTargetTags] = useState<string[]>([])
-  const [apiAuthType, setApiAuthType] = useState<string | undefined>(undefined)
+  const [apiAuthType, setApiAuthType] = useState<KubernetesApiAuthType | undefined>(undefined)
   const [apiSelectedAccountId, setApiSelectedAccountId] = useState<string | undefined>(undefined)
   const [apiSelectedClientCertificateId, setApiSelectedClientCertificateId] = useState<string | undefined>(undefined)
   const [apiToken, setApiToken] = useState('')
@@ -288,7 +299,6 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiSkipTlsVerification, setApiSkipTlsVerification] = useState(false)
   const [apiDefaultNamespace, setApiDefaultNamespace] = useState('')
   const [apiContainerOptions, setApiContainerOptions] = useState('')
-  const [apiTenantedMode, setApiTenantedMode] = useState<'untenanted' | 'tenanted' | 'both'>('untenanted')
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
   const [agentStep, setAgentStep] = useState<'form' | 'script' | 'connected'>('form')
@@ -305,11 +315,15 @@ const AddDeploymentTargetPage: React.FC = () => {
     authentication: true,
     kubernetesDetails: true,
     containerOptions: true,
-    tenantedDeployments: true,
   })
 
   const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 3).map(({ value, label }) => ({ value, label }))
   const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 1).map(({ value, label }) => ({ value, label }))
+  const azureServicePrincipalAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 5).map(({ value, label }) => ({ value, label }))
+  const azureOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 9).map(({ value, label }) => ({ value, label }))
+  const awsAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 6 || a.accountType === 7).map(({ value, label }) => ({ value, label }))
+  const awsOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 11).map(({ value, label }) => ({ value, label }))
+  const googleCloudAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 10).map(({ value, label }) => ({ value, label }))
   const clientCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
   const clusterCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
 
@@ -353,7 +367,6 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiSkipTlsVerification(false)
     setApiDefaultNamespace('')
     setApiContainerOptions('')
-    setApiTenantedMode('untenanted')
     setApiSaving(false)
   }
 
@@ -547,7 +560,15 @@ const AddDeploymentTargetPage: React.FC = () => {
     try {
       const resourceReferences: EndpointResourceReference[] = []
 
-      if (apiAuthType === 'token' || apiAuthType === 'usernamepassword') {
+      if (
+        apiAuthType === 'token' ||
+        apiAuthType === 'usernamepassword' ||
+        apiAuthType === 'azureserviceprincipal' ||
+        apiAuthType === 'azureoidc' ||
+        apiAuthType === 'awsaccount' ||
+        apiAuthType === 'awsoidc' ||
+        apiAuthType === 'googlecloud'
+      ) {
         const accountId = Number(apiSelectedAccountId)
         if (!Number.isFinite(accountId) || accountId <= 0) {
           message.warning('Please select an account')
@@ -578,6 +599,10 @@ const AddDeploymentTargetPage: React.FC = () => {
       }
 
       if (resourceReferences.length === 0) {
+        if (apiAuthType === 'podserviceaccount') {
+          message.warning('Pod Service Account currently requires a cluster certificate selection before saving.')
+          return
+        }
         message.warning('Please select at least one authentication or certificate resource')
         return
       }
@@ -1183,11 +1208,17 @@ const AddDeploymentTargetPage: React.FC = () => {
                   label="Select an authentication type"
                   placeholder="Select an authentication type"
                   value={apiAuthType}
-                  onChange={setApiAuthType}
+                  onChange={(value) => setApiAuthType(value as KubernetesApiAuthType)}
                   options={[
+                    { value: 'usernamepassword', label: 'Username and password' },
                     { value: 'token', label: 'Token' },
-                    { value: 'usernamepassword', label: 'Username / Password' },
+                    { value: 'azureserviceprincipal', label: 'Azure Service Principal' },
+                    { value: 'azureoidc', label: 'Azure OIDC Account' },
+                    { value: 'awsaccount', label: 'AWS Account' },
+                    { value: 'awsoidc', label: 'AWS OIDC Account' },
+                    { value: 'googlecloud', label: 'Google Cloud Account' },
                     { value: 'certificate', label: 'Client Certificate' },
+                    { value: 'podserviceaccount', label: 'Pod Service Account' },
                   ]}
                 />
 
@@ -1219,6 +1250,76 @@ const AddDeploymentTargetPage: React.FC = () => {
                   </>
                 )}
 
+                {apiAuthType === 'azureserviceprincipal' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an Azure service principal account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={azureServicePrincipalAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Azure Service Principal credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'azureoidc' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an Azure OIDC account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={azureOidcAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Azure OIDC credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'awsaccount' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an AWS account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={awsAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with AWS credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'awsoidc' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an AWS OIDC account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={awsOidcAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with AWS OIDC credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'googlecloud' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select a Google Cloud account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={googleCloudAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Google Cloud credentials.</NoteBlock>
+                  </>
+                )}
+
                 {apiAuthType === 'certificate' && (
                   <>
                     <SelectField
@@ -1230,6 +1331,12 @@ const AddDeploymentTargetPage: React.FC = () => {
                       loading={loadingCertificateOptions}
                     />
                   </>
+                )}
+
+                {apiAuthType === 'podserviceaccount' && (
+                  <NoteBlock>
+                    Pod Service Account will use the worker pod service account context. No deployment account is required.
+                  </NoteBlock>
                 )}
               </ExpandableFormCard>
 
@@ -1310,43 +1417,6 @@ const AddDeploymentTargetPage: React.FC = () => {
                 />
               </ExpandableFormCard>
 
-              <SectionHeading>Restrictions</SectionHeading>
-
-              <ExpandableFormCard
-                title="Tenanted Deployments"
-                subtitle="Choose the kind of deployments where this deployment target should be included."
-                expanded={apiExpanded.tenantedDeployments}
-                onToggle={() => toggleApiSection('tenantedDeployments')}
-              >
-                <Radio.Group
-                  value={apiTenantedMode}
-                  onChange={(e) => setApiTenantedMode(e.target.value)}
-                  className="flex flex-col gap-4"
-                >
-                  <div>
-                    <Radio value="untenanted">
-                      <span className="text-base text-gray-800">Exclude from tenanted deployments <span className="text-gray-500">(default)</span></span>
-                    </Radio>
-                    <NoteBlock>The deployment target will never be included in tenanted deployments.</NoteBlock>
-                  </div>
-                  <div>
-                    <Radio value="tenanted">
-                      <span className="text-base text-gray-800">Include only in tenanted deployments</span>
-                    </Radio>
-                    <NoteBlock>
-                      The deployment target will only be included in deployments to the associated tenants. It will be excluded from untenanted deployments.
-                    </NoteBlock>
-                  </div>
-                  <div>
-                    <Radio value="both">
-                      <span className="text-base text-gray-800">Include in both tenanted and untenanted deployments</span>
-                    </Radio>
-                    <NoteBlock>
-                      The deployment target will be included in untenanted deployments, and deployments to the associated tenants.
-                    </NoteBlock>
-                  </div>
-                </Radio.Group>
-              </ExpandableFormCard>
             </div>
 
             <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-8 py-4 flex justify-end gap-3">

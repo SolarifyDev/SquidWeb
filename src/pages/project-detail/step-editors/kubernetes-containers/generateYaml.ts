@@ -70,7 +70,8 @@ function jsonToYaml(obj: unknown, level: number): string {
 
 export function getRegistryHost(feed: ExternalFeedDto | null | undefined): string {
   if (!feed) return ''
-  if (feed.registryPath) return feed.registryPath
+  const registryPath = feed.properties?.RegistryPath ?? (feed as { registryPath?: string }).registryPath ?? ''
+  if (registryPath) return registryPath
   if (!feed.feedUri) return ''
   try {
     const u = new URL(feed.feedUri)
@@ -448,11 +449,30 @@ function appendPodTemplate(
     for (const vol of vols) {
       lines.push(`${at(6)}- name: ${vol.Name}`)
       if (vol.Type === 'ConfigMap') {
+        const configMapName = vol.ResourceNameMode === 'LinkedResource'
+          ? (state.configMapName.trim() || vol.ReferenceName || vol.Name)
+          : (vol.ReferenceName || vol.Name)
+        const items = (vol.Items ?? []).filter((item) => item.key || item.path)
         lines.push(`${at(8)}configMap:`)
-        lines.push(`${at(10)}name: ${vol.ReferenceName || vol.Name}`)
+        lines.push(`${at(10)}name: ${configMapName}`)
+        if (items.length > 0) {
+          lines.push(`${at(10)}items:`)
+          for (const item of items) {
+            lines.push(`${at(12)}- key: ${item.key}`)
+            lines.push(`${at(14)}path: ${item.path || item.key}`)
+          }
+        }
       } else if (vol.Type === 'Secret') {
+        const items = (vol.Items ?? []).filter((item) => item.key || item.path)
         lines.push(`${at(8)}secret:`)
         lines.push(`${at(10)}secretName: ${vol.ReferenceName || vol.Name}`)
+        if (items.length > 0) {
+          lines.push(`${at(10)}items:`)
+          for (const item of items) {
+            lines.push(`${at(12)}- key: ${item.key}`)
+            lines.push(`${at(14)}path: ${item.path || item.key}`)
+          }
+        }
       } else if (vol.Type === 'EmptyDir') {
         lines.push(`${at(8)}emptyDir: {}`)
       } else if (vol.Type === 'PVC') {

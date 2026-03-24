@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Radio, Select, message } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import { createDeploymentAccount } from 'pages/apis/deploymentAccount'
+import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 
 type SectionKey =
   | 'name'
@@ -15,8 +16,6 @@ type SectionKey =
   | 'awsAccessKey'
   | 'awsSecretKey'
   | 'environments'
-  | 'tenanted'
-type TenantedMode = 'Untenanted' | 'Tenanted' | 'TenantedOrUntenanted'
 type AwsAuthenticationMethod = 'AmazonWebServicesAccount' | 'AmazonWebServicesOidcAccount'
 
 interface FormPanelProps {
@@ -85,7 +84,8 @@ const AccountsCreatePage: React.FC = () => {
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<number[]>([])
-  const [tenantedMode, setTenantedMode] = useState<TenantedMode>('Untenanted')
+  const [environmentOptions, setEnvironmentOptions] = useState<EnvironmentDto[]>([])
+  const [loadingEnvironmentOptions, setLoadingEnvironmentOptions] = useState(false)
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
     name: true,
     description: true,
@@ -96,10 +96,13 @@ const AccountsCreatePage: React.FC = () => {
     awsAccessKey: true,
     awsSecretKey: true,
     environments: true,
-    tenanted: true,
   })
 
   const basePath = `/${space.slug}/infrastructure/accounts`
+  const environmentSelectOptions = useMemo(
+    () => environmentOptions.map((environment) => ({ value: environment.id, label: environment.name })),
+    [environmentOptions],
+  )
   const canSave = useMemo(() => {
     if (isTokenType) {
       return name.trim().length > 0 && token.trim().length > 0
@@ -167,6 +170,30 @@ const AccountsCreatePage: React.FC = () => {
     await handleSave()
   }
 
+  useEffect(() => {
+    let mounted = true
+    setLoadingEnvironmentOptions(true)
+
+    getEnvironments({ pageSize: 1000, spaceId: space.id })
+      .then((response) => {
+        if (!mounted) return
+        setEnvironmentOptions(response.environments ?? [])
+      })
+      .catch((error) => {
+        if (!mounted) return
+        console.error('Failed to load environments', error)
+        setEnvironmentOptions([])
+        message.warning('Failed to load environments')
+      })
+      .finally(() => {
+        if (mounted) setLoadingEnvironmentOptions(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [space.id])
+
   return (
     <div className="bg-white min-h-screen">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
@@ -224,7 +251,6 @@ const AccountsCreatePage: React.FC = () => {
                     awsAccessKey: next,
                     awsSecretKey: next,
                     environments: next,
-                    tenanted: next,
                   })
                 }}
               >
@@ -423,42 +449,10 @@ const AccountsCreatePage: React.FC = () => {
                 placeholder="Select environments"
                 value={selectedEnvironmentIds}
                 onChange={setSelectedEnvironmentIds}
-                options={[]}
+                options={environmentSelectOptions}
+                loading={loadingEnvironmentOptions}
                 className="w-full"
               />
-            </div>
-          </FormPanel>
-
-          <FormPanel
-            title="Tenanted Deployments"
-            subtitle="Choose the kind of deployments where this account should be included."
-            isOpen={expanded.tenanted}
-            onToggle={() => setExpanded((prev) => ({ ...prev, tenanted: !prev.tenanted }))}
-            hasBorder={false}
-          >
-            <div className="max-w-[760px]">
-              <Radio.Group
-                value={tenantedMode}
-                onChange={(e) => setTenantedMode(e.target.value)}
-                className="flex flex-col gap-2"
-              >
-                <Radio value="Untenanted">
-                  Exclude from tenanted deployments <span className="text-gray-400">(default)</span>
-                </Radio>
-                <p className="text-xs text-gray-500 mt-[-2px] mb-1 pl-6">
-                  The account will never be included in tenanted deployments.
-                </p>
-
-                <Radio value="Tenanted">Include only in tenanted deployments</Radio>
-                <p className="text-xs text-gray-500 mt-[-2px] mb-1 pl-6">
-                  The account will only be included in deployments to associated tenants.
-                </p>
-
-                <Radio value="TenantedOrUntenanted">Include in both tenanted and untenanted deployments</Radio>
-                <p className="text-xs text-gray-500 mt-[-2px] mb-1 pl-6">
-                  The account will be included in both tenanted and untenanted deployments.
-                </p>
-              </Radio.Group>
             </div>
           </FormPanel>
         </div>

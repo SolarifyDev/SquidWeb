@@ -85,6 +85,8 @@ export interface VolumeSpec {
   Name: string
   Type: string // ConfigMap | Secret | EmptyDir | PVC | HostPath
   ReferenceName: string
+  ResourceNameMode?: 'LinkedResource' | 'CustomResource'
+  Items?: { key: string; path: string }[]
 }
 
 // ── Service types ────────────────────────────────────────────────────────────

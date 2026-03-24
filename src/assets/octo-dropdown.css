@@ -52,6 +52,26 @@
   inset-inline-end: 22px !important;
 }
 
+/* Kubernetes Container Package ID: keep caret/placeholder vertically aligned */
+.k8s-package-id-autocomplete.ant-select.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: 32px !important;
+  padding-right: 24px !important;
+}
+
+.k8s-package-id-autocomplete.ant-select.ant-select-single .ant-select-selection-item,
+.k8s-package-id-autocomplete.ant-select.ant-select-single .ant-select-selection-placeholder {
+  line-height: 30px !important;
+}
+
+.k8s-package-id-autocomplete.ant-select.ant-select-single .ant-select-selection-search-input {
+  height: 30px !important;
+  line-height: 30px !important;
+}
+
+.k8s-package-id-autocomplete .ant-select-clear {
+  inset-inline-end: 6px !important;
+}
+
 /* Ant Design Select popup menu */
 .ant-select-dropdown {
   border: 1px solid #e2e8f0 !important;

@@ -404,7 +404,7 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
           <p className="text-xs text-slate-500 mb-3 leading-relaxed">
             Select a Docker registry feed to resolve the container image at deployment time. The release version is appended as the image tag.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-5">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Package feed</label>
               <div className="flex items-center gap-2">
@@ -432,9 +432,11 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Package ID</label>
               <AutoComplete
-                className="w-full"
+                size="small"
+                className="w-full k8s-package-id-autocomplete"
                 value={packageId}
                 allowClear
+                placeholder="my-image"
                 options={packageSearchOptions.map((value) => ({ value }))}
                 onSearch={setPackageSearchTerm}
                 onSelect={(value) => {
@@ -447,10 +449,8 @@ function ContainerModalForm({ container, onChange, feeds, feedsLoading, onRefres
                 }}
                 filterOption={false}
                 notFoundContent={feedId && packageSearchTerm.trim() ? (packageSearchLoading ? 'Searching packages...' : 'No packages found') : null}
-              >
-                <Input size="small" placeholder="my-image" />
-              </AutoComplete>
-              <p className="text-xs text-slate-400 mt-1 mb-0">
+              />
+              <p className="text-xs text-slate-400 mt-3 mb-0">
                 Enter the ID of the package (image name within the registry, without tag).
                 {imagePreview && <> Image: <code className="text-xs bg-slate-100 px-1 rounded">{imagePreview}:&lt;version&gt;</code></>}
               </p>

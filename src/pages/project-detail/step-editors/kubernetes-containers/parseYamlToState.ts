@@ -263,11 +263,28 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     ? (tmplSpec.volumes as Record<string, unknown>[]).map((v) => {
         let type = 'EmptyDir'
         let ref = ''
-        if (v.configMap) { type = 'ConfigMap'; ref = str((v.configMap as Record<string, unknown>).name) }
-        else if (v.secret) { type = 'Secret'; ref = str((v.secret as Record<string, unknown>).secretName) }
+        let resourceNameMode: VolumeSpec['ResourceNameMode'] | undefined
+        let items: VolumeSpec['Items'] = []
+        if (v.configMap) {
+          type = 'ConfigMap'
+          const configMap = v.configMap as Record<string, unknown>
+          ref = str(configMap.name)
+          resourceNameMode = 'CustomResource'
+          items = Array.isArray(configMap.items)
+            ? (configMap.items as Record<string, unknown>[]).map((item) => ({ key: str(item.key), path: str(item.path) }))
+            : []
+        }
+        else if (v.secret) {
+          type = 'Secret'
+          const secret = v.secret as Record<string, unknown>
+          ref = str(secret.secretName)
+          items = Array.isArray(secret.items)
+            ? (secret.items as Record<string, unknown>[]).map((item) => ({ key: str(item.key), path: str(item.path) }))
+            : []
+        }
         else if (v.persistentVolumeClaim) { type = 'PVC'; ref = str((v.persistentVolumeClaim as Record<string, unknown>).claimName) }
         else if (v.hostPath) { type = 'HostPath'; ref = str((v.hostPath as Record<string, unknown>).path) }
-        return { Name: str(v.name), Type: type, ReferenceName: ref }
+        return { Name: str(v.name), Type: type, ReferenceName: ref, ResourceNameMode: resourceNameMode, Items: items }
       })
     : []
 
@@ -482,6 +499,18 @@ export function parseYamlToState(yamlText: string): Partial<ContainersEditorStat
     } else if (kind === 'Secret') {
       result = { ...result, ...parseSecret(doc) }
     }
+  }
+
+  if (Array.isArray(result.volumes)) {
+    const configMapName = (result.configMapName ?? '').trim()
+    result.volumes = result.volumes.map((volume) => {
+      if (volume.Type !== 'ConfigMap') return volume
+      if (volume.ResourceNameMode) return volume
+      const referenceName = (volume.ReferenceName ?? '').trim()
+      const inferredMode: VolumeSpec['ResourceNameMode'] =
+        configMapName && referenceName === configMapName ? 'LinkedResource' : 'CustomResource'
+      return { ...volume, ResourceNameMode: inferredMode }
+    })
   }
 
   return result
