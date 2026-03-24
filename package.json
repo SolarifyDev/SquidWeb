@@ -24,12 +24,14 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@import-meta-env/unplugin": "^0.6.3",
     "antd": "^5.28.0",
     "axios": "^1.13.2",
     "js-yaml": "^4.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
+    "react-router-dom": "^6.26.2",
+    "vite-plugin-html-config": "^2.0.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.8.0",
@@ -58,5 +60,6 @@
     "vite": "^5.4.20",
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^1.6.1"
-  }
+  },
+  "packageManager": "pnpm@10.32.1+sha512.a706938f0e89ac1456b6563eab4edf1d1faf3368d1191fc5c59790e96dc918e4456ab2e67d613de1043d2e8c81f87303e6b40d4ffeca9df15ef1ad567348f2be"
 }
