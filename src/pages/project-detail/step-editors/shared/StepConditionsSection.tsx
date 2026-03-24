@@ -23,6 +23,8 @@ interface StepConditionsSectionProps {
   projectId?: number | null
   requiredLocked?: boolean
   requiredLockedReason?: React.ReactNode
+  afterRunCondition?: React.ReactNode
+  hideRootSection?: boolean
 }
 
 const RUN_CONDITION_OPTIONS = [
@@ -62,6 +64,8 @@ export function StepConditionsSection({
   projectId,
   requiredLocked = false,
   requiredLockedReason,
+  afterRunCondition,
+  hideRootSection = false,
 }: StepConditionsSectionProps) {
   const [loading, setLoading] = useState(false)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
@@ -103,13 +107,8 @@ export function StepConditionsSection({
 
   const showEnvironmentPicker = value.environmentMode === 'include' || value.environmentMode === 'exclude'
 
-  return (
-    <CollapsibleSection
-      title="Conditions"
-      subtitle="Configure when and where this step should run."
-      defaultOpen
-      fullWidth
-    >
+  const body = (
+    <>
       <CollapsibleSection title="Environments" subtitle="Choose which environments this step applies to." defaultOpen>
         {loading ? (
           <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -220,6 +219,8 @@ export function StepConditionsSection({
         ) : null}
       </CollapsibleSection>
 
+      {afterRunCondition}
+
       <CollapsibleSection title="Package Requirement" subtitle="Configure package acquisition behavior for this step." defaultOpen={false}>
         <Select
           value={normalizeRequirement(value.packageRequirement)}
@@ -251,6 +252,19 @@ export function StepConditionsSection({
           <span className="text-sm">Disable this step</span>
         </Checkbox>
       </CollapsibleSection>
+    </>
+  )
+
+  if (hideRootSection) return body
+
+  return (
+    <CollapsibleSection
+      title="Conditions"
+      subtitle="Configure when and where this step should run."
+      defaultOpen
+      fullWidth
+    >
+      {body}
     </CollapsibleSection>
   )
 }

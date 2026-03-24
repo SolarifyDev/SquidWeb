@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { DeploymentStepDto, DeploymentActionDto, DeploymentActionPropertyDto } from 'pages/apis/deploymentProcess'
 import { KubernetesProperties } from './KubernetesProperties'
-import { type ContainersEditorState, type ContainerSpec, defaultEditorState } from './types'
+import { type ContainersEditorState, type ContainerSpec, defaultContainer, defaultEditorState, defaultProbe } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
 
 function safeJsonParse<T>(value: string | undefined, fallback: T): T {
@@ -45,6 +45,33 @@ function normalizeServicePorts(value: string | undefined): ContainersEditorState
       targetPort: obj.targetPort == null ? '' : String(obj.targetPort),
       nodePort: obj.nodePort == null ? '' : String(obj.nodePort),
       protocol: obj.protocol == null ? 'TCP' : String(obj.protocol),
+    }
+  })
+}
+
+function normalizeVolumes(value: string | undefined): ContainersEditorState['volumes'] {
+  const parsed = safeJsonParse<unknown[]>(value, [])
+  if (!Array.isArray(parsed)) return []
+
+  return parsed.map((item) => {
+    const volume = asObject(item)
+    const rawMode = String(volume.ResourceNameMode ?? '')
+    const resourceNameMode: 'LinkedResource' | 'CustomResource' | undefined =
+      rawMode === 'LinkedResource' || rawMode === 'CustomResource' ? rawMode : undefined
+    const items = asArray(volume.Items).map((entry) => {
+      const itemValue = asObject(entry)
+      return {
+        key: String(itemValue.key ?? ''),
+        path: String(itemValue.path ?? ''),
+      }
+    })
+
+    return {
+      Name: String(volume.Name ?? ''),
+      Type: String(volume.Type ?? ''),
+      ReferenceName: String(volume.ReferenceName ?? ''),
+      ResourceNameMode: resourceNameMode,
+      Items: items,
     }
   })
 }
@@ -117,12 +144,380 @@ function serializeIngressRules(rules: ContainersEditorState['ingressRules']): st
   return JSON.stringify(mapped)
 }
 
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter((item) => item.trim())
+  if (typeof value === 'string') return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  return []
+}
+
+function toTrueFalseString(value: unknown): string | undefined {
+  if (value === true) return 'True'
+  if (value === false) return 'False'
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase()
+    if (lowered === 'true') return 'True'
+    if (lowered === 'false') return 'False'
+  }
+  return undefined
+}
+
+function normalizeImagePullPolicy(value: unknown): ContainerSpec['ImagePullPolicy'] {
+  const stringValue = String(value ?? '')
+  return stringValue === 'Always' || stringValue === 'IfNotPresent' || stringValue === 'Never' ? stringValue : ''
+}
+
+function normalizeResourceMap(value: unknown): Record<string, string | undefined> {
+  const input = asObject(value)
+  const output: Record<string, string | undefined> = {}
+  for (const [key, raw] of Object.entries(input)) {
+    const text = raw == null ? '' : String(raw).trim()
+    if (!text) continue
+    if (key === 'ephemeral-storage') output.ephemeralStorage = text
+    else if (key === 'nvidia.com/gpu') output.nvidiaGpu = text
+    else if (key === 'amd.com/gpu') output.amdGpu = text
+    else output[key] = text
+  }
+  return output
+}
+
+function serializeResourceMap(value: Record<string, string | undefined>): Record<string, string> {
+  const output: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(value ?? {})) {
+    const text = raw == null ? '' : String(raw).trim()
+    if (!text) continue
+    if (key === 'ephemeralStorage') output['ephemeral-storage'] = text
+    else if (key === 'nvidiaGpu') output['nvidia.com/gpu'] = text
+    else if (key === 'amdGpu') output['amd.com/gpu'] = text
+    else output[key] = text
+  }
+  return output
+}
+
+function normalizeNamedKeyValueList(value: unknown): { key: string; value: string }[] {
+  return asArray(value)
+    .map((item) => asObject(item))
+    .map((item) => ({ key: String(item.key ?? ''), value: String(item.value ?? '') }))
+}
+
+function normalizeNamedKeyValueOptionList(value: unknown): { key: string; value: string; option: string; optional?: string }[] {
+  return asArray(value)
+    .map((item) => asObject(item))
+    .map((item) => {
+      const optional = toTrueFalseString(item.optional)
+      return {
+        key: String(item.key ?? ''),
+        value: String(item.value ?? ''),
+        option: String(item.option ?? ''),
+        optional,
+      }
+    })
+}
+
+function normalizeNamedOptionalSourceList(value: unknown): { key: string; value?: string; option?: string }[] {
+  return asArray(value)
+    .map((item) => asObject(item))
+    .map((item) => ({
+      key: String(item.key ?? ''),
+      value: String(item.value ?? ''),
+      option: toTrueFalseString(item.option) ?? String(item.option ?? ''),
+    }))
+}
+
+function normalizeProbe(value: unknown): ContainerSpec['LivenessProbe'] {
+  const probe = { ...defaultProbe() }
+  const input = asObject(value)
+  const typeValue = String(input.type ?? '')
+  if (typeValue === 'exec' || typeValue === 'httpGet' || typeValue === 'tcpSocket') probe.type = typeValue
+  probe.initialDelaySeconds = String(input.initialDelaySeconds ?? '')
+  probe.periodSeconds = String(input.periodSeconds ?? '')
+  probe.timeoutSeconds = String(input.timeoutSeconds ?? '')
+  probe.failureThreshold = String(input.failureThreshold ?? '')
+  probe.successThreshold = String(input.successThreshold ?? '')
+
+  const httpGet = asObject(input.httpGet)
+  if (Object.keys(httpGet).length > 0) {
+    probe.httpGet = {
+      path: String(httpGet.path ?? ''),
+      port: String(httpGet.port ?? ''),
+      scheme: String(httpGet.scheme ?? 'HTTP'),
+      host: String(httpGet.host ?? ''),
+      httpHeaders: asArray(httpGet.httpHeaders).map((header) => {
+        const item = asObject(header)
+        return { name: String(item.name ?? ''), value: String(item.value ?? '') }
+      }),
+    }
+  }
+
+  const tcpSocket = asObject(input.tcpSocket)
+  if (Object.keys(tcpSocket).length > 0) {
+    probe.tcpSocket = {
+      host: String(tcpSocket.host ?? ''),
+      port: String(tcpSocket.port ?? ''),
+    }
+  }
+
+  const exec = asObject(input.exec)
+  if (Object.keys(exec).length > 0) {
+    probe.exec = { command: toStringArray(exec.command).join(' ') || String(exec.command ?? '') }
+  }
+
+  return probe
+}
+
+function normalizeLifecycleHandler(value: unknown): { type: 'exec' | 'httpGet' | 'tcpSocket' | string; command?: string; httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }; tcpSocket?: { host?: string; port: string } } | undefined {
+  const input = asObject(value)
+  if (Object.keys(input).length === 0) return undefined
+
+  const explicitType = String(input.type ?? '')
+  const type = explicitType === 'exec' || explicitType === 'httpGet' || explicitType === 'tcpSocket'
+    ? explicitType
+    : input.exec
+      ? 'exec'
+      : input.httpGet
+        ? 'httpGet'
+        : input.tcpSocket
+          ? 'tcpSocket'
+          : ''
+
+  const handler: { type: 'exec' | 'httpGet' | 'tcpSocket' | string; command?: string; httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }; tcpSocket?: { host?: string; port: string } } = { type }
+  if (type === 'exec') {
+    if (input.command != null) handler.command = toStringArray(input.command).join(' ') || String(input.command)
+    else {
+      const exec = asObject(input.exec)
+      if (exec.command != null) handler.command = toStringArray(exec.command).join(' ') || String(exec.command)
+    }
+  } else if (type === 'httpGet') {
+    const httpGet = asObject(input.httpGet)
+    handler.httpGet = {
+      path: String(httpGet.path ?? ''),
+      port: String(httpGet.port ?? ''),
+      scheme: String(httpGet.scheme ?? 'HTTP'),
+      host: String(httpGet.host ?? ''),
+      httpHeaders: asArray(httpGet.httpHeaders).map((header) => {
+        const item = asObject(header)
+        return { name: String(item.name ?? ''), value: String(item.value ?? '') }
+      }),
+    }
+  } else if (type === 'tcpSocket') {
+    const tcpSocket = asObject(input.tcpSocket)
+    handler.tcpSocket = { host: String(tcpSocket.host ?? ''), port: String(tcpSocket.port ?? '') }
+  }
+  return handler
+}
+
+function normalizeContainer(raw: unknown, packageId: string, feedId: number | null): ContainerSpec {
+  const defaults = defaultContainer()
+  const input = asObject(raw)
+  if (Object.keys(input).length === 0) return { ...defaults, PackageId: packageId, FeedId: feedId }
+
+  const securityContextRaw = asObject(input.SecurityContext)
+  const capabilitiesRaw = asObject(securityContextRaw.capabilities)
+  const seLinuxOptionsRaw = asObject(securityContextRaw.seLinuxOptions)
+
+  const rawFeedId = input.FeedId
+  const parsedFeedId = rawFeedId == null || String(rawFeedId).trim() === ''
+    ? null
+    : Number.isFinite(Number(rawFeedId))
+      ? Number(rawFeedId)
+      : null
+
+  const command = toStringArray(input.Command)
+  const args = toStringArray(input.Args)
+
+  const fieldRefEnvironmentVariables = normalizeNamedKeyValueList(input.FieldRefEnvironmentVariables ?? input.FieldRefEnvVariables)
+  const configMapEnvironmentVariables = normalizeNamedKeyValueOptionList(input.ConfigMapEnvironmentVariables ?? input.ConfigMapEnvVariables)
+  const secretEnvironmentVariables = normalizeNamedKeyValueOptionList(input.SecretEnvironmentVariables ?? input.SecretEnvVariables)
+
+  return {
+    ...defaults,
+    ...input as Partial<ContainerSpec>,
+    Name: String(input.Name ?? defaults.Name),
+    Image: String(input.Image ?? defaults.Image),
+    ImagePullPolicy: normalizeImagePullPolicy(input.ImagePullPolicy),
+    PackageId: String(input.PackageId ?? packageId ?? ''),
+    FeedId: parsedFeedId ?? feedId,
+    CreateFeedSecrets: toTrueFalseString(input.CreateFeedSecrets) ?? 'False',
+    IsInitContainer: toTrueFalseString(input.IsInitContainer) ?? 'False',
+    Command: command,
+    Args: args,
+    Ports: asArray(input.Ports).map((item) => {
+      const port = asObject(item)
+      return {
+        key: String(port.key ?? ''),
+        value: String(port.value ?? ''),
+        option: String(port.option ?? 'TCP'),
+      }
+    }),
+    Resources: {
+      requests: normalizeResourceMap(asObject(input.Resources).requests),
+      limits: normalizeResourceMap(asObject(input.Resources).limits),
+    },
+    VolumeMounts: asArray(input.VolumeMounts).map((item) => {
+      const mount = asObject(item)
+      return {
+        key: String(mount.key ?? ''),
+        value: String(mount.value ?? ''),
+        option: String(mount.option ?? ''),
+      }
+    }),
+    EnvironmentVariables: normalizeNamedKeyValueList(input.EnvironmentVariables),
+    FieldRefEnvironmentVariables: fieldRefEnvironmentVariables,
+    ConfigMapEnvFromSource: normalizeNamedOptionalSourceList(input.ConfigMapEnvFromSource),
+    ConfigMapEnvironmentVariables: configMapEnvironmentVariables,
+    SecretEnvFromSource: normalizeNamedOptionalSourceList(input.SecretEnvFromSource),
+    SecretEnvironmentVariables: secretEnvironmentVariables,
+    LivenessProbe: normalizeProbe(input.LivenessProbe),
+    ReadinessProbe: normalizeProbe(input.ReadinessProbe),
+    StartupProbe: normalizeProbe(input.StartupProbe),
+    SecurityContext: {
+      runAsUser: securityContextRaw.runAsUser == null ? undefined : String(securityContextRaw.runAsUser),
+      runAsGroup: securityContextRaw.runAsGroup == null ? undefined : String(securityContextRaw.runAsGroup),
+      runAsNonRoot: toTrueFalseString(securityContextRaw.runAsNonRoot),
+      readOnlyRootFilesystem: toTrueFalseString(securityContextRaw.readOnlyRootFilesystem),
+      allowPrivilegeEscalation: toTrueFalseString(securityContextRaw.allowPrivilegeEscalation),
+      privileged: toTrueFalseString(securityContextRaw.privileged),
+      addCapabilities: toStringArray(securityContextRaw.addCapabilities ?? capabilitiesRaw.add),
+      dropCapabilities: toStringArray(securityContextRaw.dropCapabilities ?? capabilitiesRaw.drop),
+      seLinuxLevel: String((securityContextRaw.seLinuxLevel ?? seLinuxOptionsRaw.level) ?? ''),
+      seLinuxRole: String((securityContextRaw.seLinuxRole ?? seLinuxOptionsRaw.role) ?? ''),
+      seLinuxType: String((securityContextRaw.seLinuxType ?? seLinuxOptionsRaw.type) ?? ''),
+      seLinuxUser: String((securityContextRaw.seLinuxUser ?? seLinuxOptionsRaw.user) ?? ''),
+    },
+    Lifecycle: {
+      postStart: normalizeLifecycleHandler(asObject(input.Lifecycle).postStart),
+      preStop: normalizeLifecycleHandler(asObject(input.Lifecycle).preStop),
+    },
+    TerminationMessagePath: String(input.TerminationMessagePath ?? ''),
+    TerminationMessagePolicy: String(input.TerminationMessagePolicy) === 'FallbackToLogsOnError' ? 'FallbackToLogsOnError' : 'File',
+  }
+}
+
+function serializeProbe(probe: ContainerSpec['LivenessProbe']): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    type: probe.type,
+    initialDelaySeconds: probe.initialDelaySeconds,
+    periodSeconds: probe.periodSeconds,
+    timeoutSeconds: probe.timeoutSeconds,
+    failureThreshold: probe.failureThreshold,
+    successThreshold: probe.successThreshold,
+  }
+  if (probe.type === 'exec' && probe.exec?.command) payload.exec = { command: probe.exec.command }
+  if (probe.type === 'httpGet' && probe.httpGet) {
+    payload.httpGet = {
+      path: probe.httpGet.path,
+      port: probe.httpGet.port,
+      scheme: probe.httpGet.scheme,
+      host: probe.httpGet.host ?? '',
+      httpHeaders: probe.httpGet.httpHeaders ?? [],
+    }
+  }
+  if (probe.type === 'tcpSocket' && probe.tcpSocket) {
+    payload.tcpSocket = { host: probe.tcpSocket.host ?? '', port: probe.tcpSocket.port }
+  }
+  return payload
+}
+
+function serializeLifecycleHandler(handler: ContainerSpec['Lifecycle']['postStart']): Record<string, unknown> | undefined {
+  if (!handler) return undefined
+  if (handler.type === 'exec') {
+    return { type: 'exec', command: handler.command ?? '' }
+  }
+  if (handler.type === 'httpGet') {
+    return {
+      type: 'httpGet',
+      httpGet: {
+        path: handler.httpGet?.path ?? '',
+        port: handler.httpGet?.port ?? '',
+        scheme: handler.httpGet?.scheme ?? 'HTTP',
+        host: handler.httpGet?.host ?? '',
+        httpHeaders: handler.httpGet?.httpHeaders ?? [],
+      },
+    }
+  }
+  if (handler.type === 'tcpSocket') {
+    return {
+      type: 'tcpSocket',
+      tcpSocket: {
+        host: handler.tcpSocket?.host ?? '',
+        port: handler.tcpSocket?.port ?? '',
+      },
+    }
+  }
+  return undefined
+}
+
 function serializeContainers(containers: ContainersEditorState['containers'], packageId: string, feedId: number | null): string {
-  const mapped = containers.map((container) => ({
-    ...container,
-    PackageId: container.PackageId || packageId,
-    FeedId: container.FeedId ?? feedId,
-  }))
+  const mapped = containers.map((container) => {
+    const resolvedFeedId = container.FeedId ?? feedId
+    const securityContext: Record<string, unknown> = {}
+    if ((container.SecurityContext.runAsUser ?? '').trim()) securityContext.runAsUser = container.SecurityContext.runAsUser
+    if ((container.SecurityContext.runAsGroup ?? '').trim()) securityContext.runAsGroup = container.SecurityContext.runAsGroup
+    if (container.SecurityContext.runAsNonRoot === 'True' || container.SecurityContext.runAsNonRoot === 'False') securityContext.runAsNonRoot = container.SecurityContext.runAsNonRoot
+    if (container.SecurityContext.readOnlyRootFilesystem === 'True' || container.SecurityContext.readOnlyRootFilesystem === 'False') securityContext.readOnlyRootFilesystem = container.SecurityContext.readOnlyRootFilesystem
+    if (container.SecurityContext.allowPrivilegeEscalation === 'True' || container.SecurityContext.allowPrivilegeEscalation === 'False') securityContext.allowPrivilegeEscalation = container.SecurityContext.allowPrivilegeEscalation
+    if (container.SecurityContext.privileged === 'True' || container.SecurityContext.privileged === 'False') securityContext.privileged = container.SecurityContext.privileged
+    if ((container.SecurityContext.addCapabilities ?? []).length > 0 || (container.SecurityContext.dropCapabilities ?? []).length > 0) {
+      securityContext.capabilities = {
+        add: container.SecurityContext.addCapabilities ?? [],
+        drop: container.SecurityContext.dropCapabilities ?? [],
+      }
+    }
+    if (
+      (container.SecurityContext.seLinuxLevel ?? '').trim() ||
+      (container.SecurityContext.seLinuxRole ?? '').trim() ||
+      (container.SecurityContext.seLinuxType ?? '').trim() ||
+      (container.SecurityContext.seLinuxUser ?? '').trim()
+    ) {
+      securityContext.seLinuxOptions = {
+        level: container.SecurityContext.seLinuxLevel ?? '',
+        role: container.SecurityContext.seLinuxRole ?? '',
+        type: container.SecurityContext.seLinuxType ?? '',
+        user: container.SecurityContext.seLinuxUser ?? '',
+      }
+    }
+
+    return {
+      Name: container.Name,
+      Image: container.Image,
+      PackageId: container.PackageId || packageId,
+      FeedId: resolvedFeedId != null ? String(resolvedFeedId) : '',
+      CreateFeedSecrets: container.CreateFeedSecrets === 'True' ? 'True' : 'False',
+      IsInitContainer: container.IsInitContainer === 'True' ? 'True' : 'False',
+      ImagePullPolicy: container.ImagePullPolicy ?? '',
+      TerminationMessagePath: container.TerminationMessagePath ?? '',
+      TerminationMessagePolicy: container.TerminationMessagePolicy ?? 'File',
+      Command: container.Command ?? [],
+      Args: container.Args ?? [],
+      Ports: container.Ports ?? [],
+      Resources: {
+        requests: serializeResourceMap(container.Resources.requests),
+        limits: serializeResourceMap(container.Resources.limits),
+      },
+      VolumeMounts: container.VolumeMounts ?? [],
+      EnvironmentVariables: container.EnvironmentVariables ?? [],
+      ConfigMapEnvironmentVariables: container.ConfigMapEnvironmentVariables ?? [],
+      SecretEnvironmentVariables: container.SecretEnvironmentVariables ?? [],
+      FieldRefEnvironmentVariables: container.FieldRefEnvironmentVariables ?? [],
+      ConfigMapEnvFromSource: container.ConfigMapEnvFromSource ?? [],
+      SecretEnvFromSource: container.SecretEnvFromSource ?? [],
+      LivenessProbe: serializeProbe(container.LivenessProbe),
+      ReadinessProbe: serializeProbe(container.ReadinessProbe),
+      StartupProbe: serializeProbe(container.StartupProbe),
+      Lifecycle: {
+        postStart: serializeLifecycleHandler(container.Lifecycle.postStart),
+        preStop: serializeLifecycleHandler(container.Lifecycle.preStop),
+      },
+      SecurityContext: securityContext,
+    }
+  })
   return JSON.stringify(mapped)
 }
 
@@ -134,7 +529,8 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
 
   const targetRoles = getStepProp(step, [KubernetesProperties.TargetRoles, KubernetesProperties.TargetRolesLegacy])
   const conditionExpression = getStepProp(step, [KubernetesProperties.StepConditionExpression])
-  const containers = safeJsonParse<ContainerSpec[]>(get(KubernetesProperties.Containers), [])
+  const rawContainers = safeJsonParse<unknown[]>(get(KubernetesProperties.Containers), [])
+  const containers = rawContainers.map((container) => normalizeContainer(container, '', null))
   const firstContainer = containers[0]
 
   const includeEnvironments = action.environments ?? []
@@ -178,7 +574,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     feedId: firstContainer?.FeedId ?? null,
     packageId: firstContainer?.PackageId ?? '',
     containers,
-    volumes: safeJsonParse(get(KubernetesProperties.CombinedVolumes), []),
+    volumes: normalizeVolumes(get(KubernetesProperties.CombinedVolumes)),
     serviceName: get(KubernetesProperties.ServiceName) ?? '',
     serviceType: get(KubernetesProperties.ServiceType) ?? 'ClusterIP',
     serviceClusterIp: get(KubernetesProperties.ServiceClusterIp) ?? '',
@@ -295,7 +691,7 @@ export function serializeToStep(state: ContainersEditorState, processId: number,
     name: state.stepName || 'Deploy Kubernetes Containers',
     actionType: resolvedActionType,
     workerPoolId: null,
-    isDisabled: existingStep?.actions[0]?.isDisabled ?? false,
+    isDisabled: state.isDisabled,
     isRequired: existingStep?.actions[0]?.isRequired ?? false,
     canBeUsedForProjectVersioning: false,
     createdAt: existingStep?.actions[0]?.createdAt ?? new Date().toISOString(),

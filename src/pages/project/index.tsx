@@ -18,9 +18,7 @@ import {
   SearchOutlined,
   FilterOutlined,
   DownOutlined,
-  CheckCircleFilled,
-  CloseCircleFilled,
-  ClockCircleFilled,
+  CheckOutlined,
   LoadingOutlined,
   WarningFilled,
   MinusCircleOutlined,
@@ -47,7 +45,7 @@ interface DashboardRow {
   key: string;
   projectId: number;
   name: string;
-  deployments: Record<number, import('pages/apis/project').ProjectDashboardItem | undefined>;
+  deployments: Record<number, import('pages/apis/project').ProjectDashboardItem[]>;
 }
 
 interface DashboardGroupView {
@@ -224,10 +222,26 @@ const Project: React.FC = () => {
     void loadProjectSummaries();
   }, [space.id]);
 
-  const itemMap = useMemo(
-    () => new Map(summaryItems.map((item) => [`${item.projectId}-${item.environmentId}`, item])),
-    [summaryItems],
-  );
+  const itemMap = useMemo(() => {
+    const map = new Map<string, ProjectDashboardItem[]>();
+    for (const item of summaryItems) {
+      const key = `${item.projectId}-${item.environmentId}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.push(item);
+      } else {
+        map.set(key, [item]);
+      }
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        const aTime = a.completedTime ? new Date(a.completedTime).getTime() : 0;
+        const bTime = b.completedTime ? new Date(b.completedTime).getTime() : 0;
+        return bTime - aTime;
+      });
+    }
+    return map;
+  }, [summaryItems]);
 
   const keyword = searchText.trim().toLowerCase();
   const projectGroupsData = useMemo<DashboardGroupView[]>(() => {
@@ -249,8 +263,8 @@ const Project: React.FC = () => {
             key: String(project.id),
             projectId: project.id,
             name: project.name,
-            deployments: groupEnvs.reduce<Record<number, ProjectDashboardItem | undefined>>((acc, env) => {
-              acc[env.id] = itemMap.get(`${project.id}-${env.id}`);
+            deployments: groupEnvs.reduce<Record<number, ProjectDashboardItem[]>>((acc, env) => {
+              acc[env.id] = itemMap.get(`${project.id}-${env.id}`) ?? [];
               return acc;
             }, {}),
           }));
@@ -468,90 +482,138 @@ const Project: React.FC = () => {
     });
   };
 
+  const buildDeploymentDetailPath = (projectDisplayName: string, releaseVersion: string, deploymentId: number) =>
+    `/${space.slug}/projects/${encodeURIComponent(projectDisplayName)}/releases/${encodeURIComponent(releaseVersion)}/deployments/${deploymentId}`;
+
+  const openDeploymentDetail = (row: DashboardRow, item: ProjectDashboardItem) => {
+    if (typeof item.deploymentId !== 'number' || item.deploymentId <= 0) return;
+    navigate(buildDeploymentDetailPath(row.name, item.releaseVersion, item.deploymentId));
+  };
+
   const getStateMeta = (item: ProjectDashboardItem) => {
     if (item.state === 'Success') {
       if (item.hasWarningsOrErrors) {
         return {
-          icon: <WarningFilled className="text-amber-500 text-lg" />,
-          tone: 'text-amber-600',
+          icon: <WarningFilled style={{ fontSize: 14 }} />,
+          iconBackground: '#f59e0b',
           label: 'Success (with warnings)',
         };
       }
       return {
-        icon: <CheckCircleFilled className="text-green-500 text-lg" />,
-        tone: 'text-green-600',
+        icon: <CheckOutlined style={{ fontSize: 14 }} />,
+        iconBackground: '#00874d',
         label: 'Success',
       };
     }
     if (item.state === 'Failed' || item.state === 'TimedOut') {
       return {
-        icon: <CloseCircleFilled className="text-red-500 text-lg" />,
-        tone: 'text-red-600',
+        icon: <CloseOutlined style={{ fontSize: 14 }} />,
+        iconBackground: '#ef4444',
         label: item.state,
       };
     }
     if (item.state === 'Executing') {
       return {
-        icon: <LoadingOutlined className="text-blue-500 text-lg" spin />,
-        tone: 'text-blue-600',
+        icon: <LoadingOutlined style={{ fontSize: 14 }} spin />,
+        iconBackground: '#3b82f6',
         label: 'Executing',
       };
     }
     if (item.state === 'Cancelling') {
       return {
-        icon: <ClockCircleFilled className="text-amber-500 text-lg" />,
-        tone: 'text-amber-600',
+        icon: <LoadingOutlined style={{ fontSize: 14 }} spin />,
+        iconBackground: '#f97316',
         label: 'Cancelling',
       };
     }
     if (item.state === 'Pending') {
       return {
-        icon: <ClockCircleFilled className="text-gray-400 text-lg" />,
-        tone: 'text-gray-500',
+        icon: <LoadingOutlined style={{ fontSize: 14 }} spin />,
+        iconBackground: '#9ca3af',
         label: 'Pending',
       };
     }
     if (item.state === 'Cancelled') {
       return {
-        icon: <MinusCircleOutlined className="text-gray-400 text-lg" />,
-        tone: 'text-gray-500',
+        icon: <CloseOutlined style={{ fontSize: 14 }} />,
+        iconBackground: '#6b7280',
         label: 'Cancelled',
       };
     }
     return {
-      icon: <MinusCircleOutlined className="text-gray-300 text-lg" />,
-      tone: 'text-gray-500',
-      label: item.state || 'Pending',
+      icon: <CheckOutlined style={{ fontSize: 14 }} />,
+      iconBackground: '#9ca3af',
+      label: item.state || 'Unknown',
     };
   };
 
-  const renderDeploymentCell = (item?: ProjectDashboardItem) => {
-    if (!item) {
+  const renderDeploymentCell = (row: DashboardRow, items: ProjectDashboardItem[]) => {
+    if (!items.length) {
       return (
-        <div className="flex items-center text-gray-400">
-          <MinusCircleOutlined className="text-gray-300 mr-2 text-xl flex-shrink-0" />
-          <Text type="secondary" className="text-sm font-medium">No data</Text>
+        <div className="inline-flex items-center gap-2 text-slate-400 w-[206px] min-w-[206px] rounded-md border border-transparent hover:border-squid-blue px-2 py-2 -ml-[6px] transition-colors">
+          <MinusCircleOutlined className="text-slate-300 text-[22px] flex-shrink-0" />
+          <span className="text-sm font-medium text-slate-400 truncate">No data</span>
         </div>
       );
     }
-
-    const meta = getStateMeta(item);
-
+    const showChannelName = items.length > 1;
     return (
-      <div className="flex items-center min-w-0">
-        <div className="flex items-start gap-2 min-w-0">
-          <span className="mt-0.5 flex-shrink-0">{meta.icon}</span>
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <Tooltip title={`${meta.label} · ${item.releaseVersion}`}>
-              <Text strong className={`text-xs block truncate font-semibold ${meta.tone}`}>
-                {item.releaseVersion}
-              </Text>
-            </Tooltip>
-            <Text type="secondary" className="text-xs text-gray-500 font-normal whitespace-nowrap" title={item.completedTime ?? ''}>
-              {formatCompletedTime(item.completedTime)}
-            </Text>
-          </div>
-        </div>
+      <div className="flex flex-col gap-1">
+        {items.map((item, index) => {
+          const meta = getStateMeta(item);
+          const canOpenDeployment = typeof item.deploymentId === 'number' && item.deploymentId > 0;
+
+          return (
+            <div
+              key={`${item.deploymentId ?? 'none'}-${item.channelId ?? 'none'}-${item.releaseVersion}-${index}`}
+              className={[
+                'inline-flex items-center rounded-md border border-transparent px-2 py-2 w-[206px] min-w-[206px] -ml-[6px] transition-colors group',
+                canOpenDeployment ? 'hover:border-squid-blue cursor-pointer' : 'hover:border-squid-blue/50',
+              ].join(' ')}
+              onClick={canOpenDeployment ? (event) => {
+                event.stopPropagation();
+                openDeploymentDetail(row, item);
+              } : undefined}
+              role={canOpenDeployment ? 'button' : undefined}
+              tabIndex={canOpenDeployment ? 0 : -1}
+              onKeyDown={canOpenDeployment
+                ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openDeploymentDetail(row, item);
+                    }
+                  }
+                : undefined}
+            >
+              <div className="flex items-start gap-2 min-w-0">
+                <span
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[2px] text-white flex-shrink-0"
+                  style={{ backgroundColor: meta.iconBackground }}
+                >
+                  {meta.icon}
+                </span>
+                <div className="flex flex-col gap-0.5 min-w-0 w-[150px]">
+                  {showChannelName && item.channelName ? (
+                    <Tooltip title={item.channelName}>
+                      <span className="text-[11px] uppercase tracking-[0.06em] text-slate-500 truncate block w-full">
+                        {item.channelName}
+                      </span>
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip title={`${meta.label} · ${item.releaseVersion}`}>
+                    <span className="text-sm text-slate-700 leading-5 truncate font-semibold block w-full group-hover:text-squid-blue">
+                      {item.releaseVersion}
+                    </span>
+                  </Tooltip>
+                  <span className="text-xs text-slate-500 leading-4 truncate block w-full" title={item.completedTime ?? ''}>
+                    {formatCompletedTime(item.completedTime)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -559,14 +621,14 @@ const Project: React.FC = () => {
   const renderGroupTable = (group: DashboardGroupView) => {
     const envCount = group.environments.length;
     const gridCols = envCount > 0
-      ? `260px ${Array(envCount).fill('160px').join(' ')}`
+      ? `260px ${Array(envCount).fill('220px').join(' ')}`
       : '260px';
 
     return (
       <div className="overflow-x-auto">
         {/* Header row */}
         <div
-          className="grid border-b border-slate-100 bg-slate-50"
+          className="grid bg-transparent"
           style={{ gridTemplateColumns: gridCols }}
         >
           <div className="px-4 py-2.5" />
@@ -583,19 +645,19 @@ const Project: React.FC = () => {
         {group.rows.map((row, i) => (
           <div
             key={row.key}
-            className={`grid items-center hover:bg-slate-50 transition-colors cursor-pointer ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
+            className={`grid items-center group cursor-pointer ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
             style={{ gridTemplateColumns: gridCols }}
             onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}`)}
           >
             <div className="px-4 py-3.5 flex items-center gap-3 min-w-0">
               <ProjectOutlined className="text-gray-400 text-xl flex-shrink-0" />
               <Tooltip title={row.name}>
-                <Text className="text-[15px] text-squid-blue font-medium truncate hover:underline">{row.name}</Text>
+                <Text className="text-[15px] text-slate-700 font-medium truncate group-hover:text-squid-blue transition-colors">{row.name}</Text>
               </Tooltip>
             </div>
             {group.environments.map((env) => (
               <div key={env.id} className="px-3 py-3">
-                {renderDeploymentCell(row.deployments[env.id])}
+                {renderDeploymentCell(row, row.deployments[env.id] ?? [])}
               </div>
             ))}
           </div>
@@ -733,7 +795,7 @@ const Project: React.FC = () => {
           ) : (
             projectGroupsData.map((group) => (
               <div key={group.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-                <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-slate-200 bg-slate-50/80">
+                <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-slate-200 bg-transparent">
                   <div className="flex items-center gap-2 min-w-0">
                     <Text strong className="text-sm sm:text-base !text-slate-900 truncate">{group.name}</Text>
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[11px] font-semibold leading-none flex-shrink-0">

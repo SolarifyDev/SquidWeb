@@ -86,6 +86,8 @@ export interface InterruptionDto {
   actionName: string
   machineName: string | null
   responsibleUserId: string | null
+  responsibleTeamIds: string | null
+  canTakeResponsibility: boolean
   isPending: boolean
   createdAt: string
   form: InterruptionForm
@@ -118,6 +120,58 @@ export interface GetServerTaskDetailsParams {
 export interface GetServerTaskLogsParams {
   afterSequenceNumber?: number
   take?: number
+}
+
+export type ServerTaskStateValue =
+  | 'Pending'
+  | 'Executing'
+  | 'Success'
+  | 'Failed'
+  | 'Cancelling'
+  | 'Cancelled'
+  | 'TimedOut'
+  | 'Paused'
+
+export interface ServerTaskListItemDto {
+  id: number
+  name: string
+  description: string
+  state: ServerTaskStateValue | string
+  queueTime: string
+  startTime: string | null
+  completedTime: string | null
+  lastModifiedDate: string
+  errorMessage: string | null
+  hasWarningsOrErrors: boolean
+  hasPendingInterruptions: boolean
+  spaceId: number | null
+  projectId: number
+  environmentId: number
+  durationSeconds: number
+  isCompleted: boolean
+}
+
+export interface GetServerTaskListResponseData {
+  totalCount: number
+  items: ServerTaskListItemDto[]
+}
+
+export interface GetServerTaskListParams {
+  projectId: number
+  state?: ServerTaskStateValue
+  pageIndex?: number
+  pageSize?: number
+}
+
+export function getServerTaskList(params: GetServerTaskListParams) {
+  const query = {
+    projectId: params.projectId,
+    ...(params.state ? { state: params.state } : {}),
+    pageIndex: params.pageIndex ?? 1,
+    pageSize: params.pageSize ?? 30,
+  }
+
+  return get<GetServerTaskListResponseData>('/tasks', { params: query })
 }
 
 export function getServerTask(taskId: number) {
@@ -183,6 +237,8 @@ export function getServerTaskInterruptions(taskId: number) {
     const rawForm = item?.form ?? item?.Form ?? {}
     const rawElements = rawForm?.elements ?? rawForm?.Elements ?? []
     const rawValues = rawForm?.values ?? rawForm?.Values ?? {}
+    const responsibleTeamIdsRaw = item?.responsibleTeamIds ?? item?.ResponsibleTeamIds
+    const responsibleTeamIds = responsibleTeamIdsRaw == null ? null : String(responsibleTeamIdsRaw).trim() || null
 
     return {
       id: Number(item?.id ?? item?.Id ?? 0),
@@ -192,8 +248,10 @@ export function getServerTaskInterruptions(taskId: number) {
       actionName: String(item?.actionName ?? item?.ActionName ?? ''),
       machineName: item?.machineName ?? item?.MachineName ?? null,
       responsibleUserId: item?.responsibleUserId ?? item?.ResponsibleUserId ?? null,
+      responsibleTeamIds,
+      canTakeResponsibility: Boolean(item?.canTakeResponsibility ?? item?.CanTakeResponsibility ?? true),
       isPending: Boolean(item?.isPending ?? item?.IsPending ?? false),
-      createdAt: String(item?.createdAt ?? item?.CreatedAt ?? ''),
+      createdAt: String(item?.createdAt ?? item?.CreatedAt ?? item?.createdDate ?? item?.CreatedDate ?? ''),
       form: {
         elements: Array.isArray(rawElements)
           ? rawElements.map((element: any): InterruptionFormElement => ({

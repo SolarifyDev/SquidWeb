@@ -122,14 +122,14 @@ const CheckIcon: React.FC = () => (
 
 interface SpaceSwitcherDropdownProps {
   spaces: SpaceDto[];
-  currentSpaceSlug: string;
+  currentSpaceId: number;
   onSelectSpace: (space: SpaceDto) => void;
   onClose: () => void;
 }
 
 const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
   spaces,
-  currentSpaceSlug,
+  currentSpaceId,
   onSelectSpace,
   onClose,
 }) => {
@@ -193,7 +193,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
       {/* Space list */}
       <div className="py-1">
         {spaces.map(space => {
-          const isActive = space.slug === currentSpaceSlug;
+          const isActive = space.id === currentSpaceId;
           return (
             <button
               key={space.id}
@@ -214,7 +214,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                 }}
               >
-                <img src="/squid-logo.svg" alt="" className="w-full h-full object-contain" />
+                <img src="/squid-logo.png" alt="" className="w-full h-full object-contain" />
               </div>
               <span className={`flex-1 font-medium ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
                 {space.name}
@@ -226,9 +226,9 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50">
+      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex justify-center">
         <button
-          className="text-xs text-blue-600 hover:underline font-medium bg-transparent border-0 cursor-pointer p-0"
+          className="inline-flex items-center justify-center rounded-md bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-semibold text-white border-0 cursor-pointer transition-colors shadow-sm"
           onClick={onClose}
         >
           Create new space

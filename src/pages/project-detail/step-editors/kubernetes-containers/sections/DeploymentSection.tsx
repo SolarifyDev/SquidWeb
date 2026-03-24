@@ -305,7 +305,7 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
         </Radio.Group>
       </CollapsibleSection>
 
-      <VolumesSection volumes={state.volumes} onChange={(v) => updateField('volumes', v)} />
+      <VolumesSection volumes={state.volumes} onChange={(v) => updateField('volumes', v)} configMapName={state.configMapName} />
 
       <CollapsibleSection title="Host Aliases" subtitle="Add Host Aliases." defaultOpen>
         <div className="flex justify-end">

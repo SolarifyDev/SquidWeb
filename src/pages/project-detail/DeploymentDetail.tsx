@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Button, Dropdown, Input, Select, Spin, message, type MenuProps } from 'antd'
+import { Button, Dropdown, Input, Select, Spin, Tooltip, message, type MenuProps } from 'antd'
 import {
   CheckOutlined,
   CloseOutlined,
@@ -17,6 +17,7 @@ import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getReleases, type ReleaseDto } from 'pages/apis/release'
+import { getTeams } from 'pages/apis/team'
 import {
   cancelServerTask,
   getServerTaskDetails,
@@ -38,6 +39,20 @@ type ActiveTabKey = 'taskSummary' | 'taskLog'
 type NormalizedNodeStatus = 'Pending' | 'Running' | 'Success' | 'Failed' | 'Unknown'
 type NormalizedNodeType = 'Task' | 'Step' | 'Action' | 'LogEntry' | 'Unknown'
 type NormalizedLogCategory = 'Info' | 'Warning' | 'Error' | 'Unknown'
+type HealthCheckEventKind = 'starting' | 'target' | 'completed'
+
+interface InterruptionButtonUi {
+  type: 'primary' | 'default'
+  danger?: boolean
+  className?: string
+  tooltip?: string
+}
+
+interface FormattedHealthCheckLog {
+  messageText: string
+  detail?: string | null
+  category?: NormalizedLogCategory
+}
 
 interface LocationState {
   taskId?: number
@@ -66,6 +81,22 @@ function parseDeploymentId(input: string | undefined): number | null {
   if (!suffix) return null
   const parsed = Number(suffix[1])
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseSpaceNumericId(spaceId: string | undefined): number {
+  const raw = String(spaceId ?? '')
+  const match = raw.match(/^Spaces-(\d+)$/i)
+  if (match) return Number(match[1])
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+function parseResponsibleTeamIds(rawValue: string | null | undefined): string[] {
+  if (!rawValue?.trim()) return []
+  return rawValue
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function formatRelative(value: string | null | undefined): string {
@@ -128,16 +159,13 @@ function interruptionTypeLabel(type: InterruptionType): string {
 function interruptionTitle(interruption: InterruptionDto | null | undefined): string {
   if (!interruption) return 'Interruption'
 
-  const firstParagraph = (interruption.form?.elements ?? [])
-    .find((element) => element.control.type === 'Paragraph')
-
-  const paragraphText = firstParagraph?.control.type === 'Paragraph'
-    ? firstParagraph.control.text?.trim() ?? ''
-    : ''
+  const stepName = interruption.stepName?.trim() ?? ''
+  if (stepName) return stepName
 
   const actionName = interruption.actionName?.trim() ?? ''
-  const stepName = interruption.stepName?.trim() ?? ''
-  return paragraphText || actionName || stepName || 'Interruption'
+  if (actionName) return actionName
+
+  return interruptionTypeLabel(interruption.interruptionType)
 }
 
 function toInterruptionErrorMessage(error: any): string {
@@ -339,6 +367,150 @@ function logCategoryClass(category: NormalizedLogCategory): string {
   return 'text-slate-700'
 }
 
+function parseJsonObject(value: string | null | undefined): Record<string, unknown> | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{')) return null
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function readStringField(source: Record<string, unknown> | null, names: string[]): string | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function readNumberField(source: Record<string, unknown> | null, names: string[]): number | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return null
+}
+
+function readBooleanField(source: Record<string, unknown> | null, names: string[]): boolean | null {
+  if (!source) return null
+  for (const name of names) {
+    const value = source[name]
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'number') return value !== 0
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      if (normalized === 'true') return true
+      if (normalized === 'false') return false
+    }
+  }
+  return null
+}
+
+function detectHealthCheckEventKind(log: ServerTaskLogElementDto, payload: Record<string, unknown> | null): HealthCheckEventKind | null {
+  const eventType = readStringField(payload, ['eventType', 'EventType', 'type', 'Type', 'name', 'Name'])
+  if (eventType) {
+    const normalized = eventType.toLowerCase().replace(/\s+/g, '')
+    if (normalized.includes('healthcheckstartingevent')) return 'starting'
+    if (normalized.includes('healthchecktargetresultevent')) return 'target'
+    if (normalized.includes('healthcheckcompletedevent')) return 'completed'
+  }
+
+  const combined = `${log.messageText ?? ''} ${log.detail ?? ''} ${log.source ?? ''}`.toLowerCase()
+  if (combined.includes('healthcheckstartingevent')) return 'starting'
+  if (combined.includes('healthchecktargetresultevent')) return 'target'
+  if (combined.includes('healthcheckcompletedevent')) return 'completed'
+  return null
+}
+
+function parseCountFromText(sourceText: string, pattern: RegExp): number | null {
+  const matched = sourceText.match(pattern)
+  if (!matched || matched.length < 2) return null
+  const parsed = Number(matched[1])
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatHealthCheckLog(log: ServerTaskLogElementDto): FormattedHealthCheckLog | null {
+  const detailObject = parseJsonObject(log.detail)
+  const messageObject = parseJsonObject(log.messageText)
+  const payload = detailObject ?? messageObject
+  const kind = detectHealthCheckEventKind(log, payload)
+  if (!kind) return null
+
+  const sourceText = `${log.messageText ?? ''} ${log.detail ?? ''}`
+
+  if (kind === 'starting') {
+    const targetCount = readNumberField(payload, ['targetCount', 'TargetCount', 'healthCheckTargetCount', 'HealthCheckTargetCount'])
+      ?? parseCountFromText(sourceText, /(\d+)\s+targets?/i)
+    const stepName = readStringField(payload, ['stepName', 'StepName'])
+    const actionName = readStringField(payload, ['actionName', 'ActionName'])
+    const messageText = targetCount != null
+      ? `[Health Check] Starting health check for ${targetCount} target${targetCount === 1 ? '' : 's'}...`
+      : '[Health Check] Starting health check...'
+    const detail = [stepName, actionName].filter(Boolean).join(' / ') || null
+    return { messageText, detail }
+  }
+
+  if (kind === 'target') {
+    const machineName = readStringField(payload, ['machineName', 'MachineName']) ?? 'target'
+    const healthy = readBooleanField(payload, ['healthCheckHealthy', 'HealthCheckHealthy', 'healthy', 'Healthy'])
+    const healthCheckDetail = readStringField(payload, ['healthCheckDetail', 'HealthCheckDetail', 'detail', 'Detail'])
+    const isHealthy = healthy !== false
+    const icon = isHealthy ? '✅' : '❌'
+    const fallback = isHealthy ? 'ok' : 'unhealthy'
+    return {
+      messageText: `${icon} ${machineName}: ${healthCheckDetail || fallback}`,
+      detail: isHealthy ? null : '⚠️ Excluded from remaining steps',
+      category: isHealthy ? 'Info' : 'Warning',
+    }
+  }
+
+  const healthyCount = readNumberField(payload, ['healthCheckHealthyCount', 'HealthCheckHealthyCount', 'healthyCount', 'HealthyCount'])
+    ?? parseCountFromText(sourceText, /(\d+)\s+healthy/i)
+  const unhealthyCount = readNumberField(payload, ['healthCheckUnhealthyCount', 'HealthCheckUnhealthyCount', 'unhealthyCount', 'UnhealthyCount'])
+    ?? parseCountFromText(sourceText, /(\d+)\s+unhealthy/i)
+  const messageText = healthyCount != null && unhealthyCount != null
+    ? `[Health Check] Completed: ${healthyCount} healthy, ${unhealthyCount} unhealthy`
+    : '[Health Check] Completed'
+  const detail = (unhealthyCount ?? 0) > 0
+    ? `⚠️ ${unhealthyCount} unhealthy target${unhealthyCount === 1 ? '' : 's'} excluded from remaining steps`
+    : null
+  return {
+    messageText,
+    detail,
+    category: (unhealthyCount ?? 0) > 0 ? 'Warning' : 'Info',
+  }
+}
+
+function interruptionButtonUi(buttonLabel: string): InterruptionButtonUi {
+  const baseActionButtonClass = '!h-9 !px-4 !border-squid-blue !text-squid-blue !bg-transparent hover:!border-blue-700 hover:!text-blue-700 hover:!bg-blue-50'
+  const normalized = buttonLabel.trim().toLowerCase()
+  if (normalized === 'abort') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'retry') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'ignore') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'proceed') return { type: 'default', className: baseActionButtonClass }
+  if (normalized === 'exclude machine') {
+    return {
+      type: 'default',
+      className: '!h-9 !px-4 !border-amber-400 !text-amber-700 !bg-transparent hover:!border-amber-500 hover:!text-amber-800 hover:!bg-amber-50',
+      tooltip: '排除此机器，后续步骤将不再在此机器上执行',
+    }
+  }
+  return { type: 'default', className: baseActionButtonClass }
+}
+
 function sortActivityNodes(nodes: ServerTaskActivityNodeDto[]): ServerTaskActivityNodeDto[] {
   return [...nodes].sort((a, b) => {
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
@@ -461,6 +633,7 @@ const DeploymentDetail: React.FC = () => {
   const [submittingInterruptionId, setSubmittingInterruptionId] = useState<number | null>(null)
   const [locallyClaimedInterruptionIds, setLocallyClaimedInterruptionIds] = useState<number[]>([])
   const [cancellingTask, setCancellingTask] = useState(false)
+  const [teamNameById, setTeamNameById] = useState<Record<string, string>>({})
 
   const authUser = useMemo(() => getAuthUser(), [])
   const currentUserIdentifier = useMemo(() => {
@@ -490,6 +663,15 @@ const DeploymentDetail: React.FC = () => {
   const shouldShowInterruptionPanel = taskHasPendingInterruptions || hasPendingInterruptionsByList || taskMayBeWaitingInterruption
   const activeInterruption = pendingInterruptions.length > 0 ? pendingInterruptions[0] : null
   const activeInterruptionAssignedUserId = activeInterruption?.responsibleUserId ?? null
+  const activeInterruptionTeamIds = useMemo(
+    () => parseResponsibleTeamIds(activeInterruption?.responsibleTeamIds),
+    [activeInterruption?.responsibleTeamIds],
+  )
+  const activeInterruptionTeamNames = useMemo(
+    () => activeInterruptionTeamIds.map((teamId) => teamNameById[teamId] ?? `Team #${teamId}`),
+    [activeInterruptionTeamIds, teamNameById],
+  )
+  const activeInterruptionCanTakeResponsibility = activeInterruption?.canTakeResponsibility ?? true
   const activeInterruptionAssignedToCurrentUser = useMemo(() => {
     if (activeInterruptionAssignedUserId == null) return false
     return currentUserCandidates.has(String(activeInterruptionAssignedUserId).trim().toLowerCase())
@@ -506,7 +688,13 @@ const DeploymentDetail: React.FC = () => {
   const activeInterruptionRequiresAssignment = Boolean(
     activeInterruption != null && activeInterruptionAssignedUserId == null,
   )
+  const activeInterruptionCanSubmit = Boolean(
+    activeInterruptionCanTakeResponsibility && activeInterruptionClaimedByCurrentUser,
+  )
   const activeInterruptionTitle = interruptionTitle(activeInterruption)
+  const activeInterruptionElements = activeInterruption?.form?.elements ?? []
+  const activeInterruptionDetailElements = activeInterruptionElements.filter((element) => element.control.type !== 'SubmitButtonGroup')
+  const activeInterruptionSubmitGroups = activeInterruptionElements.filter((element) => element.control.type === 'SubmitButtonGroup')
   const showCancelButton = taskId != null && (
     taskState === 'Pending'
     || taskState === 'Executing'
@@ -625,6 +813,13 @@ const DeploymentDetail: React.FC = () => {
 
         setProject(foundProject)
         setEnvironments(environmentRes?.environments ?? [])
+        const teamRes = await getTeams({ spaceId: parseSpaceNumericId(spaceId) }).catch(() => null)
+        if (cancelled) return
+        const nextTeamMap: Record<string, string> = {}
+        for (const team of teamRes?.teams ?? []) {
+          nextTeamMap[String(team.id)] = team.name
+        }
+        setTeamNameById(nextTeamMap)
 
         if (foundProject) {
           const [releaseRes, channelRes, lifecycleRes] = await Promise.all([
@@ -661,7 +856,7 @@ const DeploymentDetail: React.FC = () => {
     return () => {
       cancelled = true
     }
-  }, [deploymentId, projectName, decodedVersion])
+  }, [deploymentId, projectName, decodedVersion, spaceId])
 
   useEffect(() => {
     if (taskId == null) return
@@ -772,6 +967,11 @@ const DeploymentDetail: React.FC = () => {
     activeInterruption?.id,
     activeInterruptionClaimedByCurrentUser,
   ])
+
+  useEffect(() => {
+    if (!shouldShowInterruptionPanel) return
+    setActiveTab('taskSummary')
+  }, [shouldShowInterruptionPanel, activeInterruption?.id])
 
   const toggleNode = (nodeId: number, expandable: boolean) => {
     if (!expandable) return
@@ -888,6 +1088,11 @@ const DeploymentDetail: React.FC = () => {
       message.warning('Current user is unavailable, unable to take responsibility.')
       return
     }
+    const interruption = pendingInterruptions.find((item) => item.id === interruptionId)
+    if (interruption && interruption.canTakeResponsibility === false) {
+      message.warning('You are not a member of a responsible team for this interruption.')
+      return
+    }
 
     setResponsibilityLoadingId(interruptionId)
     try {
@@ -905,6 +1110,10 @@ const DeploymentDetail: React.FC = () => {
 
   const handleSubmitInterruption = async (interruption: InterruptionDto, result: string) => {
     if (taskId == null) return
+    if (interruption.canTakeResponsibility === false) {
+      message.warning('You are not a member of a responsible team for this interruption.')
+      return
+    }
 
     setSubmittingInterruptionId(interruption.id)
     try {
@@ -951,14 +1160,17 @@ const DeploymentDetail: React.FC = () => {
   }
 
   const renderLogLine = (nodeId: number, log: ServerTaskLogElementDto, index: number, depth: number) => {
-    const category = normalizeLogCategory(log.category)
+    const healthCheckLog = formatHealthCheckLog(log)
+    const category = healthCheckLog?.category ?? normalizeLogCategory(log.category)
+    const messageText = healthCheckLog?.messageText ?? log.messageText
+    const detailText = healthCheckLog?.detail ?? (verbose ? log.detail : null)
 
     return (
       <div key={`${nodeId}-log-${log.id}-${log.sequenceNumber}`} className="grid grid-cols-[42px_minmax(0,1fr)] gap-1.5 py-1" style={{ paddingLeft: `${depth * 8 + 2}px` }}>
         <span className="text-right text-xs text-slate-400">{log.sequenceNumber || index + 1}</span>
         <div className="min-w-0">
-          <div className={`break-words text-[13px] ${logCategoryClass(category)}`}>{log.messageText}</div>
-          {verbose && log.detail ? <div className="mt-0.5 break-words text-xs text-slate-500">{log.detail}</div> : null}
+          <div className={`break-words text-[13px] ${logCategoryClass(category)}`}>{messageText}</div>
+          {detailText ? <div className="mt-0.5 break-words text-xs text-slate-500">{detailText}</div> : null}
         </div>
       </div>
     )
@@ -1139,50 +1351,58 @@ const DeploymentDetail: React.FC = () => {
                   </svg>
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-amber-900">{activeInterruptionTitle}</div>
+                  <div className="text-base font-semibold leading-6 text-amber-900">{activeInterruptionTitle}</div>
                   <div className="mt-1 text-sm text-amber-800">
                     {activeInterruptionRequiresAssignment
                       ? 'This task is waiting for manual intervention and must be assigned before proceeding.'
                       : 'This task is waiting for manual intervention.'}
                   </div>
 
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm text-amber-900">
-                      Assigned to:{' '}
-                      {activeInterruptionAssignedUserId == null ? (
-                        <strong><em>no one</em></strong>
-                      ) : (
-                        <strong>{activeInterruptionClaimedByCurrentUser ? 'you' : activeInterruptionAssignedUserId}</strong>
-                      )}
+                  <div className="mt-2 flex flex-col items-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-sm text-amber-900">
+                      <span>
+                        Assigned to:{' '}
+                        {activeInterruptionAssignedUserId == null ? (
+                          <strong><em>no one</em></strong>
+                        ) : (
+                          <strong>{activeInterruptionClaimedByCurrentUser ? 'you' : activeInterruptionAssignedUserId}</strong>
+                        )}
+                      </span>
+                      {activeInterruptionRequiresAssignment && activeInterruption ? (
+                        <Button
+                          type="primary"
+                          className="!h-10 !px-5 !bg-green-700 hover:!bg-green-800 !border-green-700"
+                          loading={responsibilityLoadingId === activeInterruption.id}
+                          disabled={!currentUserIdentifier || !activeInterruptionCanTakeResponsibility}
+                          onClick={() => handleTakeResponsibility(activeInterruption.id)}
+                        >
+                          Assign to me
+                        </Button>
+                      ) : null}
                     </div>
-                    {activeInterruptionRequiresAssignment && activeInterruption ? (
-                      <Button
-                        size="small"
-                        type="primary"
-                        loading={responsibilityLoadingId === activeInterruption.id}
-                        disabled={!currentUserIdentifier}
-                        onClick={() => handleTakeResponsibility(activeInterruption.id)}
-                      >
-                        Assign to me
-                      </Button>
-                    ) : null}
-                  </div>
 
-                  <div className="mt-2 flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="text-sm text-squid-blue hover:underline"
-                      onClick={() => setInterruptionDetailsVisible((prev) => !prev)}
-                    >
-                      {interruptionDetailsVisible ? 'Hide details' : 'Show details'}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-sm text-squid-blue hover:underline"
-                      onClick={() => setActiveTab('taskLog')}
-                    >
-                      View log
-                    </button>
+                    {activeInterruptionTeamNames.length > 0 ? (
+                      <div className="text-sm text-amber-900 text-right">
+                        Responsible teams: <strong>{activeInterruptionTeamNames.join(', ')}</strong>
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        className="text-sm text-squid-blue hover:underline"
+                        onClick={() => setInterruptionDetailsVisible((prev) => !prev)}
+                      >
+                        {interruptionDetailsVisible ? 'Hide details' : 'Show details'}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-sm text-squid-blue hover:underline"
+                        onClick={() => setActiveTab('taskLog')}
+                      >
+                        View log
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1204,6 +1424,10 @@ const DeploymentDetail: React.FC = () => {
                   </div>
                 ) : activeInterruption == null ? (
                   <div className="mt-3 text-sm text-amber-800">No pending interruption details are available yet.</div>
+                ) : !activeInterruptionCanTakeResponsibility ? (
+                  <div className="mt-3 text-sm text-amber-800">
+                    You are not a member of any responsible team for this interruption.
+                  </div>
                 ) : !activeInterruptionClaimedByCurrentUser ? (
                   <div className="mt-3 text-sm text-amber-800">
                     {activeInterruptionRequiresAssignment
@@ -1219,11 +1443,10 @@ const DeploymentDetail: React.FC = () => {
                     </div>
 
                     <div className="mt-3 space-y-3">
-                      {(activeInterruption.form?.elements ?? []).map((element) => {
+                      {activeInterruptionDetailElements.map((element) => {
                         const control = element.control
                         const key = `${activeInterruption.id}-${element.name}`
                         const draftValues = interruptionDraftValues[activeInterruption.id] ?? {}
-                        const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionClaimedByCurrentUser
 
                         if (control.type === 'Paragraph') {
                           return (
@@ -1246,26 +1469,6 @@ const DeploymentDetail: React.FC = () => {
                           )
                         }
 
-                        if (control.type === 'SubmitButtonGroup') {
-                          return (
-                            <div key={key} className="flex flex-wrap items-center gap-2">
-                              {control.buttons.map((buttonLabel) => (
-                                <Button
-                                  key={`${key}-${buttonLabel}`}
-                                  size="small"
-                                  type={buttonLabel === 'Abort' ? 'default' : 'primary'}
-                                  danger={buttonLabel === 'Abort'}
-                                  disabled={submitDisabled}
-                                  loading={submittingInterruptionId === activeInterruption.id}
-                                  onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
-                                >
-                                  {buttonLabel}
-                                </Button>
-                              ))}
-                            </div>
-                          )
-                        }
-
                         return (
                           <div key={key} className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                             Unsupported control payload for "{element.name}". Please verify backend JSON polymorphic serialization.
@@ -1273,6 +1476,41 @@ const DeploymentDetail: React.FC = () => {
                         )
                       })}
                     </div>
+
+                    {activeInterruptionSubmitGroups.length > 0 ? (
+                      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                        {activeInterruptionSubmitGroups.flatMap((element) => {
+                          const control = element.control
+                          if (control.type !== 'SubmitButtonGroup') return []
+                          const groupKey = `${activeInterruption.id}-${element.name}`
+                          const submitDisabled = submittingInterruptionId === activeInterruption.id || !activeInterruptionCanSubmit
+
+                          return control.buttons.map((buttonLabel) => {
+                            const ui = interruptionButtonUi(buttonLabel)
+                            const button = (
+                              <Button
+                                key={`${groupKey}-${buttonLabel}`}
+                                size="middle"
+                                type={ui.type}
+                                danger={ui.danger}
+                                className={ui.className}
+                                disabled={submitDisabled}
+                                loading={submittingInterruptionId === activeInterruption.id}
+                                onClick={() => handleSubmitInterruption(activeInterruption, buttonLabel)}
+                              >
+                                {buttonLabel}
+                              </Button>
+                            )
+
+                            return ui.tooltip ? (
+                              <Tooltip key={`${groupKey}-${buttonLabel}-tooltip`} title={ui.tooltip}>
+                                {button}
+                              </Tooltip>
+                            ) : button
+                          })
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 )
               ) : null}

@@ -68,6 +68,9 @@ export interface ProjectDashboardItem {
   projectId: number
   environmentId: number
   releaseVersion: string
+  deploymentId?: number | null
+  channelId?: number | null
+  channelName?: string | null
   state: ProjectDashboardState | string
   completedTime: string | null
   hasWarningsOrErrors: boolean
@@ -101,10 +104,19 @@ export function getProjectSummaries(params?: GetProjectSummariesRequest) {
     params,
     paramsSerializer: (query) => {
       const searchParams = new URLSearchParams()
-      const source = query as GetProjectSummariesRequest | undefined
-      source?.projectGroupIds?.forEach((id) => searchParams.append('projectGroupIds', String(id)))
-      source?.projectIds?.forEach((id) => searchParams.append('projectIds', String(id)))
-      source?.environmentIds?.forEach((id) => searchParams.append('environmentIds', String(id)))
+      const source = (query ?? {}) as Record<string, unknown>
+
+      Object.entries(source).forEach(([key, value]) => {
+        if (value == null) return
+        if (Array.isArray(value)) {
+          value.forEach((item) => {
+            if (item != null) searchParams.append(key, String(item))
+          })
+          return
+        }
+        searchParams.append(key, String(value))
+      })
+
       return searchParams.toString()
     },
   })

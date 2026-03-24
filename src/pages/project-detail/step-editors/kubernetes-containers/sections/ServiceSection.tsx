@@ -135,6 +135,7 @@ function EditServiceYamlSubSection({
 export function ServiceSection({ state, updateField, showNamespaceSection = false }: ServiceSectionProps) {
   const emptyPort: ServicePort = { name: '', port: '', targetPort: '', nodePort: '', protocol: 'TCP' }
   const [addPortModalOpen, setAddPortModalOpen] = useState(false)
+  const [editingPortIndex, setEditingPortIndex] = useState<number | null>(null)
   const [newPort, setNewPort] = useState<ServicePort>(emptyPort)
 
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
@@ -149,20 +150,32 @@ export function ServiceSection({ state, updateField, showNamespaceSection = fals
 
   const openAddPortModal = () => {
     setNewPort(emptyPort)
+    setEditingPortIndex(null)
     setAddPortModalOpen(true)
   }
 
-  const handleAddPort = () => {
+  const openEditPortModal = (port: ServicePort, index: number) => {
+    setNewPort({ ...emptyPort, ...port, protocol: port.protocol || 'TCP' })
+    setEditingPortIndex(index)
+    setAddPortModalOpen(true)
+  }
+
+  const handleSavePort = () => {
     if (!newPort.port.trim()) {
       message.error('Port is required')
       return
     }
-    const added: ServicePort = {
+    const nextPort: ServicePort = {
       ...newPort,
       targetPort: newPort.targetPort || newPort.port,
     }
-    updateField('servicePorts', [...state.servicePorts, added])
+    if (editingPortIndex === null) {
+      updateField('servicePorts', [...state.servicePorts, nextPort])
+    } else {
+      updateField('servicePorts', state.servicePorts.map((port, index) => (index === editingPortIndex ? nextPort : port)))
+    }
     setAddPortModalOpen(false)
+    setEditingPortIndex(null)
   }
 
   return (
@@ -307,7 +320,19 @@ export function ServiceSection({ state, updateField, showNamespaceSection = fals
         {state.servicePorts.length > 0 && (
           <ul className="space-y-2">
             {state.servicePorts.map((port, index) => (
-              <li key={index} className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3">
+              <li
+                key={index}
+                className="flex items-start justify-between gap-3 border border-slate-200 rounded p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => openEditPortModal(port, index)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openEditPortModal(port, index)
+                  }
+                }}
+              >
                 <div className="text-sm text-slate-700 space-y-1">
                   <p className="mb-0">Name: <strong>{port.name || '(not set)'}</strong></p>
                   <p className="mb-0">Port: <strong>{port.port || '(not set)'}</strong></p>
@@ -317,7 +342,10 @@ export function ServiceSection({ state, updateField, showNamespaceSection = fals
                 </div>
                 <button
                   type="button"
-                  onClick={() => updateField('servicePorts', state.servicePorts.filter((_, i) => i !== index))}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    updateField('servicePorts', state.servicePorts.filter((_, i) => i !== index))
+                  }}
                   className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                   aria-label="Remove port"
                 >
@@ -329,11 +357,14 @@ export function ServiceSection({ state, updateField, showNamespaceSection = fals
         )}
 
         <Modal
-          title="Add Service Port"
+          title={editingPortIndex === null ? 'Add Service Port' : 'Edit Service Port'}
           open={addPortModalOpen}
-          onCancel={() => setAddPortModalOpen(false)}
-          onOk={handleAddPort}
-          okText="Ok"
+          onCancel={() => {
+            setAddPortModalOpen(false)
+            setEditingPortIndex(null)
+          }}
+          onOk={handleSavePort}
+          okText={editingPortIndex === null ? 'Add' : 'Save'}
           cancelText="Cancel"
         >
           <div className="space-y-3">

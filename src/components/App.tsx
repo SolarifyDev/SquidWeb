@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import routes from "../routes";
-import { Link, Route, Routes, useLocation, Navigate, useNavigate, Outlet } from "react-router-dom";
+import { Link, Route, Routes, useLocation, Navigate, useNavigate, Outlet, matchPath } from "react-router-dom";
 import DeploySidebar from "./DeploySidebar";
 import SpaceSwitcherDropdown from "./SpaceSwitcherDropdown";
 import { SpaceContext, SpaceInfo } from "../contexts/SpaceContext";
+import { PermissionProvider } from "../contexts/PermissionContext";
 import { getSpaces, SpaceDto } from "pages/apis/space";
 import SignInPage from "pages/signin";
-import { clearAuthSession, getAuthUser, isAuthenticated as hasAuthSession } from "utils/auth";
+import ChangePasswordPage from "pages/account/ChangePasswordPage";
+import PersonalSettingsPage from "pages/account/PersonalSettingsPage";
+import { clearAuthSession, getAuthUser, getMustChangePassword, isAuthenticated as hasAuthSession } from "utils/auth";
 
 interface RouteConfig {
   path: string;
@@ -145,7 +148,10 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAuthenticated = hasAuthSession();
+  const mustChangePassword = getMustChangePassword();
   const isSignInRoute = location.pathname.startsWith("/users/sign-in");
+  const isChangePasswordRoute = location.pathname.startsWith("/users/change-password");
+  const isPersonalSettingsRoute = location.pathname.startsWith("/users/me");
   const [isProjectHovered, setIsProjectHovered] = useState(false);
   const [showSpaceSwitcher, setShowSpaceSwitcher] = useState(false);
   const spaceSwitcherRef = useRef<HTMLDivElement>(null);
@@ -156,21 +162,37 @@ function App() {
   const userDisplayName = authUser?.displayName || authUser?.userName || "User";
   const userInitial = userDisplayName.trim().charAt(0).toUpperCase() || "U";
 
-  // Derive current space from URL: /Spaces-1/... → slug = "Spaces-1"
+  // Canonical space routes always use /Spaces-{id}/...
   const rawSegment = location.pathname.split('/')[1] ?? '';
-  const spaceSlug = /^Spaces-\d+$/.test(rawSegment) ? rawSegment : 'Spaces-1';
-  const spaceNumericId = parseInt(spaceSlug.replace('Spaces-', '')) || 1;
-
-  const currentSpace: SpaceInfo = spaces.find(s => s.slug === spaceSlug) ?? {
-    id: spaceNumericId,
-    slug: spaceSlug,
-    name: spaces.length === 0 ? 'Default' : spaceSlug,
-  };
+  const routeSpaceMatch = rawSegment.match(/^Spaces-(\d+)$/i);
+  const routeSpaceId = routeSpaceMatch ? parseInt(routeSpaceMatch[1], 10) || 1 : null;
+  const matchedSpaceByLegacySlug = spaces.find((space) => space.slug === rawSegment);
+  const currentSpaceId = routeSpaceId ?? matchedSpaceByLegacySlug?.id ?? 1;
+  const spaceSlug = `Spaces-${currentSpaceId}`;
+  const matchedSpace = spaces.find((space) => space.id === currentSpaceId) ?? matchedSpaceByLegacySlug;
+  const currentSpace: SpaceInfo = matchedSpace
+    ? {
+      id: matchedSpace.id,
+      slug: `Spaces-${matchedSpace.id}`,
+      name: matchedSpace.name,
+    }
+    : {
+      id: currentSpaceId,
+      slug: spaceSlug,
+      name: spaces.length === 0 ? 'Default' : `Space ${currentSpaceId}`,
+    };
 
   useEffect(() => {
     if (!isAuthenticated) return;
     getSpaces().then(setSpaces).catch(() => {});
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!matchedSpaceByLegacySlug) return;
+    if (rawSegment === spaceSlug) return;
+    const suffix = location.pathname.slice(`/${rawSegment}`.length);
+    navigate(`/${spaceSlug}${suffix}${location.search}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, matchedSpaceByLegacySlug, navigate, rawSegment, spaceSlug]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -188,7 +210,7 @@ function App() {
   }, [showSpaceSwitcher, showUserMenu]);
 
   const handleSelectSpace = (space: SpaceDto) => {
-    navigate(`/${space.slug}/projects`);
+    navigate(`/Spaces-${space.id}/projects`);
     setShowSpaceSwitcher(false);
   };
 
@@ -198,20 +220,25 @@ function App() {
     navigate("/users/sign-in", { replace: true });
   };
 
+  const settingsBasePath = `/${spaceSlug}/settings`;
+  const deployHomePath = `/${spaceSlug}/projects`;
+  const isSettingsActive = location.pathname.startsWith(settingsBasePath) || location.pathname.startsWith("/configuration");
   const isDeployActive =
+    !isPersonalSettingsRoute &&
+    !isSettingsActive &&
     !location.pathname.startsWith("/tasks") &&
     !location.pathname.startsWith("/insights");
   const isInsightsActive = location.pathname.startsWith("/insights");
   const isTasksActive = location.pathname.startsWith("/tasks");
 
   const isDeploySection = isDeployActive;
-  const isProjectDetailPage = /^\/Spaces-\d+\/projects\/[^/]+(?:\/.*)?$/.test(location.pathname);
+  const isProjectDetailPage = Boolean(matchPath("/:spaceId/projects/:projectName/*", location.pathname));
   const showSidebarInline = isDeploySection && !isProjectDetailPage;
   const showSidebarOverlay = isDeploySection && isProjectDetailPage && isProjectHovered;
+  const currentPath = `${location.pathname}${location.search}${location.hash}`;
 
   if (!isAuthenticated) {
-    const redirectTarget = `${location.pathname}${location.search}${location.hash}`;
-    const to = `/users/sign-in?redirect=${encodeURIComponent(redirectTarget)}`;
+    const to = `/users/sign-in?redirect=${encodeURIComponent(currentPath)}`;
 
     return (
       <Routes>
@@ -221,12 +248,22 @@ function App() {
     );
   }
 
+  if (mustChangePassword && !isChangePasswordRoute) {
+    return <Navigate to={`/users/change-password?redirect=${encodeURIComponent(currentPath)}`} replace />;
+  }
+
   if (isSignInRoute) {
-    return <Navigate to={`/${spaceSlug}/projects`} replace />;
+    return <Navigate to={mustChangePassword ? "/users/change-password" : deployHomePath} replace />;
+  }
+
+  if (isChangePasswordRoute) {
+    if (!mustChangePassword) return <Navigate to="/users/me" replace />;
+    return <ChangePasswordPage />;
   }
 
   return (
     <SpaceContext.Provider value={{ space: currentSpace }}>
+    <PermissionProvider>
     <div
       className="page flex h-screen w-full flex-col"
       style={{
@@ -244,55 +281,41 @@ function App() {
         }}
       >
         <div className="relative flex-shrink-0" ref={spaceSwitcherRef}>
-          <div className="flex items-center">
-            <button
-              aria-label="Current space icon"
-              aria-haspopup="dialog"
-              aria-expanded={showSpaceSwitcher}
-              onClick={() => setShowSpaceSwitcher(p => !p)}
-              className="flex h-10 w-11 items-center justify-center rounded-l-lg rounded-r-none border transition-all hover:-translate-y-[1px] relative z-[1]"
+          <button
+            aria-label="Space switcher"
+            aria-haspopup="dialog"
+            aria-expanded={showSpaceSwitcher}
+            onClick={() => setShowSpaceSwitcher(p => !p)}
+            className="group flex h-9 items-center rounded-lg pl-1 pr-2.5 text-left transition-all hover:-translate-y-[1px]"
+            style={{
+              width: 'clamp(220px, 20vw, 290px)',
+              backgroundColor: 'rgba(241, 245, 249, 0.96)',
+              boxShadow: showSpaceSwitcher
+                ? '0 4px 10px rgba(15,23,42,0.09), inset 0 0 0 1px rgba(148,163,184,0.22)'
+                : '0 1px 2px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(148,163,184,0.18)',
+            }}
+          >
+            <span
+              className="flex items-center justify-center flex-shrink-0 overflow-hidden"
               style={{
-                backgroundColor: 'rgba(255,255,255,0.96)',
-                borderColor: 'rgba(148, 163, 184, 0.28)',
-                boxShadow: showSpaceSwitcher
-                  ? '0 8px 18px rgba(15,23,42,0.08)'
-                  : '0 1px 2px rgba(15,23,42,0.04)',
+                width: '2rem',
+                height: '2rem',
+                borderRadius: '8px',
+                backgroundColor: '#fff',
+                boxShadow: '0 1px 4px rgba(15,23,42,0.10), inset 0 0 0 1px rgba(148,163,184,0.20)',
               }}
             >
-              <div
-                className="flex items-center justify-center flex-shrink-0 overflow-hidden"
-                style={{
-                  width: '2rem',
-                  height: '2rem',
-                  backgroundColor: '#fff',
-                  borderRadius: '6px',
-                  boxShadow: '0 1px 2px rgba(15,23,42,0.08), 0 6px 12px rgba(15,23,42,0.06)',
-                }}
-              >
-                <img src="/squid-logo.svg" alt="Space Default Logo" className="w-full h-full object-contain" />
-              </div>
-            </button>
-
-            <button
-              aria-label="Space switcher"
-              aria-haspopup="dialog"
-              aria-expanded={showSpaceSwitcher}
-              onClick={() => setShowSpaceSwitcher(p => !p)}
-              className="ml-[-1px] flex items-center gap-2 px-3 h-10 rounded-r-lg rounded-l-none cursor-pointer flex-shrink-0 transition-all group shadow-sm hover:-translate-y-[1px]"
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.94)',
-                border: '1px solid rgba(148, 163, 184, 0.28)',
-                boxShadow: showSpaceSwitcher ? '0 8px 18px rgba(15,23,42,0.08)' : undefined,
-              }}
-            >
-              <span className="pr-0.5 text-sm font-medium text-slate-700 transition-colors select-none">{currentSpace.name}</span>
-              <ChevronDownIcon className={`w-3 h-3 flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-slate-700 rotate-180' : 'text-slate-500 group-hover:text-slate-700'}`} />
-            </button>
-          </div>
+              <img src="/squid-logo.png" alt="Space Default Logo" className="w-full h-full object-contain" />
+            </span>
+            <span className="ml-2.5 min-w-0 flex-1 truncate text-base font-semibold tracking-[-0.01em] text-slate-600">
+              {currentSpace.name}
+            </span>
+            <ChevronDownIcon className={`w-[18px] h-[18px] flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-slate-600 rotate-180' : 'text-slate-500 group-hover:text-slate-600'}`} />
+          </button>
           {showSpaceSwitcher && (
             <SpaceSwitcherDropdown
               spaces={spaces}
-              currentSpaceSlug={spaceSlug}
+              currentSpaceId={currentSpace.id}
               onSelectSpace={handleSelectSpace}
               onClose={() => setShowSpaceSwitcher(false)}
             />
@@ -346,7 +369,7 @@ function App() {
         >
           <nav className="flex flex-col pt-2">
             <NavItem
-              to="/"
+              to={deployHomePath}
               label="Deploy"
               active={isDeployActive}
               onMouseEnter={() => setIsProjectHovered(true)}
@@ -370,17 +393,17 @@ function App() {
 
           <div className="flex flex-col items-center pb-3 gap-1">
             <Link
-              to="/configuration"
-              title="Configuration"
+              to={settingsBasePath}
+              title="Settings"
               className={[
                 "relative mx-2 flex flex-col items-center justify-center h-12 w-auto self-stretch rounded-xl px-2 transition-all duration-200",
-                location.pathname.startsWith("/configuration")
+                isSettingsActive
                   ? "bg-white text-squid-blue shadow-sm ring-1 ring-slate-200"
                   : "text-slate-500 hover:bg-white/80 hover:text-squid-blue",
               ].join(" ")}
             >
               <ConfigIcon className="w-6 h-6" />
-              {location.pathname.startsWith("/configuration") && (
+              {isSettingsActive && (
                 <span className="absolute left-0 top-2 bottom-2 w-1 bg-squid-blue rounded-r-full" />
               )}
             </Link>
@@ -425,6 +448,17 @@ function App() {
 
                   <button
                     role="menuitem"
+                    onClick={() => {
+                      setShowUserMenu(false)
+                      navigate("/users/me")
+                    }}
+                    className="w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors border-0 bg-transparent cursor-pointer"
+                  >
+                    My Profile
+                  </button>
+
+                  <button
+                    role="menuitem"
                     onClick={handleLogout}
                     className="w-full text-left px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors border-0 bg-transparent cursor-pointer"
                   >
@@ -439,7 +473,7 @@ function App() {
         {isDeploySection && (
           <div
             className={[
-              "page-content-deploy-sidebar transition-all duration-300 ease-in-out overflow-hidden border-r border-slate-200/80",
+              "page-content-deploy-sidebar transition-all duration-300 ease-in-out overflow-hidden",
               isProjectDetailPage ? "absolute left-[72px] top-0 h-full z-10 bg-white" : "",
               showSidebarInline || showSidebarOverlay
                 ? "w-[220px] opacity-100"
@@ -452,13 +486,14 @@ function App() {
           </div>
         )}
 
-        <div className="page-content-right flex-1 bg-white rounded-tl-xl shadow-[0_10px_30px_rgba(15,23,42,0.06)] overflow-y-auto min-h-0 border-l border-slate-100/80">
+        <div className="page-content-right flex-1 bg-white rounded-tl-xl shadow-[0_10px_30px_rgba(15,23,42,0.06)] overflow-y-auto min-h-0">
           <Routes>
             {renderRoutes(routes)}
           </Routes>
         </div>
       </div>
     </div>
+    </PermissionProvider>
     </SpaceContext.Provider>
   );
 }

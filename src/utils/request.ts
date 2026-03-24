@@ -4,28 +4,137 @@ import axios, {
   AxiosResponse,
   AxiosError,
 } from 'axios'
-import { clearAuthSession, getAuthToken } from 'utils/auth'
+import { getAuthToken, handleUnauthorizedSession, isAuthenticated } from 'utils/auth'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL as
   | string
   | undefined
+const CURRENT_SPACE_ID_KEY = 'CURRENT_SPACE_ID'
+const SPACE_ID_HEADER = 'X-Space-Id'
+const SPACE_ROUTE_PATTERN = /^\/Spaces-(\d+)(?:\/|$)/i
+const SPACE_ID_PARAM = 'spaceId'
 
 // 创建 axios 实例
 const instance: AxiosInstance = axios.create({
-  baseURL: 'https://localhost:7078/api',
+  baseURL: API_BASE_URL ?? 'https://localhost:7078/api',
   timeout: 15000,
 })
+
+function readPersistedSpaceId() {
+  try {
+    const raw = window.localStorage.getItem(CURRENT_SPACE_ID_KEY)
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function persistSpaceId(spaceId: number) {
+  try {
+    window.localStorage.setItem(CURRENT_SPACE_ID_KEY, String(spaceId))
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function getCurrentSpaceId() {
+  try {
+    const hash = window.location.hash || ''
+    const hashPath = hash.startsWith('#') ? hash.slice(1).split('?')[0] : ''
+    const pathname = hashPath || window.location.pathname || ''
+    const match = pathname.match(SPACE_ROUTE_PATTERN)
+    if (match) {
+      const parsed = Number(match[1])
+      if (Number.isFinite(parsed) && parsed > 0) {
+        persistSpaceId(parsed)
+        return parsed
+      }
+    }
+    return readPersistedSpaceId()
+  } catch {
+    return null
+  }
+}
+
+function extractApiPath(url?: string) {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url)
+      return parsed.pathname
+    } catch {
+      return url
+    }
+  }
+  const [pathname] = url.split('?')
+  return pathname.startsWith('/') ? pathname : `/${pathname}`
+}
+
+function normalizeApiPath(url?: string) {
+  const path = extractApiPath(url)
+  if (!path) return ''
+  return path.startsWith('/api/') ? path.slice(4) : path
+}
+
+function isSystemScopedApiPath(path: string) {
+  if (!path) return true
+  if (path.startsWith('/spaces') || path.startsWith('/space')) return true
+  if (path.startsWith('/users')) return true
+  if (path.startsWith('/userroles') || path.startsWith('/user-roles')) return true
+  if (path.startsWith('/teams')) return true
+  if (path.startsWith('/permissions')) return true
+  if (path.startsWith('/auth')) return true
+  if (/^\/tasks(?:\/)?$/.test(path)) return true
+  if (/^\/tasks\/\d+\/interruptions(?:\/)?$/i.test(path)) return false
+  if (path.startsWith('/tasks/')) return true
+  return false
+}
+
+function shouldInjectSpaceId(path: string) {
+  return !isSystemScopedApiPath(path)
+}
+
+function appendSpaceIdToBody(data: unknown, spaceId: number) {
+  if (data == null) return { [SPACE_ID_PARAM]: spaceId }
+  if (data instanceof FormData || data instanceof URLSearchParams) return data
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    const nextBody = data as Record<string, unknown>
+    if (nextBody[SPACE_ID_PARAM] != null) return nextBody
+    return { ...nextBody, [SPACE_ID_PARAM]: spaceId }
+  }
+  return data
+}
 
 // 请求拦截：自动注入 token
 instance.interceptors.request.use(
   (config) => {
-    const token = getAuthToken()
+    const token = isAuthenticated() ? getAuthToken() : null
 
     if (token) {
       if (!config.headers) {
         config.headers = {} as any
       }
       ;(config.headers as any).Authorization = `Bearer ${token}`
+    }
+
+    const method = String(config.method ?? 'get').toLowerCase()
+    const path = normalizeApiPath(config.url)
+    const currentSpaceId = getCurrentSpaceId()
+
+    if (currentSpaceId != null) {
+      if (!config.headers) {
+        config.headers = {} as any
+      }
+      ;(config.headers as any)[SPACE_ID_HEADER] = String(currentSpaceId)
+    }
+
+    if (
+      currentSpaceId != null
+      && shouldInjectSpaceId(path)
+      && (method === 'post' || method === 'put' || method === 'patch')
+    ) {
+      config.data = appendSpaceIdToBody(config.data, currentSpaceId)
     }
 
     return config
@@ -40,21 +149,8 @@ instance.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      clearAuthSession()
-      try {
-        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`
-        if (!window.location.pathname.startsWith('/users/sign-in')) {
-          const redirect = encodeURIComponent(currentPath)
-          window.location.assign(`/users/sign-in?redirect=${redirect}`)
-        }
-      } catch {
-        // ignore navigation errors in non-browser contexts
-      }
+      handleUnauthorizedSession()
     }
-    // 例如：统一处理未登录
-    // if (error.response?.status === 401) {
-    //   // TODO: 跳转登录页 / 清理本地状态等
-    // }
     return Promise.reject(error)
   },
 )

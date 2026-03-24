@@ -12,6 +12,7 @@ import {
   getMachines,
   MachineHealthCheckData,
   MachineDto,
+  updateMachine,
 } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
@@ -559,7 +560,6 @@ const DeploymentTargetDetailPage: React.FC = () => {
     setExpandedCards(new Set([
       'displayName', 'enabled', 'environments', 'targetTags',
       'authentication', 'kubernetesDetails', 'containerOptions',
-      'tenantedDeployments', 'associatedTenants',
     ]))
   }
 
@@ -669,9 +669,25 @@ const DeploymentTargetDetailPage: React.FC = () => {
     if (!machine) return
     setSaving(true)
     try {
-      // TODO: Backend does not yet have a machine update endpoint
-      message.warning('Save is not yet supported by the backend')
+      const trimmedName = name.trim()
+      const nextIsDisabled = !enabled
+      const payload = {
+        machineId: machine.id,
+        ...(trimmedName && trimmedName !== machine.name ? { name: trimmedName } : {}),
+        ...(nextIsDisabled !== machine.isDisabled ? { isDisabled: nextIsDisabled } : {}),
+      }
+
+      if (Object.keys(payload).length === 1) {
+        setDirty(false)
+        return
+      }
+
+      const updated = await updateMachine(payload)
+      setMachine(updated)
+      setName(updated.name)
+      setEnabled(!updated.isDisabled)
       setDirty(false)
+      message.success('Saved')
     } catch {
       message.error('Failed to save')
     } finally {
@@ -1190,36 +1206,6 @@ function SettingsTab({
         </div>
       </ExpandableCard>
 
-      {/* Restrictions section */}
-      <SectionHeading>Restrictions</SectionHeading>
-
-      {/* Tenanted Deployments */}
-      <ExpandableCard
-        title="Tenanted Deployments"
-        summary={
-          <span>Available for both untenanted deployments, and deployments to the associated tenants</span>
-        }
-        expanded={expandedCards.has('tenantedDeployments')}
-        onToggle={() => toggleCard('tenantedDeployments')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-600">
-            This target is available for both untenanted deployments, and deployments to the associated tenants.
-          </span>
-        </div>
-      </ExpandableCard>
-
-      {/* Associated Tenants */}
-      <ExpandableCard
-        title="Associated Tenants"
-        summary={<span className="text-gray-400 italic">No associated tenants</span>}
-        expanded={expandedCards.has('associatedTenants')}
-        onToggle={() => toggleCard('associatedTenants')}
-      >
-        <div className="pt-3">
-          <span className="text-sm text-gray-500">No tenants are associated with this target.</span>
-        </div>
-      </ExpandableCard>
     </div>
   )
 }

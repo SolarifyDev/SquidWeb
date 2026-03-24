@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Input, InputNumber, Button, Dropdown, Radio, Checkbox, Alert, Spin, Modal, Select, message } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import {
@@ -568,6 +569,7 @@ function slugifyLifecycleName(value: string): string {
 
 const Lifecycles: React.FC = () => {
   const { space } = useSpace();
+  const location = useLocation();
   const [searchText, setSearchText] = useState('');
   const [selectedLifecycle, setSelectedLifecycle] = useState<Lifecycle | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'usage'>('details');
@@ -779,6 +781,33 @@ const Lifecycles: React.FC = () => {
 
     setDetailPhases((lifecycle.apiPhases ?? []).map((phase, index) => mapPhaseFromApi(phase, environmentNameById, Date.now() + index)));
   };
+
+  useEffect(() => {
+    if (!lifecyclesData.length) return;
+
+    const search = new URLSearchParams(location.search);
+    const lifecycleIdRaw = search.get('lifecycleId');
+    const lifecycleSlugRaw = search.get('lifecycleSlug');
+
+    let matched: Lifecycle | undefined;
+
+    if (lifecycleIdRaw) {
+      const lifecycleId = Number(lifecycleIdRaw);
+      if (Number.isFinite(lifecycleId)) {
+        matched = lifecyclesData.find((item) => item.id === lifecycleId);
+      }
+    }
+
+    if (!matched && lifecycleSlugRaw) {
+      const slug = lifecycleSlugRaw.toLowerCase();
+      matched = lifecyclesData.find((item) => item.slug.toLowerCase() === slug);
+    }
+
+    if (!matched) return;
+    if (selectedLifecycle?.id === matched.id) return;
+
+    handleLifecycleClick(matched);
+  }, [lifecyclesData, location.search]);
 
   const buildRetention = (mode: string, count: number, unit: string) => {
     return {

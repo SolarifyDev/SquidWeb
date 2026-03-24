@@ -1,15 +1,17 @@
 import { get, post } from 'utils/request'
 
+export type ExternalFeedProperties = Record<string, string> | null
+
 export interface ExternalFeedDto {
   id: number
   feedType: string
-  apiVersion: string
-  registryPath: string
   feedUri: string
   username: string
   name: string
   slug: string
   packageAcquisitionLocationOptions: string[]
+  passwordHasValue?: boolean
+  properties?: ExternalFeedProperties
   spaceId: number
 }
 
@@ -35,14 +37,13 @@ export function getExternalFeeds(params?: GetExternalFeedsRequest) {
 
 export interface CreateExternalFeedCommand {
   feedType: string
-  apiVersion: string
-  registryPath: string
   feedUri: string
   username: string
   password: string
   name: string
   slug: string
   packageAcquisitionLocationOptions: string[]
+  properties?: ExternalFeedProperties
   spaceId: number
 }
 
@@ -54,14 +55,13 @@ export function createExternalFeed(command: CreateExternalFeedCommand) {
 export interface UpdateExternalFeedCommand {
   id: number
   feedType: string
-  apiVersion: string
-  registryPath: string
   feedUri: string
   username: string
   passwordNewValue?: string
   name: string
   slug: string
   packageAcquisitionLocationOptions: string[]
+  properties?: ExternalFeedProperties
   spaceId: number
 }
 
@@ -77,6 +77,13 @@ export interface TestExternalFeedResult {
 
 export function testExternalFeed(id: number) {
   return post<TestExternalFeedResult>('/external-feeds/test', { id })
+}
+
+export function deleteExternalFeed(id: number) {
+  return post<void>('/external-feeds/delete', { ids: [id] })
+    .catch(() => {
+      return post<void>('/external-feeds/delete', { id })
+    })
 }
 
 export interface SearchExternalFeedPackagesRequest {
@@ -97,4 +104,29 @@ export function searchExternalFeedPackages(params: SearchExternalFeedPackagesReq
   }
 
   return get<SearchExternalFeedPackagesResponseData>('/external-feeds/search-packages', { params: query })
+}
+
+export interface ListExternalFeedPackageVersionsRequest {
+  feedId: number
+  packageId: string
+  take?: number
+  includePreRelease?: boolean
+  filter?: string
+}
+
+export interface ListExternalFeedPackageVersionsResponseData {
+  versions: string[]
+}
+
+export function listExternalFeedPackageVersions(params: ListExternalFeedPackageVersionsRequest) {
+  const filter = params.filter?.trim()
+  const query = {
+    feedId: params.feedId,
+    packageId: params.packageId,
+    take: params.take ?? 30,
+    includePreRelease: params.includePreRelease ?? false,
+    ...(filter ? { filter } : {}),
+  }
+
+  return get<ListExternalFeedPackageVersionsResponseData>('/external-feeds/package-versions', { params: query })
 }

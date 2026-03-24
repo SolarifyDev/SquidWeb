@@ -4,6 +4,10 @@ import { Button, Select, Spin } from "antd";
 import { FilterOutlined, MoreOutlined } from "@ant-design/icons";
 import { getProjects } from "pages/apis/project";
 import {
+  getReleaseLifecycleProgression,
+  type ReleaseLifecycleProgressionDto,
+} from "pages/apis/release";
+import {
   getProjectProgression,
   ProjectProgression,
   ProgressionEnvironment,
@@ -23,6 +27,25 @@ function formatDate(iso: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getDeployableEnvironmentIds(
+  phases: ReleaseLifecycleProgressionDto["phases"] | null | undefined
+): number[] {
+  const deployableEnvIds: number[] = [];
+  if (!phases?.length) return deployableEnvIds;
+
+  const sortedPhases = [...phases].sort((a, b) => a.sortOrder - b.sortOrder);
+  for (const phase of sortedPhases) {
+    for (const environment of phase.environments ?? []) {
+      if (!environment.canDeploy) continue;
+      if (!deployableEnvIds.includes(environment.environmentId)) {
+        deployableEnvIds.push(environment.environmentId);
+      }
+    }
+  }
+
+  return deployableEnvIds;
 }
 
 // ── Status icon ───────────────────────────────────────────────────────────────
@@ -142,12 +165,14 @@ function ChannelGrid({
   releases,
   allEnvironments,
   channelEnvIds,
+  releaseDeployability,
   basePath,
 }: {
   channel: ProgressionChannel;
   releases: ReleaseProgression[];
   allEnvironments: ProgressionEnvironment[];
   channelEnvIds: number[];
+  releaseDeployability: Record<number, number[]>;
   basePath: string;
 }) {
   // Show only environments belonging to this channel's lifecycle
@@ -213,8 +238,9 @@ function ChannelGrid({
           {environments.map((env) => {
             const deploys = item.deployments[env.id] ?? [];
             const latest = deploys[0];
+            const deployableEnvIds = releaseDeployability[item.release.id] ?? [];
             const canDeploy =
-              item.nextDeployments.includes(env.id) &&
+              deployableEnvIds.includes(env.id) &&
               (deploys.length === 0 || latest.state !== "Executing");
 
             return (
@@ -268,10 +294,12 @@ const Deployments: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progression, setProgression] = useState<ProjectProgression | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
+  const [releaseDeployability, setReleaseDeployability] = useState<Record<number, number[]>>({});
 
   useEffect(() => {
     if (!projectName) return;
     setLoading(true);
+    setReleaseDeployability({});
 
     (async () => {
       try {
@@ -313,6 +341,52 @@ const Deployments: React.FC = () => {
     selectedChannelId === null
       ? channelGroups
       : channelGroups.filter(({ channel }) => channel.id === selectedChannelId);
+
+  const deployabilityReleaseIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const group of displayGroups) {
+      for (const item of group.releases) {
+        if ((item.nextDeployments ?? []).length === 0) continue;
+        if (item.release.id > 0) ids.add(item.release.id);
+      }
+    }
+    return Array.from(ids);
+  }, [displayGroups]);
+
+  useEffect(() => {
+    if (deployabilityReleaseIds.length === 0) return;
+
+    const pendingIds = deployabilityReleaseIds.filter((id) => releaseDeployability[id] === undefined);
+    if (pendingIds.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const results = await Promise.all(
+        pendingIds.map(async (releaseId) => {
+          const progressionDetail = await getReleaseLifecycleProgression(releaseId).catch(() => null);
+          return {
+            releaseId,
+            deployableEnvIds: getDeployableEnvironmentIds(progressionDetail?.phases),
+          };
+        }),
+      );
+
+      if (cancelled) return;
+
+      setReleaseDeployability((prev) => {
+        const next = { ...prev };
+        for (const item of results) {
+          next[item.releaseId] = item.deployableEnvIds;
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deployabilityReleaseIds, releaseDeployability]);
 
   return (
     <div className="rounded-xl border border-slate-200 min-h-full overflow-hidden flex flex-col bg-white">
@@ -366,6 +440,7 @@ const Deployments: React.FC = () => {
                 releases={releases}
                 allEnvironments={progression!.environments}
                 channelEnvIds={progression!.channelEnvironments[channel.id] ?? []}
+                releaseDeployability={releaseDeployability}
                 basePath={`/${spaceId}/projects/${encodedProjectName}`}
               />
             ))

@@ -183,12 +183,17 @@ export interface PackageReferenceItem {
   packageId: string
   feedId: number
   feedName: string
+  lastReleaseVersion?: string | null
 }
 
 export interface GetPackageReferencesResponseData {
   packageReferences: PackageReferenceItem[]
 }
 
-export function getPackageReferences(projectId: number) {
-  return get<GetPackageReferencesResponseData>(`/deployment-processes/${projectId}/package-references`)
+export async function getPackageReferences(projectId: number) {
+  try {
+    return await get<GetPackageReferencesResponseData>(`/deployment-process/${projectId}/package-references`)
+  } catch {
+    return get<GetPackageReferencesResponseData>(`/deployment-processes/${projectId}/package-references`)
+  }
 }

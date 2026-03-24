@@ -9,8 +9,8 @@ export interface ContainerPort {
 }
 
 export interface ContainerResources {
-  requests: { cpu?: string; memory?: string }
-  limits: { cpu?: string; memory?: string }
+  requests: Record<string, string | undefined>
+  limits: Record<string, string | undefined>
 }
 
 export interface VolumeMount {
@@ -21,8 +21,8 @@ export interface VolumeMount {
 
 export interface ProbeConfig {
   type: 'httpGet' | 'tcpSocket' | 'exec' | ''
-  httpGet?: { path: string; port: string; scheme: string }
-  tcpSocket?: { port: string }
+  httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }
+  tcpSocket?: { host?: string; port: string }
   exec?: { command: string }
   initialDelaySeconds: string
   periodSeconds: string
@@ -38,29 +38,45 @@ export interface ContainerSecurityContext {
   readOnlyRootFilesystem?: string
   allowPrivilegeEscalation?: string
   privileged?: string
+  addCapabilities?: string[]
+  dropCapabilities?: string[]
+  seLinuxLevel?: string
+  seLinuxRole?: string
+  seLinuxType?: string
+  seLinuxUser?: string
 }
 
 export interface ContainerLifecycle {
-  postStart?: { type: string; command?: string }
-  preStop?: { type: string; command?: string }
+  postStart?: { type: 'exec' | 'httpGet' | 'tcpSocket' | string; command?: string; httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }; tcpSocket?: { host?: string; port: string } }
+  preStop?: { type: 'exec' | 'httpGet' | 'tcpSocket' | string; command?: string; httpGet?: { path: string; port: string; scheme: string; host?: string; httpHeaders?: { name: string; value: string }[] }; tcpSocket?: { host?: string; port: string } }
 }
 
 export interface ContainerSpec {
   Name: string
   Image: string
+  ImagePullPolicy: '' | 'IfNotPresent' | 'Always' | 'Never'
   PackageId: string
   FeedId: number | null
   CreateFeedSecrets: string
   IsInitContainer: string  // 'False' = regular, 'True' = init container
+  Command: string[]
+  Args: string[]
   Ports: ContainerPort[]
   Resources: ContainerResources
   VolumeMounts: VolumeMount[]
-  ConfigMapEnvFromSource: { key: string }[]
+  EnvironmentVariables: { key: string; value: string }[]
+  FieldRefEnvironmentVariables: { key: string; value: string }[]
+  ConfigMapEnvFromSource: { key: string; value?: string; option?: string }[]
+  ConfigMapEnvironmentVariables: { key: string; value: string; option: string; optional?: string }[]
+  SecretEnvFromSource: { key: string; value?: string; option?: string }[]
+  SecretEnvironmentVariables: { key: string; value: string; option: string; optional?: string }[]
   LivenessProbe: ProbeConfig
   ReadinessProbe: ProbeConfig
   StartupProbe: ProbeConfig
   SecurityContext: ContainerSecurityContext
   Lifecycle: ContainerLifecycle
+  TerminationMessagePath: string
+  TerminationMessagePolicy: 'File' | 'FallbackToLogsOnError'
 }
 
 // ── Volume types ─────────────────────────────────────────────────────────────
@@ -69,6 +85,8 @@ export interface VolumeSpec {
   Name: string
   Type: string // ConfigMap | Secret | EmptyDir | PVC | HostPath
   ReferenceName: string
+  ResourceNameMode?: 'LinkedResource' | 'CustomResource'
+  Items?: { key: string; path: string }[]
 }
 
 // ── Service types ────────────────────────────────────────────────────────────
@@ -241,19 +259,29 @@ export function defaultContainer(): ContainerSpec {
   return {
     Name: '',
     Image: '',
+    ImagePullPolicy: '',
     PackageId: '',
     FeedId: null,
     CreateFeedSecrets: 'False',
     IsInitContainer: 'False',
+    Command: [],
+    Args: [],
     Ports: [],
     Resources: { requests: {}, limits: {} },
     VolumeMounts: [],
+    EnvironmentVariables: [],
+    FieldRefEnvironmentVariables: [],
     ConfigMapEnvFromSource: [],
+    ConfigMapEnvironmentVariables: [],
+    SecretEnvFromSource: [],
+    SecretEnvironmentVariables: [],
     LivenessProbe: defaultProbe(),
     ReadinessProbe: defaultProbe(),
     StartupProbe: defaultProbe(),
     SecurityContext: {},
     Lifecycle: {},
+    TerminationMessagePath: '',
+    TerminationMessagePolicy: 'File',
   }
 }
 

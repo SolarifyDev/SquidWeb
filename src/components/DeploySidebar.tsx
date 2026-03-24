@@ -25,7 +25,7 @@ function buildMenu(spaceSlug: string): MenuItem[] {
     { type: 'link', label: 'Overview', path: `/${spaceSlug}/infrastructure/overview` },
     { type: 'link', label: 'Deployment Targets', path: `/${spaceSlug}/deployment/targets` },
     { type: 'link', label: 'Environments', path: `/${spaceSlug}/environments` },
-    { type: 'link', label: 'Machine Policies', path: `/${spaceSlug}/machine/policies` },
+    { type: 'link', label: 'Machine Policies', path: `/${spaceSlug}/infrastructure/machinepolicies` },
 
     { type: 'divider' },
 
@@ -34,7 +34,6 @@ function buildMenu(spaceSlug: string): MenuItem[] {
     { type: 'link', label: 'Certificates', path: `/${spaceSlug}/library/certificates` },
     { type: 'link', label: 'External Feeds', path: `/${spaceSlug}/external/feeds` },
     { type: 'link', label: 'Lifecycles', path: `/${spaceSlug}/lifecycles` },
-    { type: 'link', label: 'Packages', path: `/${spaceSlug}/library/packages` },
   ];
 }
 
@@ -45,7 +44,7 @@ const DeploySidebar: React.FC = () => {
   const menu = buildMenu(space.slug);
 
   return (
-    <div className="h-full w-full border-r border-slate-200/80 bg-white/95 backdrop-blur flex flex-col overflow-y-auto">
+    <div className="h-full w-full border-r border-slate-200/55 bg-white/95 backdrop-blur flex flex-col overflow-y-auto">
       <div className="px-5 pt-4 pb-2 border-b border-slate-100">
         <div className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
           Deploy

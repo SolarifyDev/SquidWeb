@@ -12,6 +12,7 @@ import {
   getConnectionStatus,
   registerKubernetesApi,
   type GenerateKubernetesAgentInstallScriptData,
+  type KubernetesAgentStorageType,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
 import { createDeploymentAccount, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
@@ -42,10 +43,28 @@ const kubernetesOptions = [
   },
 ]
 
-function toShellScript(bash: string, shell: 'bash' | 'powershell'): string {
+type KubernetesApiAuthType =
+  | 'usernamepassword'
+  | 'token'
+  | 'azureserviceprincipal'
+  | 'azureoidc'
+  | 'awsaccount'
+  | 'awsoidc'
+  | 'googlecloud'
+  | 'certificate'
+  | 'podserviceaccount'
+
+function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
+  if (!bash) return ''
   if (shell === 'powershell') return bash.replace(/ \\\n/g, ' `\n')
   return bash
 }
+
+const kubernetesAgentStorageTypeOptions: Array<{ value: KubernetesAgentStorageType; label: string }> = [
+  { value: 'builtin-nfs', label: 'Built-in NFS (default)' },
+  { value: 'external-nfs', label: 'External NFS' },
+  { value: 'custom', label: 'Custom PVC' },
+]
 
 function InfoHint() {
   return (
@@ -241,8 +260,11 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [agentName, setAgentName] = useState('')
   const [agentEnvironments, setAgentEnvironments] = useState<string[]>([])
   const [agentTags, setAgentTags] = useState<string[]>([])
+  const [agentStorageType, setAgentStorageType] = useState<KubernetesAgentStorageType>('builtin-nfs')
+  const [agentNfsServer, setAgentNfsServer] = useState('')
+  const [agentNfsPath, setAgentNfsPath] = useState('')
+  const [agentCustomStorageClassName, setAgentCustomStorageClassName] = useState('')
   const [agentNamespace, setAgentNamespace] = useState('')
-  const [agentStorageClass, setAgentStorageClass] = useState('')
   const [agentServerUrl, setAgentServerUrl] = useState(() => window.location.origin)
   const [agentCommsUrl, setAgentCommsUrl] = useState(() => {
     const url = new URL(window.location.origin)
@@ -261,7 +283,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiDisplayName, setApiDisplayName] = useState('')
   const [apiEnvironments, setApiEnvironments] = useState<number[]>([])
   const [apiTargetTags, setApiTargetTags] = useState<string[]>([])
-  const [apiAuthType, setApiAuthType] = useState<string | undefined>(undefined)
+  const [apiAuthType, setApiAuthType] = useState<KubernetesApiAuthType | undefined>(undefined)
   const [apiSelectedAccountId, setApiSelectedAccountId] = useState<string | undefined>(undefined)
   const [apiSelectedClientCertificateId, setApiSelectedClientCertificateId] = useState<string | undefined>(undefined)
   const [apiToken, setApiToken] = useState('')
@@ -277,7 +299,6 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiSkipTlsVerification, setApiSkipTlsVerification] = useState(false)
   const [apiDefaultNamespace, setApiDefaultNamespace] = useState('')
   const [apiContainerOptions, setApiContainerOptions] = useState('')
-  const [apiTenantedMode, setApiTenantedMode] = useState<'untenanted' | 'tenanted' | 'both'>('untenanted')
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
   const [agentStep, setAgentStep] = useState<'form' | 'script' | 'connected'>('form')
@@ -294,11 +315,15 @@ const AddDeploymentTargetPage: React.FC = () => {
     authentication: true,
     kubernetesDetails: true,
     containerOptions: true,
-    tenantedDeployments: true,
   })
 
   const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 3).map(({ value, label }) => ({ value, label }))
   const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 1).map(({ value, label }) => ({ value, label }))
+  const azureServicePrincipalAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 5).map(({ value, label }) => ({ value, label }))
+  const azureOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 9).map(({ value, label }) => ({ value, label }))
+  const awsAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 6 || a.accountType === 7).map(({ value, label }) => ({ value, label }))
+  const awsOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 11).map(({ value, label }) => ({ value, label }))
+  const googleCloudAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 10).map(({ value, label }) => ({ value, label }))
   const clientCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
   const clusterCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
 
@@ -317,8 +342,11 @@ const AddDeploymentTargetPage: React.FC = () => {
     setAgentName('')
     setAgentEnvironments([])
     setAgentTags([])
+    setAgentStorageType('builtin-nfs')
+    setAgentNfsServer('')
+    setAgentNfsPath('')
+    setAgentCustomStorageClassName('')
     setAgentNamespace('')
-    setAgentStorageClass('')
     setAgentServerUrl(window.location.origin)
     const url = new URL(window.location.origin)
     setAgentCommsUrl(`${url.protocol}//${url.hostname}:10943`)
@@ -339,7 +367,6 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiSkipTlsVerification(false)
     setApiDefaultNamespace('')
     setApiContainerOptions('')
-    setApiTenantedMode('untenanted')
     setApiSaving(false)
   }
 
@@ -459,6 +486,8 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (!agentName.trim()) { message.warning('Please enter an agent name'); return }
     if (agentEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
     if (agentTags.length === 0) { message.warning('Please add at least one target tag'); return }
+    if (agentStorageType === 'external-nfs' && !agentNfsServer.trim()) { message.warning('Please provide an NFS server for External NFS'); return }
+    if (agentStorageType === 'custom' && !agentCustomStorageClassName.trim()) { message.warning('Please provide a storage class name for Custom PVC'); return }
     if (!agentServerUrl.trim()) { message.warning('Please provide Squid Server URL'); return }
     if (!agentCommsUrl.trim()) { message.warning('Please provide Squid Server Communications URL'); return }
 
@@ -468,6 +497,10 @@ const AddDeploymentTargetPage: React.FC = () => {
         agentName: agentName.trim(),
         serverUrl: agentServerUrl.trim(),
         serverCommsUrl: agentCommsUrl.trim(),
+        storageType: agentStorageType,
+        nfsServer: agentStorageType === 'external-nfs' ? agentNfsServer.trim() : undefined,
+        nfsPath: agentStorageType === 'external-nfs' && agentNfsPath.trim() ? agentNfsPath.trim() : undefined,
+        storageClassName: agentStorageType === 'custom' ? agentCustomStorageClassName.trim() : undefined,
         environments: agentEnvironments,
         tags: agentTags,
         spaceId: space.id,
@@ -527,7 +560,15 @@ const AddDeploymentTargetPage: React.FC = () => {
     try {
       const resourceReferences: EndpointResourceReference[] = []
 
-      if (apiAuthType === 'token' || apiAuthType === 'usernamepassword') {
+      if (
+        apiAuthType === 'token' ||
+        apiAuthType === 'usernamepassword' ||
+        apiAuthType === 'azureserviceprincipal' ||
+        apiAuthType === 'azureoidc' ||
+        apiAuthType === 'awsaccount' ||
+        apiAuthType === 'awsoidc' ||
+        apiAuthType === 'googlecloud'
+      ) {
         const accountId = Number(apiSelectedAccountId)
         if (!Number.isFinite(accountId) || accountId <= 0) {
           message.warning('Please select an account')
@@ -558,6 +599,10 @@ const AddDeploymentTargetPage: React.FC = () => {
       }
 
       if (resourceReferences.length === 0) {
+        if (apiAuthType === 'podserviceaccount') {
+          message.warning('Pod Service Account currently requires a cluster certificate selection before saving.')
+          return
+        }
         message.warning('Please select at least one authentication or certificate resource')
         return
       }
@@ -674,6 +719,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (apiAuthType !== 'certificate') return
     void loadCertificates()
   }, [apiAuthType, loadCertificates])
+
+  const nfsCsiDriverRequired = Boolean(scriptData && (scriptData.nfsCsiDriverRequired ?? scriptData.nfsCsiDriverScript))
+  const agentInstallStepNumber = nfsCsiDriverRequired ? 2 : 1
 
   return (
     <div className="bg-white min-h-screen">
@@ -838,6 +886,41 @@ const AddDeploymentTargetPage: React.FC = () => {
                       onCreateFromSearch={(name) => { void handleCreateTargetTagFromSearch(name, setAgentTags, () => setAgentTagSearchValue('')) }}
                     />
 
+                    <SelectField
+                      label="Storage type"
+                      helper="Choose how agent storage should be provisioned."
+                      options={kubernetesAgentStorageTypeOptions.map((option) => ({ value: option.value, label: option.label }))}
+                      value={agentStorageType}
+                      onChange={(value) => setAgentStorageType(value as KubernetesAgentStorageType)}
+                    />
+
+                    {agentStorageType === 'external-nfs' && (
+                      <>
+                        <FormField
+                          label="NFS Server IP/Host"
+                          helper="Required for External NFS mode."
+                          value={agentNfsServer}
+                          onChange={setAgentNfsServer}
+                        />
+                        <FormField
+                          label="NFS Path"
+                          placeholder="/export/path"
+                          helper="Optional. Leave empty to use backend default."
+                          value={agentNfsPath}
+                          onChange={setAgentNfsPath}
+                        />
+                      </>
+                    )}
+
+                    {agentStorageType === 'custom' && (
+                      <FormField
+                        label="Storage class name"
+                        helper="Required for Custom PVC mode."
+                        value={agentCustomStorageClassName}
+                        onChange={setAgentCustomStorageClassName}
+                      />
+                    )}
+
                     <button
                       onClick={() => setShowOptional(!showOptional)}
                       className="text-base text-squid-blue hover:underline bg-transparent border-0 cursor-pointer p-0 mb-5"
@@ -853,18 +936,6 @@ const AddDeploymentTargetPage: React.FC = () => {
                           helper="Default namespace can be overridden by your step configuration and YAML"
                           value={agentNamespace}
                           onChange={setAgentNamespace}
-                        />
-                        <FormField
-                          label="Storage class"
-                          helper={
-                            <span className="inline-flex items-center gap-1 flex-wrap">
-                              <span>Provide a Storage Class</span>
-                              <InfoHint />
-                              <span>or leave this blank to use the default NFS storage</span>
-                            </span>
-                          }
-                          value={agentStorageClass}
-                          onChange={setAgentStorageClass}
                         />
                         <FormField
                           label="Squid Server URL"
@@ -907,20 +978,23 @@ const AddDeploymentTargetPage: React.FC = () => {
                       Run the following commands in your Kubernetes cluster to install the agent.
                     </p>
 
-                    <div className="mb-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">1. Install NFS CSI Driver (one-time setup)</label>
-                        <div className="flex items-center gap-2">
-                          <Select
-                            size="small"
-                            value={scriptShell}
-                            onChange={setScriptShell}
-                            options={[
-                              { value: 'bash', label: 'Bash' },
-                              { value: 'powershell', label: 'PowerShell' },
-                            ]}
-                            style={{ width: 120 }}
-                          />
+                    <div className="mb-4 flex items-center justify-end">
+                      <Select
+                        size="small"
+                        value={scriptShell}
+                        onChange={setScriptShell}
+                        options={[
+                          { value: 'bash', label: 'Bash' },
+                          { value: 'powershell', label: 'PowerShell' },
+                        ]}
+                        style={{ width: 120 }}
+                      />
+                    </div>
+
+                    {nfsCsiDriverRequired && scriptData.nfsCsiDriverScript ? (
+                      <div className="mb-6">
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-sm font-medium text-gray-700">1. Install NFS CSI Driver (one-time setup)</label>
                           <Button
                             type="text"
                             size="small"
@@ -930,15 +1004,15 @@ const AddDeploymentTargetPage: React.FC = () => {
                             Copy
                           </Button>
                         </div>
+                        <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-md overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                          {toShellScript(scriptData.nfsCsiDriverScript, scriptShell)}
+                        </pre>
                       </div>
-                      <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-md overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
-                        {toShellScript(scriptData.nfsCsiDriverScript, scriptShell)}
-                      </pre>
-                    </div>
+                    ) : null}
 
                     <div className="mb-6">
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">2. Install Squid Agent</label>
+                        <label className="text-sm font-medium text-gray-700">{agentInstallStepNumber}. Install Squid Agent</label>
                         <Button
                           type="text"
                           size="small"
@@ -1134,11 +1208,17 @@ const AddDeploymentTargetPage: React.FC = () => {
                   label="Select an authentication type"
                   placeholder="Select an authentication type"
                   value={apiAuthType}
-                  onChange={setApiAuthType}
+                  onChange={(value) => setApiAuthType(value as KubernetesApiAuthType)}
                   options={[
+                    { value: 'usernamepassword', label: 'Username and password' },
                     { value: 'token', label: 'Token' },
-                    { value: 'usernamepassword', label: 'Username / Password' },
+                    { value: 'azureserviceprincipal', label: 'Azure Service Principal' },
+                    { value: 'azureoidc', label: 'Azure OIDC Account' },
+                    { value: 'awsaccount', label: 'AWS Account' },
+                    { value: 'awsoidc', label: 'AWS OIDC Account' },
+                    { value: 'googlecloud', label: 'Google Cloud Account' },
                     { value: 'certificate', label: 'Client Certificate' },
+                    { value: 'podserviceaccount', label: 'Pod Service Account' },
                   ]}
                 />
 
@@ -1170,6 +1250,76 @@ const AddDeploymentTargetPage: React.FC = () => {
                   </>
                 )}
 
+                {apiAuthType === 'azureserviceprincipal' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an Azure service principal account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={azureServicePrincipalAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Azure Service Principal credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'azureoidc' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an Azure OIDC account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={azureOidcAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Azure OIDC credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'awsaccount' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an AWS account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={awsAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with AWS credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'awsoidc' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select an AWS OIDC account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={awsOidcAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with AWS OIDC credentials.</NoteBlock>
+                  </>
+                )}
+
+                {apiAuthType === 'googlecloud' && (
+                  <>
+                    <SelectField
+                      label="Select account"
+                      placeholder="Select a Google Cloud account"
+                      value={apiSelectedAccountId}
+                      onChange={setApiSelectedAccountId}
+                      options={googleCloudAccountOptions}
+                      loading={loadingDeploymentAccounts}
+                    />
+                    <NoteBlock>Select a deployment account with Google Cloud credentials.</NoteBlock>
+                  </>
+                )}
+
                 {apiAuthType === 'certificate' && (
                   <>
                     <SelectField
@@ -1181,6 +1331,12 @@ const AddDeploymentTargetPage: React.FC = () => {
                       loading={loadingCertificateOptions}
                     />
                   </>
+                )}
+
+                {apiAuthType === 'podserviceaccount' && (
+                  <NoteBlock>
+                    Pod Service Account will use the worker pod service account context. No deployment account is required.
+                  </NoteBlock>
                 )}
               </ExpandableFormCard>
 
@@ -1261,43 +1417,6 @@ const AddDeploymentTargetPage: React.FC = () => {
                 />
               </ExpandableFormCard>
 
-              <SectionHeading>Restrictions</SectionHeading>
-
-              <ExpandableFormCard
-                title="Tenanted Deployments"
-                subtitle="Choose the kind of deployments where this deployment target should be included."
-                expanded={apiExpanded.tenantedDeployments}
-                onToggle={() => toggleApiSection('tenantedDeployments')}
-              >
-                <Radio.Group
-                  value={apiTenantedMode}
-                  onChange={(e) => setApiTenantedMode(e.target.value)}
-                  className="flex flex-col gap-4"
-                >
-                  <div>
-                    <Radio value="untenanted">
-                      <span className="text-base text-gray-800">Exclude from tenanted deployments <span className="text-gray-500">(default)</span></span>
-                    </Radio>
-                    <NoteBlock>The deployment target will never be included in tenanted deployments.</NoteBlock>
-                  </div>
-                  <div>
-                    <Radio value="tenanted">
-                      <span className="text-base text-gray-800">Include only in tenanted deployments</span>
-                    </Radio>
-                    <NoteBlock>
-                      The deployment target will only be included in deployments to the associated tenants. It will be excluded from untenanted deployments.
-                    </NoteBlock>
-                  </div>
-                  <div>
-                    <Radio value="both">
-                      <span className="text-base text-gray-800">Include in both tenanted and untenanted deployments</span>
-                    </Radio>
-                    <NoteBlock>
-                      The deployment target will be included in untenanted deployments, and deployments to the associated tenants.
-                    </NoteBlock>
-                  </div>
-                </Radio.Group>
-              </ExpandableFormCard>
             </div>
 
             <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-8 py-4 flex justify-end gap-3">
