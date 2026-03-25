@@ -38,7 +38,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
 
 // ── API base for image URLs ────────────────────────────────────────────────────
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 
 function stepLogoUrl(spaceId: string, actionType: string) {
   return `${API_BASE}/${spaceId}/actiontemplates/${actionType}/logo`

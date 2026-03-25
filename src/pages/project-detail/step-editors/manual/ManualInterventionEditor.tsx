@@ -13,7 +13,7 @@ import { StepConditionsSection, type StepEnvironmentMode } from '../shared/StepC
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 import { getTeams, type TeamDto } from 'pages/apis/team'
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 const ACTION_TYPE = 'Squid.Manual'
 const EVERYONE_VALUE = '__EVERYONE__'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'

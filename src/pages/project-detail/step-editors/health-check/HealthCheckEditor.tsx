@@ -15,7 +15,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 const ACTION_TYPE = 'Squid.HealthCheck'
 const DEFAULT_STEP_NAME = 'Health Check'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'
