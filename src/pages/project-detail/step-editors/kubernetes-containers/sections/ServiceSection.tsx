@@ -286,6 +286,7 @@ export function ServiceSection({ state, updateField, showNamespaceSection = fals
           items={state.serviceAnnotations}
           onChange={(v) => updateField('serviceAnnotations', v)}
           addLabel="Add Annotation"
+          layout="octopus"
         />
       </CollapsibleSection>
 

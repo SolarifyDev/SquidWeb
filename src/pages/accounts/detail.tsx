@@ -6,7 +6,12 @@ import { Link, useParams } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import {
   AwsCredentialsSummary,
+  AzureOidcCredentialsSummary,
+  AzureServicePrincipalCredentialsSummary,
+  ClientCertificateCredentialsSummary,
   DeploymentAccountDto,
+  GcpCredentialsSummary,
+  SshKeyPairCredentialsSummary,
   TokenCredentialsSummary,
   UsernamePasswordCredentialsSummary,
   getDeploymentAccounts,
@@ -20,6 +25,7 @@ type SectionKey =
   | 'password'
   | 'accessKey'
   | 'secretKey'
+  | 'credentialSummary'
   | 'environments'
   | 'tenanted'
 
@@ -199,6 +205,44 @@ function isAwsCredentials(creds: DeploymentAccountDto['credentials']): creds is 
   return !!creds && typeof creds === 'object' && 'secretKeyHasValue' in creds && 'accessKey' in creds
 }
 
+function isAzureServicePrincipalCredentials(creds: DeploymentAccountDto['credentials']): creds is AzureServicePrincipalCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'subscriptionNumber' in creds
+    && 'clientId' in creds
+    && 'tenantId' in creds
+    && 'keyHasValue' in creds
+}
+
+function isAzureOidcCredentials(creds: DeploymentAccountDto['credentials']): creds is AzureOidcCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'subscriptionNumber' in creds
+    && 'clientId' in creds
+    && 'tenantId' in creds
+    && 'jwtHasValue' in creds
+}
+
+function isSshKeyPairCredentials(creds: DeploymentAccountDto['credentials']): creds is SshKeyPairCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'username' in creds
+    && 'privateKeyFileHasValue' in creds
+}
+
+function isClientCertificateCredentials(creds: DeploymentAccountDto['credentials']): creds is ClientCertificateCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'certificateDataHasValue' in creds
+    && 'certificateKeyDataHasValue' in creds
+}
+
+function isGcpCredentials(creds: DeploymentAccountDto['credentials']): creds is GcpCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'jsonKeyHasValue' in creds
+}
+
 function matchAccount(account: DeploymentAccountLike, accountSlug: string): boolean {
   const normalized = accountSlug.trim().toLowerCase()
   if (!normalized) return false
@@ -223,6 +267,7 @@ const AccountsDetailPage: React.FC = () => {
     password: false,
     accessKey: false,
     secretKey: false,
+    credentialSummary: false,
     environments: false,
     tenanted: false,
   })
@@ -291,6 +336,30 @@ const AccountsDetailPage: React.FC = () => {
   }
 
   const allExpanded = Object.values(expanded).every(Boolean)
+  const isTokenAccount = !!account && account.accountType === 3 && isTokenCredentials(account.credentials)
+  const isUsernamePasswordAccount = !!account && account.accountType === 1 && isUsernamePasswordCredentials(account.credentials)
+  const isAwsAccount = !!account && (account.accountType === 6 || account.accountType === 7) && isAwsCredentials(account.credentials)
+  const isAzureServicePrincipalAccount = !!account && account.accountType === 5 && isAzureServicePrincipalCredentials(account.credentials)
+  const isAzureOidcAccount = !!account && account.accountType === 9 && isAzureOidcCredentials(account.credentials)
+  const isSshKeyPairAccount = !!account && account.accountType === 2 && isSshKeyPairCredentials(account.credentials)
+  const isClientCertificateAccount = !!account && account.accountType === 8 && isClientCertificateCredentials(account.credentials)
+  const isGoogleCloudAccount = !!account && account.accountType === 10 && isGcpCredentials(account.credentials)
+  const hasTypedCredentialSummary = isTokenAccount
+    || isUsernamePasswordAccount
+    || isAwsAccount
+    || isAzureServicePrincipalAccount
+    || isAzureOidcAccount
+    || isSshKeyPairAccount
+    || isClientCertificateAccount
+    || isGoogleCloudAccount
+  const tokenCredentials = isTokenAccount ? account?.credentials as TokenCredentialsSummary : null
+  const usernamePasswordCredentials = isUsernamePasswordAccount ? account?.credentials as UsernamePasswordCredentialsSummary : null
+  const awsCredentials = isAwsAccount ? account?.credentials as AwsCredentialsSummary : null
+  const azureServicePrincipalCredentials = isAzureServicePrincipalAccount ? account?.credentials as AzureServicePrincipalCredentialsSummary : null
+  const azureOidcCredentials = isAzureOidcAccount ? account?.credentials as AzureOidcCredentialsSummary : null
+  const sshKeyPairCredentials = isSshKeyPairAccount ? account?.credentials as SshKeyPairCredentialsSummary : null
+  const clientCertificateCredentials = isClientCertificateAccount ? account?.credentials as ClientCertificateCredentialsSummary : null
+  const gcpCredentials = isGoogleCloudAccount ? account?.credentials as GcpCredentialsSummary : null
 
   return (
     <div className="bg-white min-h-screen">
@@ -337,6 +406,7 @@ const AccountsDetailPage: React.FC = () => {
                     password: next,
                     accessKey: next,
                     secretKey: next,
+                    credentialSummary: next,
                     environments: next,
                     tenanted: next,
                   })
@@ -417,10 +487,10 @@ const AccountsDetailPage: React.FC = () => {
                 Credentials
               </div>
 
-              {account.accountType === 3 && isTokenCredentials(account.credentials) && (
+              {isTokenAccount && (
                 <DetailPanel
                   title="Token"
-                  subtitle={account.credentials.tokenHasValue ? '********' : 'No token set'}
+                  subtitle={tokenCredentials?.tokenHasValue ? '********' : 'No token set'}
                   isOpen={expanded.token}
                   onToggle={() => setExpanded((prev) => ({ ...prev, token: !prev.token }))}
                 >
@@ -430,24 +500,24 @@ const AccountsDetailPage: React.FC = () => {
                 </DetailPanel>
               )}
 
-              {account.accountType === 1 && isUsernamePasswordCredentials(account.credentials) && (
+              {isUsernamePasswordAccount && (
                 <>
                   <DetailPanel
                     title="Username"
-                    subtitle={account.credentials.username || 'No username set'}
-                    subtitlePlaceholder={!account.credentials.username}
+                    subtitle={usernamePasswordCredentials?.username || 'No username set'}
+                    subtitlePlaceholder={!usernamePasswordCredentials?.username}
                     isOpen={expanded.username}
                     onToggle={() => setExpanded((prev) => ({ ...prev, username: !prev.username }))}
                   >
                     <div className="max-w-[600px]">
-                      <Input value={account.credentials.username || ''} disabled />
+                      <Input value={usernamePasswordCredentials?.username || ''} disabled />
                     </div>
                   </DetailPanel>
 
                   <DetailPanel
                     title="Password"
-                    subtitle={account.credentials.passwordHasValue ? '********' : 'No password set'}
-                    subtitlePlaceholder={!account.credentials.passwordHasValue}
+                    subtitle={usernamePasswordCredentials?.passwordHasValue ? '********' : 'No password set'}
+                    subtitlePlaceholder={!usernamePasswordCredentials?.passwordHasValue}
                     isOpen={expanded.password}
                     onToggle={() => setExpanded((prev) => ({ ...prev, password: !prev.password }))}
                   >
@@ -458,24 +528,24 @@ const AccountsDetailPage: React.FC = () => {
                 </>
               )}
 
-              {(account.accountType === 4 || account.accountType === 6) && isAwsCredentials(account.credentials) && (
+              {isAwsAccount && (
                 <>
                   <DetailPanel
                     title="Access Key"
-                    subtitle={account.credentials.accessKey || 'No access key set'}
-                    subtitlePlaceholder={!account.credentials.accessKey}
+                    subtitle={awsCredentials?.accessKey || 'No access key set'}
+                    subtitlePlaceholder={!awsCredentials?.accessKey}
                     isOpen={expanded.accessKey}
                     onToggle={() => setExpanded((prev) => ({ ...prev, accessKey: !prev.accessKey }))}
                   >
                     <div className="max-w-[600px]">
-                      <Input value={account.credentials.accessKey || ''} disabled />
+                      <Input value={awsCredentials?.accessKey || ''} disabled />
                     </div>
                   </DetailPanel>
 
                   <DetailPanel
                     title="Secret Key"
-                    subtitle={account.credentials.secretKeyHasValue ? '********' : 'No secret key set'}
-                    subtitlePlaceholder={!account.credentials.secretKeyHasValue}
+                    subtitle={awsCredentials?.secretKeyHasValue ? '********' : 'No secret key set'}
+                    subtitlePlaceholder={!awsCredentials?.secretKeyHasValue}
                     isOpen={expanded.secretKey}
                     onToggle={() => setExpanded((prev) => ({ ...prev, secretKey: !prev.secretKey }))}
                   >
@@ -484,6 +554,111 @@ const AccountsDetailPage: React.FC = () => {
                     </div>
                   </DetailPanel>
                 </>
+              )}
+
+              {isAzureServicePrincipalAccount && (
+                <DetailPanel
+                  title="Azure Service Principal"
+                  subtitle={
+                    azureServicePrincipalCredentials?.subscriptionNumber
+                      ? `Subscription: ${azureServicePrincipalCredentials.subscriptionNumber}`
+                      : 'No subscription configured'
+                  }
+                  subtitlePlaceholder={!azureServicePrincipalCredentials?.subscriptionNumber}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input value={azureServicePrincipalCredentials?.subscriptionNumber || ''} disabled placeholder="Subscription ID" />
+                    <Input value={azureServicePrincipalCredentials?.tenantId || ''} disabled placeholder="Tenant ID" />
+                    <Input value={azureServicePrincipalCredentials?.clientId || ''} disabled placeholder="Application ID" />
+                    <Input.Password value="" placeholder={azureServicePrincipalCredentials?.keyHasValue ? '********' : 'No key set'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {isAzureOidcAccount && (
+                <DetailPanel
+                  title="Azure OIDC"
+                  subtitle={
+                    azureOidcCredentials?.subscriptionNumber
+                      ? `Subscription: ${azureOidcCredentials.subscriptionNumber}`
+                      : 'No subscription configured'
+                  }
+                  subtitlePlaceholder={!azureOidcCredentials?.subscriptionNumber}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input value={azureOidcCredentials?.subscriptionNumber || ''} disabled placeholder="Subscription ID" />
+                    <Input value={azureOidcCredentials?.tenantId || ''} disabled placeholder="Tenant ID" />
+                    <Input value={azureOidcCredentials?.clientId || ''} disabled placeholder="Application ID" />
+                    <Input.Password value="" placeholder={azureOidcCredentials?.jwtHasValue ? '********' : 'No JWT value set'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {isSshKeyPairAccount && (
+                <DetailPanel
+                  title="SSH Key Pair"
+                  subtitle={sshKeyPairCredentials?.username || 'No username set'}
+                  subtitlePlaceholder={!sshKeyPairCredentials?.username}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input value={sshKeyPairCredentials?.username || ''} disabled placeholder="Username" />
+                    <Input.Password value="" placeholder={sshKeyPairCredentials?.privateKeyFileHasValue ? '********' : 'No private key set'} disabled />
+                    <Input.Password value="" placeholder={sshKeyPairCredentials?.passphraseHasValue ? '********' : 'No passphrase set'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {isClientCertificateAccount && (
+                <DetailPanel
+                  title="Client Certificate"
+                  subtitle={
+                    clientCertificateCredentials?.certificateDataHasValue || clientCertificateCredentials?.certificateKeyDataHasValue
+                      ? 'Certificate configured'
+                      : 'No certificate configured'
+                  }
+                  subtitlePlaceholder={!clientCertificateCredentials?.certificateDataHasValue && !clientCertificateCredentials?.certificateKeyDataHasValue}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input.Password value="" placeholder={clientCertificateCredentials?.certificateDataHasValue ? '********' : 'No certificate data'} disabled />
+                    <Input.Password value="" placeholder={clientCertificateCredentials?.certificateKeyDataHasValue ? '********' : 'No certificate key data'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {isGoogleCloudAccount && (
+                <DetailPanel
+                  title="Google Cloud"
+                  subtitle={gcpCredentials?.jsonKeyHasValue ? 'Key file configured' : 'No key file set'}
+                  subtitlePlaceholder={!gcpCredentials?.jsonKeyHasValue}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input.Password value="" placeholder={gcpCredentials?.jsonKeyHasValue ? '********' : 'No key file set'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {!hasTypedCredentialSummary && (
+                <DetailPanel
+                  title="Credential Summary"
+                  subtitle="Summary is not available for this account type."
+                  subtitlePlaceholder
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="text-sm text-gray-600">
+                    This account type does not expose a detailed credential summary in the current list API response.
+                  </div>
+                </DetailPanel>
               )}
 
               <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">

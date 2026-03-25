@@ -165,6 +165,7 @@ export function SecretSection({ state, updateField, showNamespaceSection = false
           keyLabel="Key"
           valueLabel="Value"
           addLabel="Add secret item"
+          layout="octopus"
         />
       </CollapsibleSection>
 

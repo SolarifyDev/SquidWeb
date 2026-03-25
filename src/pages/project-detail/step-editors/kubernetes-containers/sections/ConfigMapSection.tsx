@@ -165,6 +165,7 @@ export function ConfigMapSection({ state, updateField, showNamespaceSection = fa
           keyLabel="Key"
           valueLabel="Value"
           addLabel="Add Config map item"
+          layout="octopus"
         />
       </CollapsibleSection>
 

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Radio, Select, message } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, UploadOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import { createDeploymentAccount } from 'pages/apis/deploymentAccount'
@@ -9,14 +9,24 @@ import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 type SectionKey =
   | 'name'
   | 'description'
+  | 'sshUsername'
+  | 'sshPrivateKeyFile'
+  | 'sshPassphrase'
   | 'username'
   | 'password'
   | 'token'
   | 'awsAuthenticationMethod'
   | 'awsAccessKey'
   | 'awsSecretKey'
+  | 'azureSubscriptionId'
+  | 'azureAuthenticationMethod'
+  | 'azureTenantId'
+  | 'azureApplicationId'
+  | 'azureApplicationPassword'
+  | 'googleCloudKeyFile'
   | 'environments'
 type AwsAuthenticationMethod = 'AmazonWebServicesAccount' | 'AmazonWebServicesOidcAccount'
+type AzureAuthenticationMethod = 'AzureServicePrincipal' | 'AzureSubscription' | 'AzureOidc'
 
 interface FormPanelProps {
   title: string
@@ -71,30 +81,53 @@ const AccountsCreatePage: React.FC = () => {
   const accountType = Number.isFinite(accountTypeParam) ? accountTypeParam : 3
   const isTokenType = accountType === 3
   const isUsernamePasswordType = accountType === 1
-  const isAwsType = accountType === 4 || accountType === 6
-  const isSupportedType = isTokenType || isUsernamePasswordType || isAwsType
+  const isSshKeyPairType = accountType === 2
+  const isAwsType = accountType === 6
+  const isAzureType = accountType === 5
+  const isGoogleCloudType = accountType === 10
+  const isSupportedType = isTokenType || isUsernamePasswordType || isSshKeyPairType || isAwsType || isAzureType || isGoogleCloudType
 
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [sshUsername, setSshUsername] = useState('')
+  const [sshPrivateKeyFile, setSshPrivateKeyFile] = useState('')
+  const [sshPrivateKeyPassphrase, setSshPrivateKeyPassphrase] = useState('')
+  const sshPrivateKeyFileInputRef = useRef<HTMLInputElement | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [token, setToken] = useState('')
   const [awsAuthenticationMethod, setAwsAuthenticationMethod] = useState<AwsAuthenticationMethod>('AmazonWebServicesAccount')
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
+  const [azureSubscriptionId, setAzureSubscriptionId] = useState('')
+  const [azureAuthenticationMethod, setAzureAuthenticationMethod] = useState<AzureAuthenticationMethod>('AzureServicePrincipal')
+  const [azureTenantId, setAzureTenantId] = useState('')
+  const [azureApplicationId, setAzureApplicationId] = useState('')
+  const [azureApplicationPassword, setAzureApplicationPassword] = useState('')
+  const [googleCloudJsonKey, setGoogleCloudJsonKey] = useState('')
+  const googleCloudKeyFileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<number[]>([])
   const [environmentOptions, setEnvironmentOptions] = useState<EnvironmentDto[]>([])
   const [loadingEnvironmentOptions, setLoadingEnvironmentOptions] = useState(false)
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
     name: true,
     description: true,
+    sshUsername: true,
+    sshPrivateKeyFile: true,
+    sshPassphrase: true,
     username: true,
     password: true,
     token: true,
     awsAuthenticationMethod: true,
     awsAccessKey: true,
     awsSecretKey: true,
+    azureSubscriptionId: true,
+    azureAuthenticationMethod: true,
+    azureTenantId: true,
+    azureApplicationId: true,
+    azureApplicationPassword: true,
+    googleCloudKeyFile: true,
     environments: true,
   })
 
@@ -110,18 +143,58 @@ const AccountsCreatePage: React.FC = () => {
     if (isUsernamePasswordType) {
       return name.trim().length > 0 && username.trim().length > 0 && password.trim().length > 0
     }
+    if (isSshKeyPairType) {
+      return name.trim().length > 0 && sshUsername.trim().length > 0 && sshPrivateKeyFile.trim().length > 0
+    }
     if (isAwsType) {
       if (awsAuthenticationMethod !== 'AmazonWebServicesAccount') {
         return false
       }
       return name.trim().length > 0 && accessKey.trim().length > 0 && secretKey.trim().length > 0
     }
+    if (isAzureType) {
+      if (azureAuthenticationMethod !== 'AzureServicePrincipal') {
+        return false
+      }
+      return (
+        name.trim().length > 0
+        && azureSubscriptionId.trim().length > 0
+        && azureTenantId.trim().length > 0
+        && azureApplicationId.trim().length > 0
+        && azureApplicationPassword.trim().length > 0
+      )
+    }
+    if (isGoogleCloudType) {
+      return name.trim().length > 0 && googleCloudJsonKey.trim().length > 0
+    }
     return false
-  }, [isTokenType, isUsernamePasswordType, isAwsType, awsAuthenticationMethod, name, token, username, password, accessKey, secretKey])
+  }, [
+    isTokenType,
+    isUsernamePasswordType,
+    isSshKeyPairType,
+    isAwsType,
+    isAzureType,
+    isGoogleCloudType,
+    awsAuthenticationMethod,
+    azureAuthenticationMethod,
+    name,
+    sshUsername,
+    sshPrivateKeyFile,
+    token,
+    username,
+    password,
+    accessKey,
+    secretKey,
+    azureSubscriptionId,
+    azureTenantId,
+    azureApplicationId,
+    azureApplicationPassword,
+    googleCloudJsonKey,
+  ])
 
   const handleSave = async () => {
     if (!isSupportedType) {
-      message.info('Only Token, Username/Password and AWS account creation are currently supported.')
+      message.info('Only Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, and Google Cloud account creation are currently supported.')
       return
     }
     if (!canSave) return
@@ -133,7 +206,11 @@ const AccountsCreatePage: React.FC = () => {
           spaceId: space.id,
           name: name.trim(),
           accountType: 3,
-          token: token.trim(),
+          credentials: {
+            token: token.trim(),
+          },
+          environmentIds: selectedEnvironmentIds,
+          description: description.trim() || undefined,
         })
       } else {
         if (isUsernamePasswordType) {
@@ -141,16 +218,62 @@ const AccountsCreatePage: React.FC = () => {
             spaceId: space.id,
             name: name.trim(),
             accountType: 1,
-            username: username.trim(),
-            password: password.trim(),
+            credentials: {
+              username: username.trim(),
+              password: password.trim(),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
           })
-        } else {
+        } else if (isSshKeyPairType) {
+          await createDeploymentAccount({
+            spaceId: space.id,
+            name: name.trim(),
+            accountType: 2,
+            credentials: {
+              username: sshUsername.trim(),
+              privateKeyFile: sshPrivateKeyFile.trim(),
+              ...(sshPrivateKeyPassphrase.trim().length > 0 ? { privateKeyPassphrase: sshPrivateKeyPassphrase.trim() } : {}),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
+          })
+        } else if (isAwsType) {
           await createDeploymentAccount({
             spaceId: space.id,
             name: name.trim(),
             accountType: 6,
-            accessKey: accessKey.trim(),
-            secretKey: secretKey.trim(),
+            credentials: {
+              accessKey: accessKey.trim(),
+              secretKey: secretKey.trim(),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
+          })
+        } else if (isAzureType) {
+          await createDeploymentAccount({
+            spaceId: space.id,
+            name: name.trim(),
+            accountType: 5,
+            credentials: {
+              subscriptionNumber: azureSubscriptionId.trim(),
+              tenantId: azureTenantId.trim(),
+              clientId: azureApplicationId.trim(),
+              key: azureApplicationPassword.trim(),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
+          })
+        } else if (isGoogleCloudType) {
+          await createDeploymentAccount({
+            spaceId: space.id,
+            name: name.trim(),
+            accountType: 10,
+            credentials: {
+              jsonKey: googleCloudJsonKey.trim(),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
           })
         }
       }
@@ -165,9 +288,51 @@ const AccountsCreatePage: React.FC = () => {
   }
 
   const handleSaveAndTest = async () => {
-    if (!isAwsType) return
+    if (!isAwsType && !isAzureType && !isGoogleCloudType) return
     message.info('Account testing is not available yet. Saving account only.')
     await handleSave()
+  }
+
+  const handleGoogleCloudKeyFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      const fileText = await file.text()
+      const trimmed = fileText.trim()
+      if (!trimmed) {
+        message.warning('The uploaded key file is empty.')
+        return
+      }
+
+      JSON.parse(trimmed)
+      setGoogleCloudJsonKey(trimmed)
+      message.success('Google Cloud key file loaded.')
+    } catch (error) {
+      console.error('Failed to parse Google Cloud key file', error)
+      message.error('Invalid key file. Please upload a valid JSON key file.')
+    }
+  }
+
+  const handleSshPrivateKeyFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      const fileText = await file.text()
+      const trimmed = fileText.trim()
+      if (!trimmed) {
+        message.warning('The uploaded private key file is empty.')
+        return
+      }
+      setSshPrivateKeyFile(trimmed)
+      message.success('Private key file loaded.')
+    } catch (error) {
+      console.error('Failed to read private key file', error)
+      message.error('Failed to read private key file.')
+    }
   }
 
   useEffect(() => {
@@ -212,7 +377,7 @@ const AccountsCreatePage: React.FC = () => {
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-2xl font-semibold text-gray-900 m-0">Create Account</h1>
               <div className="flex items-center gap-2">
-                {isAwsType && (
+                {(isAwsType || isAzureType || isGoogleCloudType) && (
                   <Button
                     className="!border-gray-300 !text-gray-700 hover:!border-gray-400 hover:!text-gray-800"
                     disabled={!canSave}
@@ -244,12 +409,21 @@ const AccountsCreatePage: React.FC = () => {
                   setExpanded({
                     name: next,
                     description: next,
+                    sshUsername: next,
+                    sshPrivateKeyFile: next,
+                    sshPassphrase: next,
                     username: next,
                     password: next,
                     token: next,
                     awsAuthenticationMethod: next,
                     awsAccessKey: next,
                     awsSecretKey: next,
+                    azureSubscriptionId: next,
+                    azureAuthenticationMethod: next,
+                    azureTenantId: next,
+                    azureApplicationId: next,
+                    azureApplicationPassword: next,
+                    googleCloudKeyFile: next,
                     environments: next,
                   })
                 }}
@@ -261,7 +435,7 @@ const AccountsCreatePage: React.FC = () => {
 
           {!isSupportedType && (
             <div className="px-6 py-4 text-sm text-amber-700 bg-amber-50 border-b border-amber-200">
-              This account type is not supported yet. Use Token, Username/Password or AWS type for now.
+              This account type is not supported yet. Use Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, or Google Cloud for now.
             </div>
           )}
 
@@ -355,6 +529,76 @@ const AccountsCreatePage: React.FC = () => {
             </>
           )}
 
+          {isSshKeyPairType && (
+            <>
+              <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">
+                Ssh Key Pair Settings
+              </div>
+
+              <FormPanel
+                title="Username"
+                subtitle="The username to use when authenticating against the remote host."
+                isOpen={expanded.sshUsername}
+                onToggle={() => setExpanded((prev) => ({ ...prev, sshUsername: !prev.sshUsername }))}
+              >
+                <div className="max-w-[600px]">
+                  <Input
+                    placeholder="Username"
+                    autoComplete="off"
+                    value={sshUsername}
+                    onChange={(e) => setSshUsername(e.target.value)}
+                  />
+                </div>
+              </FormPanel>
+
+              <FormPanel
+                title="Private Key File"
+                subtitle="Upload the private key file portion of the key pair."
+                isOpen={expanded.sshPrivateKeyFile}
+                onToggle={() => setExpanded((prev) => ({ ...prev, sshPrivateKeyFile: !prev.sshPrivateKeyFile }))}
+              >
+                <div className="max-w-[760px]">
+                  <div className="flex items-start gap-2">
+                    <Input
+                      placeholder="Private key file"
+                      autoComplete="off"
+                      value={sshPrivateKeyFile}
+                      onChange={(e) => setSshPrivateKeyFile(e.target.value)}
+                      className="max-w-[600px]"
+                    />
+                    <Button
+                      icon={<UploadOutlined />}
+                      aria-label="Upload"
+                      onClick={() => sshPrivateKeyFileInputRef.current?.click()}
+                    />
+                    <input
+                      ref={sshPrivateKeyFileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={(event) => void handleSshPrivateKeyFileUpload(event)}
+                    />
+                  </div>
+                </div>
+              </FormPanel>
+
+              <FormPanel
+                title="Passphrase"
+                subtitle="The passphrase for the private key, if required."
+                isOpen={expanded.sshPassphrase}
+                onToggle={() => setExpanded((prev) => ({ ...prev, sshPassphrase: !prev.sshPassphrase }))}
+              >
+                <div className="max-w-[600px]">
+                  <Input.Password
+                    placeholder="Passphrase"
+                    autoComplete="new-password"
+                    value={sshPrivateKeyPassphrase}
+                    onChange={(e) => setSshPrivateKeyPassphrase(e.target.value)}
+                  />
+                </div>
+              </FormPanel>
+            </>
+          )}
+
           {isAwsType && (
             <>
               <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">
@@ -428,6 +672,147 @@ const AccountsCreatePage: React.FC = () => {
                 </div>
               )}
             </>
+          )}
+
+          {isAzureType && (
+            <>
+              <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">
+                Azure Details
+              </div>
+
+              <FormPanel
+                title="Subscription ID"
+                subtitle="Your Azure subscription ID. This is a GUID in the format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx."
+                isOpen={expanded.azureSubscriptionId}
+                onToggle={() => setExpanded((prev) => ({ ...prev, azureSubscriptionId: !prev.azureSubscriptionId }))}
+              >
+                <div className="max-w-[600px]">
+                  <Input
+                    placeholder="Subscription"
+                    autoComplete="off"
+                    value={azureSubscriptionId}
+                    onChange={(e) => setAzureSubscriptionId(e.target.value)}
+                  />
+                </div>
+              </FormPanel>
+
+              <FormPanel
+                title="Authentication Method"
+                subtitle="Select the Azure authentication method to show the relevant form inputs below."
+                isOpen={expanded.azureAuthenticationMethod}
+                onToggle={() => setExpanded((prev) => ({ ...prev, azureAuthenticationMethod: !prev.azureAuthenticationMethod }))}
+              >
+                <div className="max-w-[760px]">
+                  <Radio.Group
+                    value={azureAuthenticationMethod}
+                    onChange={(e) => setAzureAuthenticationMethod(e.target.value)}
+                    className="flex flex-col gap-2"
+                  >
+                    <Radio value="AzureServicePrincipal">
+                      Use a Service Principal <span className="text-gray-400">(default)</span>
+                    </Radio>
+                    <Radio value="AzureSubscription">Use a Management Certificate</Radio>
+                    <Radio value="AzureOidc">Use OpenID Connect</Radio>
+                  </Radio.Group>
+                </div>
+              </FormPanel>
+
+              {azureAuthenticationMethod === 'AzureServicePrincipal' ? (
+                <>
+                  <FormPanel
+                    title="Tenant ID"
+                    subtitle="Your Azure Active Directory Tenant ID. This is a GUID in the format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx."
+                    isOpen={expanded.azureTenantId}
+                    onToggle={() => setExpanded((prev) => ({ ...prev, azureTenantId: !prev.azureTenantId }))}
+                  >
+                    <div className="max-w-[600px]">
+                      <Input
+                        placeholder="Active Directory Tenant ID"
+                        autoComplete="off"
+                        value={azureTenantId}
+                        onChange={(e) => setAzureTenantId(e.target.value)}
+                      />
+                    </div>
+                  </FormPanel>
+
+                  <FormPanel
+                    title="Application ID"
+                    subtitle="Your Azure Active Directory Application ID. This is a GUID in the format xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx."
+                    isOpen={expanded.azureApplicationId}
+                    onToggle={() => setExpanded((prev) => ({ ...prev, azureApplicationId: !prev.azureApplicationId }))}
+                  >
+                    <div className="max-w-[600px]">
+                      <Input
+                        placeholder="Active Directory Application ID"
+                        autoComplete="off"
+                        value={azureApplicationId}
+                        onChange={(e) => setAzureApplicationId(e.target.value)}
+                      />
+                    </div>
+                  </FormPanel>
+
+                  <FormPanel
+                    title="Application Password / Key"
+                    subtitle="The password for the Azure Active Directory application. This value is known as Key in the Azure Portal, and Password in the API."
+                    isOpen={expanded.azureApplicationPassword}
+                    onToggle={() => setExpanded((prev) => ({ ...prev, azureApplicationPassword: !prev.azureApplicationPassword }))}
+                  >
+                    <div className="max-w-[600px]">
+                      <Input.Password
+                        placeholder="Active Directory Password/Key"
+                        autoComplete="new-password"
+                        value={azureApplicationPassword}
+                        onChange={(e) => setAzureApplicationPassword(e.target.value)}
+                      />
+                    </div>
+                  </FormPanel>
+                </>
+              ) : (
+                <div className="px-6 py-4 text-sm text-amber-700 bg-amber-50 border-b border-amber-200">
+                  This authentication method is not supported by Squid API create account endpoint yet.
+                </div>
+              )}
+            </>
+          )}
+
+          {isGoogleCloudType && (
+            <FormPanel
+              title="Key File"
+              subtitle="The json key file to use when authenticating against Google Cloud."
+              isOpen={expanded.googleCloudKeyFile}
+              onToggle={() => setExpanded((prev) => ({ ...prev, googleCloudKeyFile: !prev.googleCloudKeyFile }))}
+            >
+              <div className="max-w-[760px]">
+                <div className="flex items-start gap-2">
+                  <Input
+                    placeholder="Key File"
+                    autoComplete="off"
+                    value={googleCloudJsonKey}
+                    onChange={(e) => setGoogleCloudJsonKey(e.target.value)}
+                    className="max-w-[600px]"
+                  />
+                  <Button
+                    icon={<UploadOutlined />}
+                    aria-label="Upload"
+                    onClick={() => googleCloudKeyFileInputRef.current?.click()}
+                  />
+                  <input
+                    ref={googleCloudKeyFileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={(event) => void handleGoogleCloudKeyFileUpload(event)}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2 mb-0">
+                  Refer to the{' '}
+                  <a href="https://oc.to/GoogleCloudServiceAccountKey" target="_blank" rel="noopener noreferrer" className="text-squid-blue hover:underline">
+                    Google cloud documentation
+                  </a>{' '}
+                  for information on generating json key for service accounts.
+                </p>
+              </div>
+            </FormPanel>
           )}
 
           <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">

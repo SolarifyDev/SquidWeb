@@ -82,6 +82,20 @@ const ScopeChip: React.FC<{ label: string }> = ({ label }) => (
   </span>
 )
 
+function formatActionScopeLabel(stepOrder: number, stepName: string, actionName: string, actionId: number): string {
+  const normalizedStepName = (stepName ?? '').trim()
+  const normalizedActionName = (actionName ?? '').trim()
+  const safeStepOrder = Number.isFinite(stepOrder) && stepOrder >= 0 ? stepOrder + 1 : 0
+  const orderPrefix = safeStepOrder > 0 ? `${safeStepOrder}. ` : ''
+
+  if (!normalizedActionName || normalizedActionName.toLowerCase() === normalizedStepName.toLowerCase()) {
+    return `${orderPrefix}${normalizedStepName || `Action #${actionId}`}`.trim()
+  }
+
+  if (!normalizedStepName) return `${orderPrefix}${normalizedActionName}`.trim()
+  return `${orderPrefix}${normalizedStepName} / ${normalizedActionName}`.trim()
+}
+
 const ProjectVariablePreview: React.FC = () => {
   const { projectName } = useParams<{ projectName: string }>()
 
@@ -235,6 +249,18 @@ const ProjectVariablePreview: React.FC = () => {
   const channelMap = useMemo(() => new Map(channels.map((item) => [item.id, item])), [channels])
   const stepMap = useMemo(() => new Map(steps.map((item) => [item.id, item])), [steps])
   const machineMap = useMemo(() => new Map(machines.map((item) => [item.id, item])), [machines])
+  const actionScopeLabelByActionId = useMemo(
+    () =>
+      new Map(
+        steps.flatMap((step) =>
+          (step.actions ?? []).map((action) => [
+            String(action.id),
+            formatActionScopeLabel(step.stepOrder, step.name, action.name, action.id),
+          ] as const),
+        ),
+      ),
+    [steps],
+  )
 
   const selectedEnvironment = selectedEnvironmentId != null ? environmentMap.get(selectedEnvironmentId) : undefined
   const selectedChannel = selectedChannelId != null ? channelMap.get(selectedChannelId) : undefined
@@ -253,9 +279,14 @@ const ProjectVariablePreview: React.FC = () => {
     [selectedChannel],
   )
   const selectedStepKeys = useMemo(
-    () => [selectedStep?.id, selectedStep?.name, selectedStep ? selectedStep.stepOrder + 1 : undefined]
-      .map((value) => normalizeText(value ?? ''))
-      .filter(Boolean),
+    () => {
+      if (!selectedStep) return []
+
+      const actionKeys = (selectedStep.actions ?? []).flatMap((action) => [action.id, action.name])
+      return [selectedStep.id, selectedStep.name, selectedStep.stepOrder + 1, ...actionKeys]
+        .map((value) => normalizeText(value ?? ''))
+        .filter(Boolean)
+    },
     [selectedStep],
   )
 
@@ -294,9 +325,19 @@ const ProjectVariablePreview: React.FC = () => {
     }
 
     if (scope.scopeType === VariableScopeType.Action) {
+      if (parsedId != null && actionScopeLabelByActionId.has(String(parsedId))) {
+        return actionScopeLabelByActionId.get(String(parsedId)) || rawValue
+      }
       if (parsedId != null && stepMap.has(parsedId)) {
         const step = stepMap.get(parsedId)
         return step ? `${step.stepOrder + 1}. ${step.name}` : rawValue
+      }
+      for (const step of steps) {
+        for (const action of (step.actions ?? [])) {
+          if (normalizeText(action.name) === normalizeText(rawValue)) {
+            return formatActionScopeLabel(step.stepOrder, step.name, action.name, action.id)
+          }
+        }
       }
       const matched = steps.find((step) => normalizeText(step.name) === normalizeText(rawValue))
       return matched ? `${matched.stepOrder + 1}. ${matched.name}` : rawValue
@@ -346,6 +387,7 @@ const ProjectVariablePreview: React.FC = () => {
       return true
     })
   }, [
+    actionScopeLabelByActionId,
     filterEmptyValues,
     rows,
     searchText,
