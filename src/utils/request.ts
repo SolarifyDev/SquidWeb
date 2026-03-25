@@ -6,7 +6,7 @@ import axios, {
 } from 'axios'
 import { getAuthToken, handleUnauthorizedSession, isAuthenticated } from 'utils/auth'
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL as
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as
   | string
   | undefined
 const CURRENT_SPACE_ID_KEY = 'CURRENT_SPACE_ID'

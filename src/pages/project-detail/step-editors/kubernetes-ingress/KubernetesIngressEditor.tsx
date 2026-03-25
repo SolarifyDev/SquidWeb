@@ -9,7 +9,7 @@ import { IngressSection } from '../kubernetes-containers/sections/IngressSection
 import { ConditionsSection } from '../kubernetes-containers/sections/ConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
 const ACTION_TYPE = 'Squid.KubernetesDeployIngress'
 
 export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorProps>(
