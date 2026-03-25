@@ -106,6 +106,10 @@ export function VolumesSection({ volumes, onChange, configMapName }: VolumesSect
           ? 'Set the absolute host path to mount into this volume.'
           : ''
 
+  const insertVariable = () => {
+    message.info('Insert Variable is not available yet')
+  }
+
   return (
     <CollapsibleSection title="Volumes" subtitle="Add volumes to be exposed to the containers in this step." defaultOpen>
       <p className="text-xs text-slate-400 leading-relaxed mb-0">
@@ -250,39 +254,69 @@ export function VolumesSection({ volumes, onChange, configMapName }: VolumesSect
               {(draft.Items ?? []).length > 0 && (
                 <ul className="space-y-2">
                   {(draft.Items ?? []).map((item, index) => (
-                    <li key={index} className="flex items-center gap-2">
-                      <Input
-                        placeholder="Key"
-                        value={item.key}
-                        onChange={(event) => {
-                          const next = [...(draft.Items ?? [])]
-                          next[index] = { ...next[index], key: event.target.value }
-                          setDraft((previous) => ({ ...previous, Items: next }))
-                        }}
-                        className="flex-1"
-                      />
-                      <Input
-                        placeholder="Path"
-                        value={item.path}
-                        onChange={(event) => {
-                          const next = [...(draft.Items ?? [])]
-                          next[index] = { ...next[index], path: event.target.value }
-                          setDraft((previous) => ({ ...previous, Items: next }))
-                        }}
-                        className="flex-1"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = [...(draft.Items ?? [])]
-                          next.splice(index, 1)
-                          setDraft((previous) => ({ ...previous, Items: next }))
-                        }}
-                        className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                        aria-label="Remove item"
-                      >
-                        <CloseOutlined style={{ fontSize: 13 }} />
-                      </button>
+                    <li key={index} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Key</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                placeholder=""
+                                value={item.key}
+                                onChange={(event) => {
+                                  const next = [...(draft.Items ?? [])]
+                                  next[index] = { ...next[index], key: event.target.value }
+                                  setDraft((previous) => ({ ...previous, Items: next }))
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Path</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                placeholder=""
+                                value={item.path}
+                                onChange={(event) => {
+                                  const next = [...(draft.Items ?? [])]
+                                  next[index] = { ...next[index], path: event.target.value }
+                                  setDraft((previous) => ({ ...previous, Items: next }))
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = [...(draft.Items ?? [])]
+                            next.splice(index, 1)
+                            setDraft((previous) => ({ ...previous, Items: next }))
+                          }}
+                          className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          aria-label="Remove item"
+                        >
+                          <CloseOutlined style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

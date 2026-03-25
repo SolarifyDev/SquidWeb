@@ -1,11 +1,27 @@
 import { get, post } from 'utils/request'
 
+export enum DeploymentAccountType {
+  UsernamePassword = 1,
+  SshKeyPair = 2,
+  Token = 3,
+  AzureSubscription = 4,
+  AzureServicePrincipal = 5,
+  AmazonWebServicesAccount = 6,
+  AmazonWebServicesRoleAccount = 7,
+  ClientCertificate = 8,
+  AzureOidc = 9,
+  GoogleCloudAccount = 10,
+  AmazonWebServicesOidcAccount = 11,
+}
+
 export interface DeploymentAccountDto {
   id: number
   spaceId: number
   name: string
   slug: string
   accountType: number
+  description?: string | null
+  environmentIds?: number[] | null
   credentials:
     | TokenCredentialsSummary
     | UsernamePasswordCredentialsSummary
@@ -13,6 +29,8 @@ export interface DeploymentAccountDto {
     | AwsCredentialsSummary
     | SshKeyPairCredentialsSummary
     | AzureServicePrincipalCredentialsSummary
+    | AzureOidcCredentialsSummary
+    | GcpCredentialsSummary
     | null
 }
 
@@ -38,6 +56,7 @@ export interface AwsCredentialsSummary {
 export interface SshKeyPairCredentialsSummary {
   username: string
   privateKeyFileHasValue: boolean
+  passphraseHasValue: boolean
 }
 
 export interface AzureServicePrincipalCredentialsSummary {
@@ -47,17 +66,101 @@ export interface AzureServicePrincipalCredentialsSummary {
   keyHasValue: boolean
 }
 
+export interface AzureOidcCredentialsSummary {
+  subscriptionNumber: string
+  clientId: string
+  tenantId: string
+  jwtHasValue: boolean
+}
+
+export interface GcpCredentialsSummary {
+  jsonKeyHasValue: boolean
+}
+
+export interface UsernamePasswordCredentials {
+  username: string
+  password: string
+}
+
+export interface SshKeyPairCredentials {
+  username: string
+  privateKeyFile: string
+  privateKeyPassphrase?: string
+}
+
+export interface TokenCredentials {
+  token: string
+}
+
+export interface AzureServicePrincipalCredentials {
+  subscriptionNumber: string
+  clientId: string
+  tenantId: string
+  key: string
+}
+
+export interface AmazonWebServicesCredentials {
+  accessKey: string
+  secretKey: string
+}
+
+export interface AmazonWebServicesRoleCredentials {
+  accessKey: string
+  secretKey: string
+  roleArn: string
+  sessionDuration: string
+  externalId?: string
+}
+
+export interface ClientCertificateCredentials {
+  clientCertificateData: string
+  clientCertificateKeyData: string
+}
+
+export interface AzureOidcCredentials {
+  subscriptionNumber: string
+  clientId: string
+  tenantId: string
+  jwt: string
+}
+
+export interface GoogleCloudCredentials {
+  jsonKey: string
+}
+
+export interface AmazonWebServicesOidcCredentials {
+  roleArn: string
+  webIdentityToken: string
+}
+
+export type DeploymentAccountCredentials =
+  | UsernamePasswordCredentials
+  | SshKeyPairCredentials
+  | TokenCredentials
+  | AzureServicePrincipalCredentials
+  | AmazonWebServicesCredentials
+  | AmazonWebServicesRoleCredentials
+  | ClientCertificateCredentials
+  | AzureOidcCredentials
+  | GoogleCloudCredentials
+  | AmazonWebServicesOidcCredentials
+
 export interface CreateDeploymentAccountCommand {
   spaceId: number
   name: string
   accountType: number
-  token?: string
-  username?: string
-  password?: string
-  clientCertificateData?: string
-  clientCertificateKeyData?: string
-  accessKey?: string
-  secretKey?: string
+  credentials: DeploymentAccountCredentials | null
+  description?: string
+  environmentIds?: number[]
+}
+
+export interface UpdateDeploymentAccountCommand extends CreateDeploymentAccountCommand {
+  id: number
+}
+
+export interface DeleteDeploymentAccountCommand {
+  spaceId: number
+  id: number
 }
 
 export interface GetDeploymentAccountsRequest {
@@ -74,6 +177,15 @@ export interface GetDeploymentAccountsResponseData {
 export function createDeploymentAccount(command: CreateDeploymentAccountCommand) {
   return post<{ deploymentAccount: DeploymentAccountDto }>('/deployment-accounts/create', command)
     .then((res) => res.deploymentAccount)
+}
+
+export function updateDeploymentAccount(command: UpdateDeploymentAccountCommand) {
+  return post<{ deploymentAccount: DeploymentAccountDto }>('/deployment-accounts/update', command)
+    .then((res) => res.deploymentAccount)
+}
+
+export function deleteDeploymentAccount(command: DeleteDeploymentAccountCommand) {
+  return post<unknown>('/deployment-accounts/delete', command)
 }
 
 export function getDeploymentAccounts(params?: GetDeploymentAccountsRequest) {

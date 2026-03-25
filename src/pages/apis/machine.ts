@@ -114,6 +114,7 @@ export interface GenerateKubernetesAgentInstallScriptCommand {
   agentName: string
   serverUrl: string
   serverCommsUrl: string
+  serverThumbprint?: string
   storageType: KubernetesAgentStorageType
   nfsServer?: string
   nfsPath?: string

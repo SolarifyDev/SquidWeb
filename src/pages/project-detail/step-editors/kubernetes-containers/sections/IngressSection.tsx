@@ -728,7 +728,7 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
               <p className="text-xs text-slate-500 leading-relaxed mt-0 mb-1 ml-6">
                 Your ingress controller has default certificates defined, or is using SSL passthrough.
               </p>
-              <Radio value="Octopus"><span className="text-sm">Octopus Certificate</span></Radio>
+              <Radio value="Octopus"><span className="text-sm">Squid Certificate</span></Radio>
               <Radio value="Secret"><span className="text-sm">Existing Secret</span></Radio>
             </Radio.Group>
 

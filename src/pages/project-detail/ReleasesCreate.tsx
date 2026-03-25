@@ -585,22 +585,12 @@ const ReleasesCreate: React.FC = () => {
 
   useEffect(() => {
     packageTargets.forEach((target) => {
-      if (target.lastReleaseVersion) return
-      const defaultQueryKey = buildPackageVersionsCacheKey(target.key, false)
+      const defaultQueryKey = buildPackageVersionsCacheKey(target.key, true)
       if (packageVersionsByKey[defaultQueryKey]) return
-      void loadPackageVersions(target)
+      if (packageVersionsLoadingByKey[defaultQueryKey]) return
+      void loadPackageVersions(target, { includePreRelease: true })
     })
-  }, [loadPackageVersions, packageTargets, packageVersionsByKey])
-
-  useEffect(() => {
-    packageTargets.forEach((target) => {
-      const mode = packageModeByKey[target.key] ?? (target.lastReleaseVersion ? 'last' : 'latest')
-      if (mode !== 'latest') return
-      const defaultQueryKey = buildPackageVersionsCacheKey(target.key, false)
-      if (packageVersionsByKey[defaultQueryKey]) return
-      void loadPackageVersions(target)
-    })
-  }, [loadPackageVersions, packageModeByKey, packageTargets, packageVersionsByKey])
+  }, [loadPackageVersions, packageTargets, packageVersionsByKey, packageVersionsLoadingByKey])
 
   useEffect(() => {
     if (!versionPickerOpen || !versionPickerTarget) return undefined
@@ -616,7 +606,7 @@ const ReleasesCreate: React.FC = () => {
   const latestVersionByKey = useMemo(() => {
     const next: Record<string, string> = {}
     packageTargets.forEach((target) => {
-      const defaultQueryKey = buildPackageVersionsCacheKey(target.key, false)
+      const defaultQueryKey = buildPackageVersionsCacheKey(target.key, true)
       next[target.key] = normalizePackageVersion(packageVersionsByKey[defaultQueryKey]?.[0])
     })
     return next
@@ -1000,7 +990,7 @@ const ReleasesCreate: React.FC = () => {
                           const mode = packageModeByKey[target.key] ?? (target.lastReleaseVersion ? 'last' : 'latest')
                           const latestVersion = latestVersionByKey[target.key]
                           const lastVersion = target.lastReleaseVersion
-                          const defaultQueryKey = buildPackageVersionsCacheKey(target.key, false)
+                          const defaultQueryKey = buildPackageVersionsCacheKey(target.key, true)
                           const versions = packageVersionsByKey[defaultQueryKey] ?? []
                           const loadingVersions = !!packageVersionsLoadingByKey[defaultQueryKey]
                           const specificVersion = packageSpecificVersionByKey[target.key] ?? ''
@@ -1020,7 +1010,7 @@ const ReleasesCreate: React.FC = () => {
                                     checked={mode === 'latest'}
                                     onChange={async () => {
                                       setPackageModeByKey((prev) => ({ ...prev, [target.key]: 'latest' }))
-                                      await loadPackageVersions(target)
+                                      await loadPackageVersions(target, { includePreRelease: true })
                                     }}
                                   />
                                   <span>{loadingVersions ? 'Loading...' : (latestVersion ? withDockerLatestTagLabel(latestVersion) : '-')}</span>

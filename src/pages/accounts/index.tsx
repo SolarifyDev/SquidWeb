@@ -8,7 +8,7 @@ import { getEnvironments } from 'pages/apis/environment';
 import { DeploymentAccountDto, getDeploymentAccounts } from 'pages/apis/deploymentAccount';
 
 type AccountGroupTitle =
-  | 'Azure Subscriptions'
+  | 'Azure Accounts'
   | 'AWS Accounts'
   | 'Usernames/Passwords'
   | 'Tokens'
@@ -35,7 +35,7 @@ interface AccountViewModel {
 }
 
 const GROUP_ORDER: AccountGroupTitle[] = [
-  'Azure Subscriptions',
+  'Azure Accounts',
   'AWS Accounts',
   'Usernames/Passwords',
   'Tokens',
@@ -46,17 +46,21 @@ const GROUP_ORDER: AccountGroupTitle[] = [
 
 function getGroupTitle(accountType: number): AccountGroupTitle {
   switch (accountType) {
-    case 6:
-      return 'Azure Subscriptions';
     case 4:
+    case 5:
+    case 9:
+      return 'Azure Accounts';
+    case 6:
+    case 7:
+    case 11:
       return 'AWS Accounts';
     case 1:
       return 'Usernames/Passwords';
     case 3:
       return 'Tokens';
-    case 2:
+    case 8:
       return 'Client Certificates';
-    case 5:
+    case 2:
       return 'SSH Key Pairs';
     default:
       return 'Other Accounts';
@@ -171,34 +175,52 @@ function extractDescription(account: DeploymentAccountLike): string | undefined 
     const username = String(credentials.username ?? '').trim();
     return username ? `Username: ${username}` : undefined;
   }
-  if (account.accountType === 4) {
+  if (account.accountType === 2) {
+    const username = String(credentials.username ?? '').trim();
+    return username ? `Username: ${username}` : undefined;
+  }
+  if (account.accountType === 6 || account.accountType === 7) {
     const accessKey = String(credentials.accessKey ?? '').trim();
     return accessKey ? `Access Key: ${accessKey}` : undefined;
   }
-  if (account.accountType === 6) {
+  if (account.accountType === 5 || account.accountType === 9) {
     const subscriptionNumber = String(credentials.subscriptionNumber ?? '').trim();
     return subscriptionNumber ? `Subscription: ${subscriptionNumber}` : undefined;
+  }
+  if (account.accountType === 10) {
+    const jsonKeyHasValue = Boolean(credentials.jsonKeyHasValue);
+    return jsonKeyHasValue ? 'JSON key file configured' : undefined;
   }
 
   return undefined;
 }
 
 const addAccountMenuLabelByKey: Record<string, string> = {
-  '6': 'Azure Subscription',
-  '4': 'AWS Account',
+  '11': 'AWS OIDC',
+  '10': 'Google Cloud',
+  '9': 'Azure OIDC',
+  '8': 'Client Certificate',
+  '7': 'AWS Role',
+  '6': 'AWS Account',
+  '5': 'Azure Service Principal',
+  '4': 'Azure Subscription',
+  '2': 'SSH Key Pair',
   '1': 'Username/Password',
   '3': 'Token',
-  '2': 'Client Certificate',
-  '5': 'SSH Key Pair',
 };
 
 const addAccountMenuItems: MenuProps['items'] = [
-  { key: '6', label: 'Azure Subscription' },
-  { key: '4', label: 'AWS Account' },
+  { key: '5', label: 'Azure Service Principal' },
+  { key: '6', label: 'AWS Account' },
+  { key: '7', label: 'AWS Role' },
+  { key: '9', label: 'Azure OIDC' },
+  { key: '11', label: 'AWS OIDC' },
+  { key: '10', label: 'Google Cloud' },
   { key: '1', label: 'Username/Password' },
   { key: '3', label: 'Token' },
-  { key: '2', label: 'Client Certificate' },
-  { key: '5', label: 'SSH Key Pair' },
+  { key: '8', label: 'Client Certificate' },
+  { key: '2', label: 'SSH Key Pair' },
+  { key: '4', label: 'Azure Subscription (not supported)' },
 ];
 
 const ScopeChip: React.FC<{ name: string }> = ({ name }) => (
@@ -288,7 +310,7 @@ const AccountsPage: React.FC = () => {
 
   const handleAddMenuClick: MenuProps['onClick'] = ({ key }) => {
     const accountTypeKey = String(key);
-    if (accountTypeKey === '1' || accountTypeKey === '3' || accountTypeKey === '4') {
+    if (accountTypeKey === '1' || accountTypeKey === '2' || accountTypeKey === '3' || accountTypeKey === '5' || accountTypeKey === '6' || accountTypeKey === '10') {
       navigate(`/${space.slug}/infrastructure/accounts/create?accountType=${accountTypeKey}`);
       return;
     }

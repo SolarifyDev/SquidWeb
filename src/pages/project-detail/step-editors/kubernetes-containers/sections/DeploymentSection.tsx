@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { Input, Radio, Button, Modal, message } from 'antd'
+import { Input, Radio, Button, Modal, Select, message } from 'antd'
 import { CopyOutlined, PlusOutlined, CloseOutlined } from '@ant-design/icons'
 import { CollapsibleSection } from '../../shared/CollapsibleSection'
 import { KeyValueListEditor } from '../../shared/KeyValueListEditor'
@@ -8,11 +8,420 @@ import { ContainersSection } from './ContainersSection'
 import { generateDeploymentYaml, getRegistryHost } from '../generateYaml'
 import { parseYamlToState } from '../parseYamlToState'
 import { getExternalFeeds, type ExternalFeedDto } from 'pages/apis/externalFeed'
-import type { ContainersEditorState, HostAlias } from '../types'
+import type { ContainersEditorState, HostAlias, Toleration } from '../types'
 
 interface DeploymentSectionProps {
   state: ContainersEditorState
   updateField: <K extends keyof ContainersEditorState>(field: K, value: ContainersEditorState[K]) => void
+}
+
+type PodAffinityModalTarget = 'podAffinity' | 'podAntiAffinity'
+type PodAffinityRuleType = 'Required' | 'Preferred'
+type InRuleOperation = 'In' | 'NotIn'
+type ExistsRuleOperation = 'Exists' | 'DoesNotExist'
+type NodeAffinityRuleType = 'Required' | 'Preferred'
+type NodeAffinityInOrComparisonOperation = 'In' | 'NotIn' | 'Gt' | 'Lt'
+type NodeAffinityExistsOperation = 'Exists' | 'DoesNotExist'
+
+interface PodAffinityInRule {
+  labelKey: string
+  operation: InRuleOperation
+  labelValues: string
+}
+
+interface PodAffinityExistsRule {
+  labelKey: string
+  operation: ExistsRuleOperation
+}
+
+interface PodAffinityFormState {
+  ruleType: PodAffinityRuleType
+  topologyKey: string
+  namespaces: string
+  inRules: PodAffinityInRule[]
+  existsRules: PodAffinityExistsRule[]
+}
+
+interface NodeAffinityInOrComparisonRule {
+  labelKey: string
+  operation: NodeAffinityInOrComparisonOperation
+  labelValues: string
+}
+
+interface NodeAffinityExistsRule {
+  labelKey: string
+  operation: NodeAffinityExistsOperation
+}
+
+interface NodeAffinityFormState {
+  ruleType: NodeAffinityRuleType
+  inOrComparisonRules: NodeAffinityInOrComparisonRule[]
+  existsRules: NodeAffinityExistsRule[]
+}
+
+interface TolerationFormState {
+  key: string
+  operator: string
+  value: string
+  effect: string
+}
+
+const inRuleOperationOptions = [
+  { label: 'In', value: 'In' },
+  { label: 'Not In', value: 'NotIn' },
+]
+
+const existsRuleOperationOptions = [
+  { label: 'Exists', value: 'Exists' },
+  { label: 'Does Not Exist', value: 'DoesNotExist' },
+]
+
+const nodeAffinityInOrComparisonOperationOptions = [
+  { label: 'In', value: 'In' },
+  { label: 'Not In', value: 'NotIn' },
+  { label: 'Greater Than', value: 'Gt' },
+  { label: 'Less Than', value: 'Lt' },
+]
+
+const nodeAffinityExistsOperationOptions = [
+  { label: 'Exists', value: 'Exists' },
+  { label: 'Does Not Exist', value: 'DoesNotExist' },
+]
+
+const emptyPodAffinityFormState = (): PodAffinityFormState => ({
+  ruleType: 'Required',
+  topologyKey: '',
+  namespaces: '',
+  inRules: [],
+  existsRules: [],
+})
+
+const emptyNodeAffinityFormState = (): NodeAffinityFormState => ({
+  ruleType: 'Required',
+  inOrComparisonRules: [],
+  existsRules: [],
+})
+
+const emptyTolerationFormState = (): TolerationFormState => ({
+  key: '',
+  operator: 'Equal',
+  value: '',
+  effect: '',
+})
+
+const parseCommaSeparatedValues = (input: string): string[] => input.split(',').map((value) => value.trim()).filter(Boolean)
+
+function parsePodAffinityFormState(raw: string): PodAffinityFormState {
+  const fallback = emptyPodAffinityFormState()
+  if (!raw || !raw.trim()) return fallback
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const requiredTerms = Array.isArray(parsed.requiredDuringSchedulingIgnoredDuringExecution)
+      ? parsed.requiredDuringSchedulingIgnoredDuringExecution as Record<string, unknown>[]
+      : []
+    const preferredRules = Array.isArray(parsed.preferredDuringSchedulingIgnoredDuringExecution)
+      ? parsed.preferredDuringSchedulingIgnoredDuringExecution as Record<string, unknown>[]
+      : []
+
+    let ruleType: PodAffinityRuleType = 'Required'
+    let term: Record<string, unknown> | null = null
+
+    if (requiredTerms.length > 0) {
+      ruleType = 'Required'
+      term = requiredTerms[0]
+    } else if (preferredRules.length > 0) {
+      ruleType = 'Preferred'
+      const firstPreferred = preferredRules[0]
+      if (firstPreferred && typeof firstPreferred === 'object' && firstPreferred.podAffinityTerm && typeof firstPreferred.podAffinityTerm === 'object') {
+        term = firstPreferred.podAffinityTerm as Record<string, unknown>
+      } else {
+        term = firstPreferred
+      }
+    }
+
+    if (!term) return fallback
+
+    const topologyKey = String(term.topologyKey ?? '').trim()
+    const namespaces = Array.isArray(term.namespaces) ? (term.namespaces as unknown[]).map((value) => String(value).trim()).filter(Boolean).join(', ') : ''
+    const labelSelector = term.labelSelector && typeof term.labelSelector === 'object' ? term.labelSelector as Record<string, unknown> : null
+    const expressions = Array.isArray(labelSelector?.matchExpressions) ? labelSelector?.matchExpressions as Record<string, unknown>[] : []
+
+    const inRules: PodAffinityInRule[] = []
+    const existsRules: PodAffinityExistsRule[] = []
+
+    for (const expression of expressions) {
+      const labelKey = String(expression.key ?? '').trim()
+      const operator = String(expression.operator ?? '').trim()
+      if (!labelKey || !operator) continue
+      if (operator === 'In' || operator === 'NotIn') {
+        const values = Array.isArray(expression.values) ? (expression.values as unknown[]).map((value) => String(value).trim()).filter(Boolean).join(', ') : ''
+        inRules.push({ labelKey, operation: operator, labelValues: values })
+      } else if (operator === 'Exists' || operator === 'DoesNotExist') {
+        existsRules.push({ labelKey, operation: operator })
+      }
+    }
+
+    return { ruleType, topologyKey, namespaces, inRules, existsRules }
+  } catch {
+    return fallback
+  }
+}
+
+function buildPodAffinityJson(form: PodAffinityFormState): string {
+  const matchExpressions: Array<Record<string, unknown>> = []
+
+  for (const rule of form.inRules) {
+    const labelKey = rule.labelKey.trim()
+    if (!labelKey) continue
+    matchExpressions.push({
+      key: labelKey,
+      operator: rule.operation,
+      values: parseCommaSeparatedValues(rule.labelValues),
+    })
+  }
+
+  for (const rule of form.existsRules) {
+    const labelKey = rule.labelKey.trim()
+    if (!labelKey) continue
+    matchExpressions.push({
+      key: labelKey,
+      operator: rule.operation,
+    })
+  }
+
+  const podAffinityTerm: Record<string, unknown> = {
+    topologyKey: form.topologyKey.trim(),
+  }
+
+  const namespaces = parseCommaSeparatedValues(form.namespaces)
+  if (namespaces.length > 0) podAffinityTerm.namespaces = namespaces
+  if (matchExpressions.length > 0) podAffinityTerm.labelSelector = { matchExpressions }
+
+  if (form.ruleType === 'Required') {
+    return JSON.stringify({
+      requiredDuringSchedulingIgnoredDuringExecution: [podAffinityTerm],
+    }, null, 2)
+  }
+
+  return JSON.stringify({
+    preferredDuringSchedulingIgnoredDuringExecution: [{ weight: 100, podAffinityTerm }],
+  }, null, 2)
+}
+
+function getOperationText(operation: InRuleOperation | ExistsRuleOperation | NodeAffinityInOrComparisonOperation | NodeAffinityExistsOperation): string {
+  if (operation === 'NotIn') return 'not in'
+  if (operation === 'Gt') return 'greater than'
+  if (operation === 'Lt') return 'less than'
+  if (operation === 'DoesNotExist') return 'does not exist'
+  return operation.toLowerCase()
+}
+
+function buildPodAffinitySummary(raw: string): React.ReactNode {
+  if (!raw || !raw.trim()) return 'Affinity rule configured.'
+
+  const form = parsePodAffinityFormState(raw)
+  const hasContent = form.topologyKey.trim() || form.namespaces.trim() || form.inRules.length > 0 || form.existsRules.length > 0
+  if (!hasContent) return 'Affinity rule configured.'
+
+  const readableRules: React.ReactNode[] = []
+
+  form.inRules
+    .filter((rule) => rule.labelKey.trim())
+    .forEach((rule, index) => {
+      readableRules.push(
+        <span key={`in-${index}`}>
+          {readableRules.length > 0 ? '; ' : ''}
+          label key <strong>{rule.labelKey.trim()}</strong> is <strong>{getOperationText(rule.operation)}</strong>
+          {rule.labelValues.trim() ? <> value <strong>{rule.labelValues.trim()}</strong></> : null}
+        </span>,
+      )
+    })
+
+  form.existsRules
+    .filter((rule) => rule.labelKey.trim())
+    .forEach((rule, index) => {
+      readableRules.push(
+        <span key={`exists-${index}`}>
+          {readableRules.length > 0 ? '; ' : ''}
+          label key <strong>{rule.labelKey.trim()}</strong> <strong>{getOperationText(rule.operation)}</strong>
+        </span>,
+      )
+    })
+
+  return (
+    <span>
+      <strong>{form.ruleType}</strong> affinity
+      {form.topologyKey.trim() ? <> matching topology key <strong>{form.topologyKey.trim()}</strong></> : null}
+      {form.namespaces.trim()
+        ? <>, pods in namespace <strong>{form.namespaces.trim()}</strong> where </>
+        : <> where </>}
+      {readableRules.length > 0 ? readableRules : <span>no label rules</span>}
+    </span>
+  )
+}
+
+function parseNodeAffinityFormState(raw: string): NodeAffinityFormState {
+  const fallback = emptyNodeAffinityFormState()
+  if (!raw || !raw.trim()) return fallback
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const required = parsed.requiredDuringSchedulingIgnoredDuringExecution
+    const preferred = parsed.preferredDuringSchedulingIgnoredDuringExecution
+
+    const requiredObject = required && typeof required === 'object' && !Array.isArray(required) ? required as Record<string, unknown> : null
+    const preferredList = Array.isArray(preferred) ? preferred as Record<string, unknown>[] : []
+
+    let ruleType: NodeAffinityRuleType = 'Required'
+    let term: Record<string, unknown> | null = null
+
+    const requiredTerms = requiredObject?.nodeSelectorTerms
+    if (Array.isArray(requiredTerms) && requiredTerms.length > 0 && requiredTerms[0] && typeof requiredTerms[0] === 'object') {
+      ruleType = 'Required'
+      term = requiredTerms[0] as Record<string, unknown>
+    } else if (preferredList.length > 0) {
+      ruleType = 'Preferred'
+      const firstPreferred = preferredList[0]
+      if (firstPreferred && typeof firstPreferred === 'object' && firstPreferred.preference && typeof firstPreferred.preference === 'object') {
+        term = firstPreferred.preference as Record<string, unknown>
+      }
+    }
+
+    if (!term) return fallback
+
+    const expressions = Array.isArray(term.matchExpressions) ? term.matchExpressions as Record<string, unknown>[] : []
+    const inOrComparisonRules: NodeAffinityInOrComparisonRule[] = []
+    const existsRules: NodeAffinityExistsRule[] = []
+
+    for (const expression of expressions) {
+      const labelKey = String(expression.key ?? '').trim()
+      const operator = String(expression.operator ?? '').trim()
+      if (!labelKey || !operator) continue
+      if (operator === 'In' || operator === 'NotIn' || operator === 'Gt' || operator === 'Lt') {
+        const values = Array.isArray(expression.values)
+          ? (expression.values as unknown[]).map((value) => String(value).trim()).filter(Boolean).join(', ')
+          : ''
+        inOrComparisonRules.push({ labelKey, operation: operator, labelValues: values })
+      } else if (operator === 'Exists' || operator === 'DoesNotExist') {
+        existsRules.push({ labelKey, operation: operator })
+      }
+    }
+
+    return { ruleType, inOrComparisonRules, existsRules }
+  } catch {
+    return fallback
+  }
+}
+
+function buildNodeAffinityJson(form: NodeAffinityFormState): string {
+  const matchExpressions: Array<Record<string, unknown>> = []
+
+  for (const rule of form.inOrComparisonRules) {
+    const labelKey = rule.labelKey.trim()
+    if (!labelKey) continue
+
+    const values = parseCommaSeparatedValues(rule.labelValues)
+    if (rule.operation === 'Gt' || rule.operation === 'Lt') {
+      const first = values[0]
+      if (!first) continue
+      matchExpressions.push({
+        key: labelKey,
+        operator: rule.operation,
+        values: [first],
+      })
+      continue
+    }
+
+    matchExpressions.push({
+      key: labelKey,
+      operator: rule.operation,
+      values,
+    })
+  }
+
+  for (const rule of form.existsRules) {
+    const labelKey = rule.labelKey.trim()
+    if (!labelKey) continue
+    matchExpressions.push({
+      key: labelKey,
+      operator: rule.operation,
+    })
+  }
+
+  if (form.ruleType === 'Required') {
+    return JSON.stringify({
+      requiredDuringSchedulingIgnoredDuringExecution: {
+        nodeSelectorTerms: [{ matchExpressions }],
+      },
+    }, null, 2)
+  }
+
+  return JSON.stringify({
+    preferredDuringSchedulingIgnoredDuringExecution: [{
+      weight: 100,
+      preference: { matchExpressions },
+    }],
+  }, null, 2)
+}
+
+function buildNodeAffinitySummary(raw: string): React.ReactNode {
+  if (!raw || !raw.trim()) return 'Node affinity rule configured.'
+
+  const form = parseNodeAffinityFormState(raw)
+  const hasContent = form.inOrComparisonRules.length > 0 || form.existsRules.length > 0
+  if (!hasContent) return 'Node affinity rule configured.'
+
+  const readableRules: React.ReactNode[] = []
+
+  form.inOrComparisonRules
+    .filter((rule) => rule.labelKey.trim())
+    .forEach((rule, index) => {
+      const operationText = getOperationText(rule.operation)
+      const valuesText = rule.labelValues.trim()
+      readableRules.push(
+        <span key={`node-in-${index}`}>
+          {readableRules.length > 0 ? '; ' : ''}
+          label key <strong>{rule.labelKey.trim()}</strong> is <strong>{operationText}</strong>
+          {valuesText ? <> value <strong>{valuesText}</strong></> : null}
+        </span>,
+      )
+    })
+
+  form.existsRules
+    .filter((rule) => rule.labelKey.trim())
+    .forEach((rule, index) => {
+      readableRules.push(
+        <span key={`node-exists-${index}`}>
+          {readableRules.length > 0 ? '; ' : ''}
+          label key <strong>{rule.labelKey.trim()}</strong> <strong>{getOperationText(rule.operation)}</strong>
+        </span>,
+      )
+    })
+
+  return (
+    <span>
+      <strong>{form.ruleType}</strong> node affinity where{' '}
+      {readableRules.length > 0 ? readableRules : <span>no label rules</span>}
+    </span>
+  )
+}
+
+function buildTolerationSummary(toleration: Toleration): React.ReactNode {
+  const key = toleration.key?.trim()
+  const operator = toleration.operator?.trim()
+  const value = toleration.value?.trim()
+  const effect = toleration.effect?.trim()
+
+  return (
+    <span>
+      Toleration
+      {key ? <> key <strong>{key}</strong></> : null}
+      {operator ? <> with operator <strong>{operator}</strong></> : null}
+      {value ? <> and value <strong>{value}</strong></> : null}
+      {effect ? <> for effect <strong>{effect}</strong></> : null}
+    </span>
+  )
 }
 
 function EditYamlSubSection({ state, onApply }: { state: ContainersEditorState; onApply: (partial: Partial<ContainersEditorState>) => void }) {
@@ -153,8 +562,189 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
     updateField('sysctls', state.sysctls.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
   }
 
-  const updateToleration = (index: number, field: 'key' | 'operator' | 'value' | 'effect', value: string) => {
-    updateField('tolerations', state.tolerations.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
+  const addHostAlias = () => {
+    updateField('hostAliases', [...state.hostAliases, { ip: '', hostnames: '' }])
+  }
+
+  const updateHostAlias = (index: number, field: keyof HostAlias, value: string) => {
+    updateField('hostAliases', state.hostAliases.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
+  }
+
+  const removeHostAlias = (index: number) => {
+    updateField('hostAliases', state.hostAliases.filter((_, i) => i !== index))
+  }
+
+  const insertVariable = () => {
+    message.info('Insert Variable is not available yet')
+  }
+
+  const [podAffinityModalOpen, setPodAffinityModalOpen] = useState(false)
+  const [podAffinityModalTarget, setPodAffinityModalTarget] = useState<PodAffinityModalTarget>('podAffinity')
+  const [podAffinityForm, setPodAffinityForm] = useState<PodAffinityFormState>(emptyPodAffinityFormState)
+  const podAffinitySummary = useMemo(() => buildPodAffinitySummary(state.podAffinity), [state.podAffinity])
+  const podAntiAffinitySummary = useMemo(() => buildPodAffinitySummary(state.podAntiAffinity), [state.podAntiAffinity])
+  const [nodeAffinityModalOpen, setNodeAffinityModalOpen] = useState(false)
+  const [nodeAffinityForm, setNodeAffinityForm] = useState<NodeAffinityFormState>(emptyNodeAffinityFormState)
+  const nodeAffinitySummary = useMemo(() => buildNodeAffinitySummary(state.nodeAffinity), [state.nodeAffinity])
+  const [tolerationModalOpen, setTolerationModalOpen] = useState(false)
+  const [tolerationEditIndex, setTolerationEditIndex] = useState<number | null>(null)
+  const [tolerationForm, setTolerationForm] = useState<TolerationFormState>(emptyTolerationFormState)
+
+  const openPodAffinityModal = (target: PodAffinityModalTarget) => {
+    setPodAffinityModalTarget(target)
+    const currentRaw = target === 'podAffinity' ? state.podAffinity : state.podAntiAffinity
+    setPodAffinityForm(parsePodAffinityFormState(currentRaw))
+    setPodAffinityModalOpen(true)
+  }
+
+  const updatePodAffinityForm = <K extends keyof PodAffinityFormState>(field: K, value: PodAffinityFormState[K]) => {
+    setPodAffinityForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const updatePodAffinityInRule = (index: number, field: keyof PodAffinityInRule, value: string) => {
+    setPodAffinityForm((prev) => ({ ...prev, inRules: prev.inRules.map((rule, i) => (i === index ? { ...rule, [field]: value } : rule)) }))
+  }
+
+  const updatePodAffinityExistsRule = (index: number, field: keyof PodAffinityExistsRule, value: string) => {
+    setPodAffinityForm((prev) => ({ ...prev, existsRules: prev.existsRules.map((rule, i) => (i === index ? { ...rule, [field]: value } : rule)) }))
+  }
+
+  const removePodAffinityInRule = (index: number) => {
+    setPodAffinityForm((prev) => ({ ...prev, inRules: prev.inRules.filter((_, i) => i !== index) }))
+  }
+
+  const removePodAffinityExistsRule = (index: number) => {
+    setPodAffinityForm((prev) => ({ ...prev, existsRules: prev.existsRules.filter((_, i) => i !== index) }))
+  }
+
+  const handleSavePodAffinityModal = () => {
+    if (!podAffinityForm.topologyKey.trim()) {
+      message.error('Topology key is required')
+      return
+    }
+    const nextJson = buildPodAffinityJson(podAffinityForm)
+    if (podAffinityModalTarget === 'podAffinity') {
+      updateField('podAffinity', nextJson)
+    } else {
+      updateField('podAntiAffinity', nextJson)
+    }
+    setPodAffinityModalOpen(false)
+  }
+
+  const openNodeAffinityModal = () => {
+    setNodeAffinityForm(parseNodeAffinityFormState(state.nodeAffinity))
+    setNodeAffinityModalOpen(true)
+  }
+
+  const updateNodeAffinityForm = <K extends keyof NodeAffinityFormState>(field: K, value: NodeAffinityFormState[K]) => {
+    setNodeAffinityForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const updateNodeAffinityInOrComparisonRule = (index: number, field: keyof NodeAffinityInOrComparisonRule, value: string) => {
+    setNodeAffinityForm((prev) => ({
+      ...prev,
+      inOrComparisonRules: prev.inOrComparisonRules.map((rule, i) => (i === index ? { ...rule, [field]: value } : rule)),
+    }))
+  }
+
+  const updateNodeAffinityExistsRule = (index: number, field: keyof NodeAffinityExistsRule, value: string) => {
+    setNodeAffinityForm((prev) => ({
+      ...prev,
+      existsRules: prev.existsRules.map((rule, i) => (i === index ? { ...rule, [field]: value } : rule)),
+    }))
+  }
+
+  const removeNodeAffinityInOrComparisonRule = (index: number) => {
+    setNodeAffinityForm((prev) => ({
+      ...prev,
+      inOrComparisonRules: prev.inOrComparisonRules.filter((_, i) => i !== index),
+    }))
+  }
+
+  const removeNodeAffinityExistsRule = (index: number) => {
+    setNodeAffinityForm((prev) => ({
+      ...prev,
+      existsRules: prev.existsRules.filter((_, i) => i !== index),
+    }))
+  }
+
+  const handleSaveNodeAffinityModal = () => {
+    const validInOrComparisonRules = nodeAffinityForm.inOrComparisonRules.filter((rule) => rule.labelKey.trim())
+    const validExistsRules = nodeAffinityForm.existsRules.filter((rule) => rule.labelKey.trim())
+
+    if (validInOrComparisonRules.length === 0 && validExistsRules.length === 0) {
+      message.error('At least one node affinity rule is required')
+      return
+    }
+
+    for (const rule of validInOrComparisonRules) {
+      const values = parseCommaSeparatedValues(rule.labelValues)
+      if (rule.operation === 'Gt' || rule.operation === 'Lt') {
+        if (values.length !== 1) {
+          message.error('Greater/Less than rules require exactly one label value')
+          return
+        }
+        continue
+      }
+
+      if (values.length === 0) {
+        message.error('In/Not In rules require at least one label value')
+        return
+      }
+    }
+
+    updateField('nodeAffinity', buildNodeAffinityJson(nodeAffinityForm))
+    setNodeAffinityModalOpen(false)
+  }
+
+  const openAddTolerationModal = () => {
+    setTolerationEditIndex(null)
+    setTolerationForm(emptyTolerationFormState())
+    setTolerationModalOpen(true)
+  }
+
+  const openEditTolerationModal = (index: number) => {
+    const current = state.tolerations[index]
+    if (!current) return
+    setTolerationEditIndex(index)
+    setTolerationForm({
+      key: current.key ?? '',
+      operator: current.operator ?? '',
+      value: current.value ?? '',
+      effect: current.effect ?? '',
+    })
+    setTolerationModalOpen(true)
+  }
+
+  const updateTolerationForm = <K extends keyof TolerationFormState>(field: K, value: TolerationFormState[K]) => {
+    setTolerationForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleSaveTolerationModal = () => {
+    const normalized: Toleration = {
+      key: tolerationForm.key.trim(),
+      operator: tolerationForm.operator.trim(),
+      value: tolerationForm.value.trim(),
+      effect: tolerationForm.effect.trim(),
+    }
+
+    if (!normalized.key) {
+      message.error('Key is required')
+      return
+    }
+
+    if (!normalized.operator) {
+      message.error('Operator is required')
+      return
+    }
+
+    if (tolerationEditIndex == null) {
+      updateField('tolerations', [...state.tolerations, normalized])
+    } else {
+      updateField('tolerations', state.tolerations.map((item, index) => (index === tolerationEditIndex ? normalized : item)))
+    }
+
+    setTolerationModalOpen(false)
   }
 
   return (
@@ -311,7 +901,7 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => updateField('hostAliases', [...state.hostAliases, { ip: '', hostnames: '' }])}
+            onClick={addHostAlias}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
           >
             <PlusOutlined style={{ fontSize: 11 }} />
@@ -319,21 +909,64 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           </button>
         </div>
         {state.hostAliases.length > 0 && (
-          <div className="space-y-2">
+          <ul className="space-y-2">
             {state.hostAliases.map((alias, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Input size="small" placeholder="IP address" value={alias.ip} onChange={(e) => updateField('hostAliases', state.hostAliases.map((a, j) => j === i ? { ...a, ip: e.target.value } : a))} style={{ width: 140 }} />
-                <Input size="small" placeholder="Hostnames (space-separated)" value={alias.hostnames} onChange={(e) => updateField('hostAliases', state.hostAliases.map((a, j) => j === i ? { ...a, hostnames: e.target.value } : a))} className="flex-1" />
-                <button
-                  type="button"
-                  onClick={() => updateField('hostAliases', state.hostAliases.filter((_, j) => j !== i))}
-                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                >
-                  <CloseOutlined style={{ fontSize: 13 }} />
-                </button>
-              </div>
+              <li key={i} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">IP</label>
+                      <div className="flex items-end gap-1">
+                        <Input
+                          size="small"
+                          value={alias.ip}
+                          onChange={(e) => updateHostAlias(i, 'ip', e.target.value)}
+                          placeholder=""
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                          aria-label="Insert Variable"
+                          onClick={insertVariable}
+                        >
+                          <span className="text-[10px] font-semibold">{'{ }'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Host names, a comma separated list</label>
+                      <div className="flex items-end gap-1">
+                        <Input
+                          size="small"
+                          value={alias.hostnames}
+                          onChange={(e) => updateHostAlias(i, 'hostnames', e.target.value)}
+                          placeholder=""
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                          aria-label="Insert Variable"
+                          onClick={insertVariable}
+                        >
+                          <span className="text-[10px] font-semibold">{'{ }'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeHostAlias(i)}
+                    className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    aria-label="Cancel"
+                  >
+                    <CloseOutlined style={{ fontSize: 13 }} />
+                  </button>
+                </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </CollapsibleSection>
 
@@ -721,76 +1354,88 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
         subtitle="Define the pod affinity or anti-affinity that determines where the pod resources created by this deployment resource will be placed."
         defaultOpen
       >
-        <div>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => updateField('podAffinity', state.podAffinity || '{}')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-            >
-              <PlusOutlined style={{ fontSize: 11 }} />
-              Add Pod Affinity
-            </button>
-          </div>
+        <div className="space-y-3">
+          <div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => openPodAffinityModal('podAffinity')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+              >
+                <PlusOutlined style={{ fontSize: 11 }} />
+                Add Pod Affinity
+              </button>
+            </div>
 
-          {state.podAffinity && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-slate-600">Pod affinity (JSON)</label>
+            {state.podAffinity && (
+              <div
+                className="mt-2 flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => openPodAffinityModal('podAffinity')}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openPodAffinityModal('podAffinity')
+                  }
+                }}
+              >
+                <span className="text-xs text-slate-600 leading-relaxed">{podAffinitySummary}</span>
                 <button
                   type="button"
-                  onClick={() => updateField('podAffinity', '')}
-                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    updateField('podAffinity', '')
+                  }}
+                  className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                   aria-label="Remove pod affinity"
                 >
                   <CloseOutlined style={{ fontSize: 13 }} />
                 </button>
               </div>
-              <Input.TextArea
-                size="small"
-                rows={4}
-                value={state.podAffinity}
-                onChange={(e) => updateField('podAffinity', e.target.value)}
-                placeholder='{"requiredDuringSchedulingIgnoredDuringExecution": []}'
-              />
-            </div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => updateField('podAntiAffinity', state.podAntiAffinity || '{}')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-            >
-              <PlusOutlined style={{ fontSize: 11 }} />
-              Add Pod Anti-Affinity
-            </button>
+            )}
           </div>
 
-          {state.podAntiAffinity && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-slate-600">Pod anti-affinity (JSON)</label>
+          <div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => openPodAffinityModal('podAntiAffinity')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+              >
+                <PlusOutlined style={{ fontSize: 11 }} />
+                Add Pod Anti-Affinity
+              </button>
+            </div>
+
+            {state.podAntiAffinity && (
+              <div
+                className="mt-2 flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => openPodAffinityModal('podAntiAffinity')}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openPodAffinityModal('podAntiAffinity')
+                  }
+                }}
+              >
+                <span className="text-xs text-slate-600 leading-relaxed">{podAntiAffinitySummary}</span>
                 <button
                   type="button"
-                  onClick={() => updateField('podAntiAffinity', '')}
-                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    updateField('podAntiAffinity', '')
+                  }}
+                  className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                   aria-label="Remove pod anti-affinity"
                 >
                   <CloseOutlined style={{ fontSize: 13 }} />
                 </button>
               </div>
-              <Input.TextArea
-                size="small"
-                rows={4}
-                value={state.podAntiAffinity}
-                onChange={(e) => updateField('podAntiAffinity', e.target.value)}
-                placeholder='{"requiredDuringSchedulingIgnoredDuringExecution": []}'
-              />
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed mb-0">
@@ -805,6 +1450,237 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           </a>
           .
         </p>
+
+        <Modal
+          title={podAffinityModalTarget === 'podAffinity' ? 'Define Pod Affinity Rule' : 'Define Pod Anti-Affinity Rule'}
+          open={podAffinityModalOpen}
+          onCancel={() => setPodAffinityModalOpen(false)}
+          onOk={handleSavePodAffinityModal}
+          okText="Ok"
+          cancelText="Cancel"
+          width={920}
+        >
+          <div className="space-y-4">
+            <div>
+              <Radio.Group
+                value={podAffinityForm.ruleType}
+                onChange={(e) => updatePodAffinityForm('ruleType', e.target.value)}
+                className="flex flex-col gap-2"
+              >
+                <Radio value="Required"><span className="text-sm">Required</span></Radio>
+                <Radio value="Preferred"><span className="text-sm">Preferred</span></Radio>
+              </Radio.Group>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                A required affinity rule must be met for the pod to be deployed. A preferred affinity rule will attempt to be satisfied, but if not the pod will still be deployed.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Topology key</label>
+              <div className="flex items-end gap-1">
+                <Input
+                  size="small"
+                  value={podAffinityForm.topologyKey}
+                  onChange={(e) => updatePodAffinityForm('topologyKey', e.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
+                >
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                Each node must have a label with the key <code className="text-xs bg-slate-100 px-1 rounded">topologyKey</code>. Matching nodes are then inspected for pods to match with the affinity rules below.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Namespaces</label>
+              <div className="flex items-end gap-1">
+                <Input
+                  size="small"
+                  value={podAffinityForm.namespaces}
+                  onChange={(e) => updatePodAffinityForm('namespaces', e.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
+                >
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                A comma separated list of namespaces that pods must be in to be matched with the affinity rules below. Leave this field empty to match pods in the same namespace as the deployment resource.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => updatePodAffinityForm('inRules', [...podAffinityForm.inRules, { labelKey: '', operation: 'In', labelValues: '' }])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  <PlusOutlined style={{ fontSize: 11 }} />
+                  Add In Rule
+                </button>
+              </div>
+
+              {podAffinityForm.inRules.length > 0 && (
+                <ul className="space-y-2">
+                  {podAffinityForm.inRules.map((rule, index) => (
+                    <li key={`in-rule-${index}`} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label key</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelKey}
+                                onChange={(e) => updatePodAffinityInRule(index, 'labelKey', e.target.value)}
+                                placeholder=""
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Operation</label>
+                            <div className="flex items-end gap-1">
+                              <Select
+                                size="small"
+                                value={rule.operation}
+                                options={inRuleOperationOptions}
+                                onChange={(value: InRuleOperation) => updatePodAffinityInRule(index, 'operation', value)}
+                                className="flex-1"
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Bind"
+                              >
+                                <span className="text-[10px] font-semibold">{'<' + '>'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label values</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelValues}
+                                onChange={(e) => updatePodAffinityInRule(index, 'labelValues', e.target.value)}
+                                placeholder="Comma separated label values"
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => removePodAffinityInRule(index)}
+                          className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          aria-label="Cancel"
+                        >
+                          <CloseOutlined style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => updatePodAffinityForm('existsRules', [...podAffinityForm.existsRules, { labelKey: '', operation: 'Exists' }])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  <PlusOutlined style={{ fontSize: 11 }} />
+                  Add Exists Rule
+                </button>
+              </div>
+
+              {podAffinityForm.existsRules.length > 0 && (
+                <ul className="space-y-2">
+                  {podAffinityForm.existsRules.map((rule, index) => (
+                    <li key={`exists-rule-${index}`} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label key</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelKey}
+                                onChange={(e) => updatePodAffinityExistsRule(index, 'labelKey', e.target.value)}
+                                placeholder=""
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Operation</label>
+                            <Select
+                              size="small"
+                              value={rule.operation}
+                              options={existsRuleOperationOptions}
+                              onChange={(value: ExistsRuleOperation) => updatePodAffinityExistsRule(index, 'operation', value)}
+                              className="w-full"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => removePodAffinityExistsRule(index)}
+                          className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          aria-label="Cancel"
+                        >
+                          <CloseOutlined style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Modal>
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -812,11 +1688,11 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
         subtitle="Define the node affinity that determines where the pod resources created by this deployment resource will be placed."
         defaultOpen
       >
-        <div>
+        <div className="space-y-3">
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => updateField('nodeAffinity', state.nodeAffinity || '{}')}
+              onClick={openNodeAffinityModal}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
             >
               <PlusOutlined style={{ fontSize: 11 }} />
@@ -825,25 +1701,30 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           </div>
 
           {state.nodeAffinity && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-slate-600">Node affinity (JSON)</label>
-                <button
-                  type="button"
-                  onClick={() => updateField('nodeAffinity', '')}
-                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                  aria-label="Remove node affinity"
-                >
-                  <CloseOutlined style={{ fontSize: 13 }} />
-                </button>
-              </div>
-              <Input.TextArea
-                size="small"
-                rows={4}
-                value={state.nodeAffinity}
-                onChange={(e) => updateField('nodeAffinity', e.target.value)}
-                placeholder='{"requiredDuringSchedulingIgnoredDuringExecution": []}'
-              />
+            <div
+              className="flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+              onClick={openNodeAffinityModal}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  openNodeAffinityModal()
+                }
+              }}
+            >
+              <span className="text-xs text-slate-600 leading-relaxed">{nodeAffinitySummary}</span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  updateField('nodeAffinity', '')
+                }}
+                className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                aria-label="Remove node affinity"
+              >
+                <CloseOutlined style={{ fontSize: 13 }} />
+              </button>
             </div>
           )}
         </div>
@@ -853,6 +1734,200 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           In effect this means the <code className="text-xs bg-slate-100 px-1 rounded">Required</code> rules are combined with the boolean &quot;or&quot; operator.
           <code className="text-xs bg-slate-100 px-1 rounded">Preferred</code> rules will attempt to be satisfied, but if not the pods will still be scheduled.
         </p>
+
+        <Modal
+          title="Define Node Affinity Rule"
+          open={nodeAffinityModalOpen}
+          onCancel={() => setNodeAffinityModalOpen(false)}
+          onOk={handleSaveNodeAffinityModal}
+          okText="Ok"
+          cancelText="Cancel"
+          width={920}
+        >
+          <div className="space-y-4">
+            <div>
+              <Radio.Group
+                value={nodeAffinityForm.ruleType}
+                onChange={(e) => updateNodeAffinityForm('ruleType', e.target.value)}
+                className="flex flex-col gap-2"
+              >
+                <Radio value="Required"><span className="text-sm">Required</span></Radio>
+                <Radio value="Preferred"><span className="text-sm">Preferred</span></Radio>
+              </Radio.Group>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                All required affinity rules must be satisfied for the node to be deployed. Preferred affinity rules will attempt to be satisfied, but if not the pod will still be deployed.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => updateNodeAffinityForm('inOrComparisonRules', [...nodeAffinityForm.inOrComparisonRules, { labelKey: '', operation: 'In', labelValues: '' }])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  <PlusOutlined style={{ fontSize: 11 }} />
+                  Add In or Comparision Rule
+                </button>
+              </div>
+
+              {nodeAffinityForm.inOrComparisonRules.length > 0 && (
+                <ul className="space-y-2">
+                  {nodeAffinityForm.inOrComparisonRules.map((rule, index) => (
+                    <li key={`node-in-rule-${index}`} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label key</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelKey}
+                                onChange={(e) => updateNodeAffinityInOrComparisonRule(index, 'labelKey', e.target.value)}
+                                placeholder=""
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Operation</label>
+                            <div className="flex items-end gap-1">
+                              <Select
+                                size="small"
+                                value={rule.operation}
+                                options={nodeAffinityInOrComparisonOperationOptions}
+                                onChange={(value: NodeAffinityInOrComparisonOperation) => updateNodeAffinityInOrComparisonRule(index, 'operation', value)}
+                                className="flex-1"
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Bind"
+                              >
+                                <span className="text-[10px] font-semibold">{'<' + '>'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label values</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelValues}
+                                onChange={(e) => updateNodeAffinityInOrComparisonRule(index, 'labelValues', e.target.value)}
+                                placeholder="Comma separated label values"
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => removeNodeAffinityInOrComparisonRule(index)}
+                          className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          aria-label="Cancel"
+                        >
+                          <CloseOutlined style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => updateNodeAffinityForm('existsRules', [...nodeAffinityForm.existsRules, { labelKey: '', operation: 'Exists' }])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+                >
+                  <PlusOutlined style={{ fontSize: 11 }} />
+                  Add Exists Rule
+                </button>
+              </div>
+
+              {nodeAffinityForm.existsRules.length > 0 && (
+                <ul className="space-y-2">
+                  {nodeAffinityForm.existsRules.map((rule, index) => (
+                    <li key={`node-exists-rule-${index}`} className="border border-slate-200 rounded px-4 py-3 bg-white">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Label key</label>
+                            <div className="flex items-end gap-1">
+                              <Input
+                                size="small"
+                                value={rule.labelKey}
+                                onChange={(e) => updateNodeAffinityExistsRule(index, 'labelKey', e.target.value)}
+                                placeholder=""
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Insert Variable"
+                                onClick={insertVariable}
+                              >
+                                <span className="text-[10px] font-semibold">{'{ }'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Operation</label>
+                            <div className="flex items-end gap-1">
+                              <Select
+                                size="small"
+                                value={rule.operation}
+                                options={nodeAffinityExistsOperationOptions}
+                                onChange={(value: NodeAffinityExistsOperation) => updateNodeAffinityExistsRule(index, 'operation', value)}
+                                className="flex-1"
+                              />
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                aria-label="Bind"
+                              >
+                                <span className="text-[10px] font-semibold">{'<' + '>'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => removeNodeAffinityExistsRule(index)}
+                          className="inline-flex items-center justify-center self-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          aria-label="Cancel"
+                        >
+                          <CloseOutlined style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Modal>
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -860,61 +1935,171 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
         subtitle="Add tolerations to allow pod resources to be scheduled on tainted nodes"
         defaultOpen
       >
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => updateField('tolerations', [...state.tolerations, { key: '', operator: 'Equal', value: '', effect: '' }])}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
-          >
-            <PlusOutlined style={{ fontSize: 11 }} />
-            Add Toleration
-          </button>
+        <div className="space-y-3">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={openAddTolerationModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+            >
+              <PlusOutlined style={{ fontSize: 11 }} />
+              Add Toleration
+            </button>
+          </div>
+
+          {state.tolerations.length > 0 && (
+            <ul className="space-y-2">
+              {state.tolerations.map((tol, index) => (
+                <li
+                  key={index}
+                  className="flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+                  onClick={() => openEditTolerationModal(index)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openEditTolerationModal(index)
+                    }
+                  }}
+                >
+                  <span className="text-xs text-slate-600 leading-relaxed">{buildTolerationSummary(tol)}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      updateField('tolerations', state.tolerations.filter((_, i) => i !== index))
+                    }}
+                    className="inline-flex items-center justify-center w-7 h-7 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    aria-label="Remove toleration"
+                  >
+                    <CloseOutlined style={{ fontSize: 13 }} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        {state.tolerations.length > 0 && (
-          <div className="space-y-2">
-            {state.tolerations.map((tol, index) => (
-              <div key={index} className="flex items-center gap-2 p-2 border border-slate-200 rounded">
+        <Modal
+          title="Define Toleration"
+          open={tolerationModalOpen}
+          onCancel={() => setTolerationModalOpen(false)}
+          onOk={handleSaveTolerationModal}
+          okText="Ok"
+          cancelText="Cancel"
+          width={920}
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500 leading-relaxed mb-0">
+              See{' '}
+              <a
+                href="https://oc.to/KubernetesTolerations"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
+              >
+                Kubernetes taints and tolerations documentation
+              </a>{' '}
+              for details of how to configure tolerations.
+            </p>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Key</label>
+              <div className="flex items-end gap-1">
                 <Input
                   size="small"
-                  placeholder="Key"
-                  value={tol.key}
-                  onChange={(e) => updateToleration(index, 'key', e.target.value)}
-                  className="flex-1"
-                />
-                <Input
-                  size="small"
-                  placeholder="Operator"
-                  value={tol.operator}
-                  onChange={(e) => updateToleration(index, 'operator', e.target.value)}
-                  style={{ width: 120 }}
-                />
-                <Input
-                  size="small"
-                  placeholder="Value"
-                  value={tol.value}
-                  onChange={(e) => updateToleration(index, 'value', e.target.value)}
-                  className="flex-1"
-                />
-                <Input
-                  size="small"
-                  placeholder="Effect"
-                  value={tol.effect}
-                  onChange={(e) => updateToleration(index, 'effect', e.target.value)}
-                  style={{ width: 130 }}
+                  value={tolerationForm.key}
+                  onChange={(e) => updateTolerationForm('key', e.target.value)}
+                  placeholder=""
                 />
                 <button
                   type="button"
-                  onClick={() => updateField('tolerations', state.tolerations.filter((_, i) => i !== index))}
-                  className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                  aria-label="Remove toleration"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
                 >
-                  <CloseOutlined style={{ fontSize: 13 }} />
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
                 </button>
               </div>
-            ))}
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">The key of the taint to tolerate.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Operator</label>
+              <div className="flex items-end gap-1">
+                <Input
+                  size="small"
+                  value={tolerationForm.operator}
+                  onChange={(e) => updateTolerationForm('operator', e.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
+                >
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                Operators are <code className="text-xs bg-slate-100 px-1 rounded">Exists</code> or <code className="text-xs bg-slate-100 px-1 rounded">Equal</code>.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Value</label>
+              <div className="flex items-end gap-1">
+                <Input
+                  size="small"
+                  value={tolerationForm.value}
+                  onChange={(e) => updateTolerationForm('value', e.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
+                >
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                Value should only be set if operator is <code className="text-xs bg-slate-100 px-1 rounded">Equal</code>.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Effect</label>
+              <div className="flex items-end gap-1">
+                <Input
+                  size="small"
+                  value={tolerationForm.effect}
+                  onChange={(e) => updateTolerationForm('effect', e.target.value)}
+                  placeholder=""
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                  aria-label="Insert Variable"
+                  onClick={insertVariable}
+                >
+                  <span className="text-[10px] font-semibold">{'{ }'}</span>
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                Effects are:
+                <ul className="list-disc pl-4 mt-1 mb-0">
+                  <li><code className="text-xs bg-slate-100 px-1 rounded">NoSchedule</code></li>
+                  <li><code className="text-xs bg-slate-100 px-1 rounded">PreferNoSchedule</code></li>
+                  <li><code className="text-xs bg-slate-100 px-1 rounded">NoExecute</code></li>
+                </ul>
+              </div>
+            </div>
           </div>
-        )}
+        </Modal>
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -926,6 +2111,7 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           items={state.podAnnotations}
           onChange={(v) => updateField('podAnnotations', v)}
           addLabel="Add Annotation"
+          layout="octopus"
         />
       </CollapsibleSection>
 
@@ -938,6 +2124,7 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
           items={state.deploymentAnnotations}
           onChange={(v) => updateField('deploymentAnnotations', v)}
           addLabel="Add Annotation"
+          layout="octopus"
         />
       </CollapsibleSection>
 

@@ -2,12 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Spin } from 'antd'
 import { FilterOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link as RouterLink, useParams } from 'react-router-dom'
+import { getChannels, type ChannelDto } from 'pages/apis/channel'
+import { getDeploymentSteps, type DeploymentStepDto } from 'pages/apis/deploymentProcess'
+import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
+import { getMachines, type MachineDto } from 'pages/apis/machine'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import {
   GetVariableSet,
   GetVariableSets,
+  VariableScopeType,
   VariableSetOwnerType,
   type VariableDto,
+  type VariableScopeDto,
   type VariableSetDto,
 } from 'pages/apis/variableSet'
 
@@ -16,7 +22,7 @@ interface AllVariableRow {
   name: string
   value: string
   isSensitive: boolean
-  scopes: string[]
+  scopes: VariableScopeDto[]
   sourceLabel: string
   sourceHref?: string
   sortOrder: number
@@ -30,14 +36,39 @@ const getDisplayName = (set: VariableSetDto) => {
   return name || `Variable Set #${set.id}`
 }
 
-const getScopeValues = (variable: VariableDto) =>
-  Array.from(
-    new Set(
-      (variable.scopes ?? [])
-        .map((s) => s.scopeValue?.trim())
-        .filter((value): value is string => !!value),
-    ),
-  )
+const normalizeText = (value: string | number | null | undefined) => String(value ?? '').trim().toLowerCase()
+
+const toIdFromScope = (scopeValue: string): number | null => {
+  const parsed = Number(scopeValue)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatActionScopeLabel(stepOrder: number, stepName: string, actionName: string, actionId: number): string {
+  const normalizedStepName = (stepName ?? '').trim()
+  const normalizedActionName = (actionName ?? '').trim()
+  const safeStepOrder = Number.isFinite(stepOrder) && stepOrder > 0 ? stepOrder : 0
+  const orderPrefix = safeStepOrder > 0 ? `${safeStepOrder}. ` : ''
+
+  if (!normalizedActionName || normalizedActionName.toLowerCase() === normalizedStepName.toLowerCase()) {
+    return `${orderPrefix}${normalizedStepName || `Action #${actionId}`}`.trim()
+  }
+
+  if (!normalizedStepName) return `${orderPrefix}${normalizedActionName}`.trim()
+  return `${orderPrefix}${normalizedStepName} / ${normalizedActionName}`.trim()
+}
+
+const getScopes = (variable: VariableDto) => {
+  const deduped = new Map<string, VariableScopeDto>()
+
+  for (const scope of (variable.scopes ?? [])) {
+    const scopeValue = (scope.scopeValue ?? '').trim()
+    const dedupeKey = `${scope.scopeType}:${scopeValue}`
+    if (deduped.has(dedupeKey)) continue
+    deduped.set(dedupeKey, { ...scope, scopeValue })
+  }
+
+  return Array.from(deduped.values())
+}
 
 const sanitizeVariables = (
   variables: VariableDto[],
@@ -75,6 +106,10 @@ const ProjectAllVariables: React.FC = () => {
 
   const [loading, setLoading] = useState(false)
   const [project, setProject] = useState<ProjectDto | null>(null)
+  const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
+  const [steps, setSteps] = useState<DeploymentStepDto[]>([])
+  const [machines, setMachines] = useState<MachineDto[]>([])
   const [rows, setRows] = useState<AllVariableRow[]>([])
   const [searchText, setSearchText] = useState('')
 
@@ -90,9 +125,34 @@ const ProjectAllVariables: React.FC = () => {
         setProject(foundProject)
 
         if (!foundProject) {
+          setChannels([])
+          setEnvironments([])
+          setSteps([])
+          setMachines([])
           setRows([])
           return
         }
+
+        const [channelsRes, environmentsRes, stepsRes, machinesRes] = await Promise.all([
+          getChannels({ projectId: foundProject.id, pageSize: 1000 }).catch(() => ({ channels: [] as ChannelDto[], count: 0 })),
+          getEnvironments({ pageSize: 1000, spaceId: foundProject.spaceId }).catch(() => ({ environments: [] as EnvironmentDto[], count: 0 })),
+          getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageIndex: 1, pageSize: 2000 }).catch(() => ({ steps: [] as DeploymentStepDto[], count: 0 })),
+          getMachines({ pageSize: 2000, spaceId: foundProject.spaceId }).catch(() => ({ machines: [] as MachineDto[], count: 0 })),
+        ])
+
+        const nextChannels = [...(channelsRes.channels ?? [])]
+          .filter((channel) => channel.projectId === foundProject.id)
+          .sort((a, b) => a.name.localeCompare(b.name))
+        const nextEnvironments = [...(environmentsRes.environments ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
+        const nextSteps = [...(stepsRes.steps ?? [])].sort((a, b) => a.stepOrder - b.stepOrder)
+        const nextMachines = [...(machinesRes.machines ?? [])]
+          .filter((machine) => !machine.isDisabled)
+          .sort((a, b) => a.name.localeCompare(b.name))
+
+        setChannels(nextChannels)
+        setEnvironments(nextEnvironments)
+        setSteps(nextSteps)
+        setMachines(nextMachines)
 
         const includedIds = parseIncludedIds(foundProject.includedLibraryVariableSetIds)
         let resolvedIncludedSetIds: number[] = []
@@ -156,7 +216,7 @@ const ProjectAllVariables: React.FC = () => {
               name: variable.name || '-',
               value: variable.value || '',
               isSensitive: Boolean(variable.isSensitive),
-              scopes: getScopeValues(variable),
+              scopes: getScopes(variable),
               sourceLabel,
               sourceHref,
               sortOrder: Number.isFinite(variable.sortOrder) ? variable.sortOrder : index,
@@ -181,6 +241,68 @@ const ProjectAllVariables: React.FC = () => {
     })()
   }, [projectName, spaceId])
 
+  const environmentMap = useMemo(() => new Map(environments.map((item) => [item.id, item])), [environments])
+  const channelMap = useMemo(() => new Map(channels.map((item) => [item.id, item])), [channels])
+  const stepMap = useMemo(() => new Map(steps.map((item) => [item.id, item])), [steps])
+  const machineMap = useMemo(() => new Map(machines.map((item) => [item.id, item])), [machines])
+  const actionNameById = useMemo(
+    () =>
+      new Map(
+        steps.flatMap((step) =>
+          (step.actions ?? []).map((action) => [
+            String(action.id),
+            formatActionScopeLabel(step.stepOrder, step.name, action.name, action.id),
+          ] as const),
+        ),
+      ),
+    [steps],
+  )
+  const processNameById = useMemo(
+    () => new Map(project ? [[String(project.deploymentProcessId), `${project.name} deployment process`]] : []),
+    [project],
+  )
+
+  const resolveScopeLabel = (scope: VariableScopeDto) => {
+    const rawValue = scope.scopeValue?.trim() || ''
+    const parsedId = toIdFromScope(rawValue)
+
+    if (scope.scopeType === VariableScopeType.Environment) {
+      if (parsedId != null && environmentMap.has(parsedId)) return environmentMap.get(parsedId)?.name || rawValue
+      const matched = environments.find(
+        (env) => normalizeText(env.name) === normalizeText(rawValue) || normalizeText(env.slug) === normalizeText(rawValue),
+      )
+      return matched?.name || rawValue
+    }
+
+    if (scope.scopeType === VariableScopeType.Channel) {
+      if (parsedId != null && channelMap.has(parsedId)) return channelMap.get(parsedId)?.name || rawValue
+      const matched = channels.find(
+        (channel) => normalizeText(channel.name) === normalizeText(rawValue) || normalizeText(channel.slug) === normalizeText(rawValue),
+      )
+      return matched?.name || rawValue
+    }
+
+    if (scope.scopeType === VariableScopeType.Action) {
+      if (actionNameById.has(rawValue)) return actionNameById.get(rawValue) || rawValue
+      if (parsedId != null && stepMap.has(parsedId)) {
+        const step = stepMap.get(parsedId)
+        return step ? `${step.stepOrder + 1}. ${step.name}` : rawValue
+      }
+      const matched = steps.find((step) => normalizeText(step.name) === normalizeText(rawValue))
+      return matched ? `${matched.stepOrder + 1}. ${matched.name}` : rawValue
+    }
+
+    if (scope.scopeType === VariableScopeType.Machine) {
+      if (parsedId != null && machineMap.has(parsedId)) return machineMap.get(parsedId)?.name || rawValue
+      const matched = machines.find((machine) => normalizeText(machine.name) === normalizeText(rawValue))
+      return matched?.name || rawValue
+    }
+
+    if (scope.scopeType === VariableScopeType.Role) return rawValue || '-'
+    if (scope.scopeType === VariableScopeType.Process) return processNameById.get(rawValue) ?? (rawValue || '-')
+    return rawValue || '-'
+  }
+
   const filteredRows = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
     if (!keyword) return rows
@@ -189,9 +311,26 @@ const ProjectAllVariables: React.FC = () => {
       row.name.toLowerCase().includes(keyword)
       || row.value.toLowerCase().includes(keyword)
       || row.sourceLabel.toLowerCase().includes(keyword)
-      || row.scopes.some((scope) => scope.toLowerCase().includes(keyword)),
+      || row.scopes.some((scope) => {
+        const resolved = resolveScopeLabel(scope).toLowerCase()
+        const raw = (scope.scopeValue ?? '').toLowerCase()
+        return resolved.includes(keyword) || raw.includes(keyword)
+      }),
     )
-  }, [rows, searchText])
+  }, [
+    actionNameById,
+    channelMap,
+    channels,
+    environmentMap,
+    environments,
+    machineMap,
+    machines,
+    processNameById,
+    rows,
+    searchText,
+    stepMap,
+    steps,
+  ])
 
   return (
     <div className="rounded-xl border border-slate-200 overflow-hidden flex flex-col min-h-full p-6 gap-4 bg-white">
@@ -252,7 +391,7 @@ const ProjectAllVariables: React.FC = () => {
                         {row.scopes.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
                             {row.scopes.map((scope, scopeIndex) => (
-                              <ScopeChip key={`${row.key}-scope-${scopeIndex}`} label={scope} />
+                              <ScopeChip key={`${row.key}-scope-${scope.scopeType}-${scope.scopeValue}-${scopeIndex}`} label={resolveScopeLabel(scope)} />
                             ))}
                           </div>
                         ) : (

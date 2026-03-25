@@ -6,6 +6,7 @@ import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
 import { getCertificates } from 'pages/apis/certificate'
 import { createTargetTag, getTargetTags } from 'pages/apis/targetTag'
+import { getServerConfiguration } from 'pages/apis/serverConfiguration'
 import {
   EndpointResourceType,
   generateKubernetesAgentInstallScript,
@@ -270,6 +271,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     const url = new URL(window.location.origin)
     return `${url.protocol}//${url.hostname}:10943`
   })
+  const [agentServerThumbprint, setAgentServerThumbprint] = useState('')
   const [showOptional, setShowOptional] = useState(true)
   const [helpPanelVisible, setHelpPanelVisible] = useState(true)
   const [environmentOptions, setEnvironmentOptions] = useState<{ value: number; label: string }[]>([])
@@ -350,6 +352,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     setAgentServerUrl(window.location.origin)
     const url = new URL(window.location.origin)
     setAgentCommsUrl(`${url.protocol}//${url.hostname}:10943`)
+    setAgentServerThumbprint('')
     setAgentLoading(false)
     setScriptShell('bash')
     // Reset Kubernetes API form
@@ -497,6 +500,7 @@ const AddDeploymentTargetPage: React.FC = () => {
         agentName: agentName.trim(),
         serverUrl: agentServerUrl.trim(),
         serverCommsUrl: agentCommsUrl.trim(),
+        serverThumbprint: agentServerThumbprint.trim(),
         storageType: agentStorageType,
         nfsServer: agentStorageType === 'external-nfs' ? agentNfsServer.trim() : undefined,
         nfsPath: agentStorageType === 'external-nfs' && agentNfsPath.trim() ? agentNfsPath.trim() : undefined,
@@ -516,6 +520,49 @@ const AddDeploymentTargetPage: React.FC = () => {
       setAgentLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (agentFormView !== 'kubernetes-agent') return
+
+    let mounted = true
+    getServerConfiguration()
+      .then((config) => {
+        if (!mounted) return
+
+        const payload = config as unknown as Record<string, unknown>
+        const serverUrl = String(payload.serverUrl ?? payload.ServerUrl ?? '').trim()
+        if (serverUrl) {
+          setAgentServerUrl(serverUrl)
+        }
+
+        let commsUrl = String(payload.commsUrl ?? payload.CommsUrl ?? '').trim()
+        if (!commsUrl && serverUrl) {
+          try {
+            const parsed = new URL(serverUrl)
+            const pollingPort = Number(payload.pollingPort ?? payload.PollingPort)
+            if (Number.isFinite(pollingPort) && pollingPort > 0) {
+              parsed.port = String(pollingPort)
+            }
+            commsUrl = parsed.toString()
+          } catch {
+            commsUrl = ''
+          }
+        }
+        if (commsUrl) {
+          setAgentCommsUrl(commsUrl)
+        }
+
+        const thumbprint = String(payload.serverThumbprint ?? payload.ServerThumbprint ?? '').trim()
+        setAgentServerThumbprint(thumbprint)
+      })
+      .catch((error) => {
+        console.error('Failed to load server configuration', error)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [agentFormView])
 
   useEffect(() => stopPolling, [stopPolling])
 
