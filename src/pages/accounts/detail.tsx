@@ -4,6 +4,7 @@ import type { MenuProps } from 'antd'
 import { DownOutlined, MoreOutlined } from '@ant-design/icons'
 import { Link, useParams } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
+import { getEnvironments } from 'pages/apis/environment'
 import {
   AwsCredentialsSummary,
   AzureOidcCredentialsSummary,
@@ -27,7 +28,6 @@ type SectionKey =
   | 'secretKey'
   | 'credentialSummary'
   | 'environments'
-  | 'tenanted'
 
 type ActiveTab = 'details' | 'usage'
 
@@ -151,7 +151,7 @@ function unique(values: string[]): string[] {
   return output
 }
 
-function extractEnvironmentNames(account: DeploymentAccountLike): string[] {
+function extractEnvironmentNames(account: DeploymentAccountLike, envById: Map<number, string>): string[] {
   const explicitNameCandidates: unknown[] = [account.environmentNames, account.environments]
   const explicitNames = explicitNameCandidates.flatMap((candidate) => readStringArray(candidate))
   if (explicitNames.length > 0) {
@@ -160,7 +160,7 @@ function extractEnvironmentNames(account: DeploymentAccountLike): string[] {
 
   const ids = readNumberArray(account.environmentIds)
   if (ids.length > 0) {
-    return unique(ids.map((id) => `Environment-${id}`))
+    return unique(ids.map((id) => envById.get(id) ?? `Environment-${id}`))
   }
 
   if (Array.isArray(account.scopes)) {
@@ -269,7 +269,6 @@ const AccountsDetailPage: React.FC = () => {
     secretKey: false,
     credentialSummary: false,
     environments: false,
-    tenanted: false,
   })
 
   useEffect(() => {
@@ -277,10 +276,18 @@ const AccountsDetailPage: React.FC = () => {
     const load = async () => {
       setLoading(true)
       try {
-        const res = await getDeploymentAccounts({ pageSize: 1000, spaceId: space.id })
+        const [accountRes, envRes] = await Promise.all([
+          getDeploymentAccounts({ pageSize: 1000, spaceId: space.id }),
+          getEnvironments({ pageSize: 1000, spaceId: space.id }),
+        ])
         if (!mounted) return
 
-        const candidate = (res.deploymentAccounts ?? [])
+        const envById = new Map<number, string>()
+        for (const env of envRes.environments ?? []) {
+          envById.set(env.id, env.name)
+        }
+
+        const candidate = (accountRes.deploymentAccounts ?? [])
           .map((item) => item as DeploymentAccountLike)
           .find((item) => matchAccount(item, accountSlug))
 
@@ -295,7 +302,7 @@ const AccountsDetailPage: React.FC = () => {
           slug: candidate.slug || `Accounts-${candidate.id}`,
           accountType: candidate.accountType,
           description: extractDescription(candidate),
-          environments: extractEnvironmentNames(candidate),
+          environments: extractEnvironmentNames(candidate, envById),
           credentials: candidate.credentials,
         })
       } catch (error) {
@@ -408,7 +415,6 @@ const AccountsDetailPage: React.FC = () => {
                     secretKey: next,
                     credentialSummary: next,
                     environments: next,
-                    tenanted: next,
                   })
                 }}
               >
@@ -683,18 +689,6 @@ const AccountsDetailPage: React.FC = () => {
                       </span>
                     ))
                     : 'This account can be used for deployments to any environment.'}
-                </div>
-              </DetailPanel>
-
-              <DetailPanel
-                title="Tenanted Deployments"
-                subtitle="Only available for untenanted deployments"
-                isOpen={expanded.tenanted}
-                onToggle={() => setExpanded((prev) => ({ ...prev, tenanted: !prev.tenanted }))}
-                hasBorder={false}
-              >
-                <div className="text-sm text-gray-600">
-                  The account will never be included in tenanted deployments.
                 </div>
               </DetailPanel>
             </>
