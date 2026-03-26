@@ -106,6 +106,26 @@ function normalizeIngressRules(value: string | undefined): ContainersEditorState
   })
 }
 
+function normalizeTolerationOperator(operator: string): string {
+  if (operator.trim().toLowerCase() === 'exists') return 'Exists'
+  if (operator.trim().toLowerCase() === 'equal') return 'Equal'
+  return operator.trim()
+}
+
+function normalizeTolerations(values: ContainersEditorState['tolerations']): ContainersEditorState['tolerations'] {
+  return (values ?? []).map((item) => {
+    const key = String(item?.key ?? '').trim()
+    const operator = normalizeTolerationOperator(String(item?.operator ?? ''))
+    const isExists = operator.toLowerCase() === 'exists'
+    return {
+      key,
+      operator,
+      value: isExists ? '' : String(item?.value ?? '').trim(),
+      effect: String(item?.effect ?? '').trim(),
+    }
+  })
+}
+
 function toNumericIfPossible(value: string): number | string {
   return /^\d+$/.test(value) ? Number(value) : value
 }
@@ -591,7 +611,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     secretValues: kvFromJson(get(KubernetesProperties.SecretValues)),
     objectStatusCheck: get(KubernetesProperties.ObjectStatusCheck) ?? 'disabled',
     hostAliases: safeJsonParse(get(KubernetesProperties.HostAliases), []),
-    tolerations: safeJsonParse(get(KubernetesProperties.Tolerations), []),
+    tolerations: normalizeTolerations(safeJsonParse(get(KubernetesProperties.Tolerations), [])),
     nodeAffinity: get(KubernetesProperties.NodeAffinity) ?? '',
     podAffinity: get(KubernetesProperties.PodAffinity) ?? '',
     podAntiAffinity: get(KubernetesProperties.PodAntiAffinity) ?? '',
@@ -666,7 +686,7 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KubernetesProperties.SecretValues, kvToJson(state.secretValues))
   add(KubernetesProperties.ObjectStatusCheck, state.objectStatusCheck)
   add(KubernetesProperties.HostAliases, JSON.stringify(state.hostAliases))
-  add(KubernetesProperties.Tolerations, JSON.stringify(state.tolerations))
+  add(KubernetesProperties.Tolerations, JSON.stringify(normalizeTolerations(state.tolerations)))
   if (state.nodeAffinity) add(KubernetesProperties.NodeAffinity, state.nodeAffinity)
   if (state.podAffinity) add(KubernetesProperties.PodAffinity, state.podAffinity)
   if (state.podAntiAffinity) add(KubernetesProperties.PodAntiAffinity, state.podAntiAffinity)

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Button, Dropdown, Input, message, Spin } from 'antd'
+import { Button, Dropdown, Input, Modal, message, Spin } from 'antd'
 import type { MenuProps } from 'antd'
 import { DownOutlined, MoreOutlined } from '@ant-design/icons'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
 import {
@@ -15,6 +15,7 @@ import {
   SshKeyPairCredentialsSummary,
   TokenCredentialsSummary,
   UsernamePasswordCredentialsSummary,
+  deleteDeploymentAccount,
   getDeploymentAccounts,
 } from 'pages/apis/deploymentAccount'
 
@@ -253,6 +254,7 @@ function matchAccount(account: DeploymentAccountLike, accountSlug: string): bool
 }
 
 const AccountsDetailPage: React.FC = () => {
+  const navigate = useNavigate()
   const { space } = useSpace()
   const { accountSlug = '' } = useParams()
   const [activeTab, setActiveTab] = useState<ActiveTab>('details')
@@ -335,6 +337,32 @@ const AccountsDetailPage: React.FC = () => {
   )
 
   const handleOverflowClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'delete') {
+      if (!account) {
+        message.error('Account not found')
+        return
+      }
+
+      Modal.confirm({
+        title: 'Delete Account',
+        content: `Are you sure you want to delete "${account.name}"? This action cannot be undone.`,
+        okText: 'Delete',
+        okButtonProps: { danger: true },
+        cancelText: 'Cancel',
+        centered: true,
+        onOk: async () => {
+          try {
+            await deleteDeploymentAccount({ id: account.id, spaceId: space.id })
+            message.success('Account deleted')
+            navigate(basePath)
+          } catch (error: any) {
+            message.error(error?.message || 'Failed to delete account')
+          }
+        },
+      })
+      return
+    }
+
     if (key === 'audit') {
       message.info('Audit Trail is not available yet.')
       return

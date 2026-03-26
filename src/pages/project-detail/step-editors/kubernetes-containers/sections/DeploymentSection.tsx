@@ -109,6 +109,10 @@ const emptyTolerationFormState = (): TolerationFormState => ({
   effect: '',
 })
 
+function isExistsTolerationOperator(operator: string | null | undefined): boolean {
+  return String(operator ?? '').trim().toLowerCase() === 'exists'
+}
+
 const parseCommaSeparatedValues = (input: string): string[] => input.split(',').map((value) => value.trim()).filter(Boolean)
 
 function parsePodAffinityFormState(raw: string): PodAffinityFormState {
@@ -410,7 +414,7 @@ function buildNodeAffinitySummary(raw: string): React.ReactNode {
 function buildTolerationSummary(toleration: Toleration): React.ReactNode {
   const key = toleration.key?.trim()
   const operator = toleration.operator?.trim()
-  const value = toleration.value?.trim()
+  const value = isExistsTolerationOperator(operator) ? '' : toleration.value?.trim()
   const effect = toleration.effect?.trim()
 
   return (
@@ -706,25 +710,35 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
   const openEditTolerationModal = (index: number) => {
     const current = state.tolerations[index]
     if (!current) return
+    const currentOperator = current.operator ?? ''
     setTolerationEditIndex(index)
     setTolerationForm({
       key: current.key ?? '',
-      operator: current.operator ?? '',
-      value: current.value ?? '',
+      operator: currentOperator,
+      value: isExistsTolerationOperator(currentOperator) ? '' : (current.value ?? ''),
       effect: current.effect ?? '',
     })
     setTolerationModalOpen(true)
   }
 
   const updateTolerationForm = <K extends keyof TolerationFormState>(field: K, value: TolerationFormState[K]) => {
-    setTolerationForm((prev) => ({ ...prev, [field]: value }))
+    setTolerationForm((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === 'operator' && isExistsTolerationOperator(String(value))) {
+        return { ...next, value: '' }
+      }
+      return next
+    })
   }
 
   const handleSaveTolerationModal = () => {
+    const normalizedOperator = tolerationForm.operator.trim()
+    const normalizedValue = tolerationForm.value.trim()
+    const usesExistsOperator = isExistsTolerationOperator(normalizedOperator)
     const normalized: Toleration = {
       key: tolerationForm.key.trim(),
-      operator: tolerationForm.operator.trim(),
-      value: tolerationForm.value.trim(),
+      operator: usesExistsOperator ? 'Exists' : normalizedOperator,
+      value: usesExistsOperator ? '' : normalizedValue,
       effect: tolerationForm.effect.trim(),
     }
 
@@ -735,6 +749,11 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
 
     if (!normalized.operator) {
       message.error('Operator is required')
+      return
+    }
+
+    if (usesExistsOperator && normalizedValue) {
+      message.error('Operator is Exists; value must be empty')
       return
     }
 
@@ -2056,6 +2075,7 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
                   value={tolerationForm.value}
                   onChange={(e) => updateTolerationForm('value', e.target.value)}
                   placeholder=""
+                  disabled={isExistsTolerationOperator(tolerationForm.operator)}
                 />
                 <button
                   type="button"
@@ -2067,7 +2087,9 @@ export function DeploymentSection({ state, updateField }: DeploymentSectionProps
                 </button>
               </div>
               <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
-                Value should only be set if operator is <code className="text-xs bg-slate-100 px-1 rounded">Equal</code>.
+                {isExistsTolerationOperator(tolerationForm.operator)
+                  ? <>Value is disabled when operator is <code className="text-xs bg-slate-100 px-1 rounded">Exists</code>.</>
+                  : <>Value should only be set if operator is <code className="text-xs bg-slate-100 px-1 rounded">Equal</code>.</>}
               </p>
             </div>
 
