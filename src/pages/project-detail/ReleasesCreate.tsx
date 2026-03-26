@@ -4,8 +4,8 @@ import { DownOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getChannel, getChannelVersionRules, getChannels, type ChannelDto } from 'pages/apis/channel'
-import { getPackageReferences, type PackageReferenceItem } from 'pages/apis/deploymentProcess'
-import { listExternalFeedPackageVersions } from 'pages/apis/externalFeed'
+import { getDeploymentSteps, getPackageReferences, type PackageReferenceItem, type DeploymentStepDto } from 'pages/apis/deploymentProcess'
+import { getExternalFeeds, listExternalFeedPackageVersions } from 'pages/apis/externalFeed'
 import { createRelease, getReleases, type ReleaseDto } from 'pages/apis/release'
 
 type SectionKey = 'channel' | 'version' | 'packages' | 'notes'
@@ -115,6 +115,76 @@ const readNumber = (source: Record<string, unknown> | null, keys: string[]) => {
     if (typeof value === 'string' && value.trim() && !Number.isNaN(Number(value))) return Number(value)
   }
   return undefined
+}
+
+const readActionProperty = (
+  properties: Array<{ propertyName: string; propertyValue: string }> | undefined,
+  names: string[],
+) => {
+  if (!properties?.length) return ''
+  const normalizedLookup = new Map(properties.map((item) => [normalizeText(item.propertyName), item.propertyValue]))
+  for (const name of names) {
+    const value = normalizedLookup.get(normalizeText(name))
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+const parseFeedId = (value: string) => {
+  if (!value) return null
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return parsed
+}
+
+const HELM_ACTION_TYPE = 'squid.helmchartupgrade'
+const HELM_FEED_ID_KEYS = ['Squid.Action.Package.FeedId', 'Octopus.Action.Package.FeedId']
+const HELM_PACKAGE_ID_KEYS = ['Squid.Action.Package.PackageId', 'Octopus.Action.Package.PackageId']
+
+const extractHelmPackageReferences = (steps: DeploymentStepDto[], feedNameById: Map<number, string>): PackageReferenceItem[] => {
+  const refs: PackageReferenceItem[] = []
+  for (const step of steps) {
+    for (const action of step.actions ?? []) {
+      if (normalizeText(action.actionType) !== HELM_ACTION_TYPE) continue
+
+      const feedIdRaw = readActionProperty(action.properties, HELM_FEED_ID_KEYS)
+      const packageId = readActionProperty(action.properties, HELM_PACKAGE_ID_KEYS)
+      const feedId = parseFeedId(feedIdRaw)
+
+      if (!feedId || !packageId) continue
+      const actionName = (action.name ?? '').trim() || (step.name ?? '').trim()
+      if (!actionName) continue
+
+      refs.push({
+        actionName,
+        packageReferenceName: '',
+        packageId,
+        feedId,
+        feedName: feedNameById.get(feedId) ?? `Feed #${feedId}`,
+        lastReleaseVersion: null,
+      })
+    }
+  }
+  return refs
+}
+
+const mergePackageReferences = (base: PackageReferenceItem[], extras: PackageReferenceItem[]) => {
+  const map = new Map<string, PackageReferenceItem>()
+  for (const item of [...base, ...extras]) {
+    const key = `${normalizeText(item.actionName)}|${normalizeText(item.packageReferenceName)}|${item.feedId}|${normalizeText(item.packageId)}`
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, item)
+      continue
+    }
+    map.set(key, {
+      ...existing,
+      ...item,
+      feedName: item.feedName || existing.feedName,
+      lastReleaseVersion: existing.lastReleaseVersion ?? item.lastReleaseVersion,
+    })
+  }
+  return Array.from(map.values())
 }
 
 const hasOwn = (source: Record<string, unknown> | null, key: string) =>
@@ -394,12 +464,20 @@ const ReleasesCreate: React.FC = () => {
           return
         }
 
-        const [channelRes, pkgRefRes] = await Promise.all([
+        const [channelRes, pkgRefRes, stepsRes, feedsRes] = await Promise.all([
           getChannels({ pageSize: 1000 }),
           getPackageReferences(foundProject.id).catch(() => ({ packageReferences: [] })),
+          getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageSize: 1000 }).catch(() => ({ steps: [] })),
+          getExternalFeeds({ pageSize: 1000 }).catch(() => ({ externalFeeds: [] })),
         ])
 
-        setPackageReferences(pkgRefRes.packageReferences ?? [])
+        const feedNameById = new Map(
+          (feedsRes.externalFeeds ?? []).map((feed) => [feed.id, feed.name] as const),
+        )
+        const fallbackHelmReferences = extractHelmPackageReferences(stepsRes.steps ?? [], feedNameById)
+        const mergedPackageReferences = mergePackageReferences(pkgRefRes.packageReferences ?? [], fallbackHelmReferences)
+
+        setPackageReferences(mergedPackageReferences)
 
         const projectChannels = channelRes.channels
           .filter((c) => c.projectId === foundProject.id)

@@ -160,7 +160,8 @@ export interface UpdateDeploymentAccountCommand extends CreateDeploymentAccountC
 
 export interface DeleteDeploymentAccountCommand {
   spaceId: number
-  id: number
+  id?: number
+  ids?: number[]
 }
 
 export interface GetDeploymentAccountsRequest {
@@ -185,7 +186,16 @@ export function updateDeploymentAccount(command: UpdateDeploymentAccountCommand)
 }
 
 export function deleteDeploymentAccount(command: DeleteDeploymentAccountCommand) {
-  return post<unknown>('/deployment-accounts/delete', command)
+  const resolvedId = command.id ?? command.ids?.[0]
+  if (resolvedId == null) {
+    throw new Error('Delete deployment account requires an id')
+  }
+
+  return post<unknown>('/deployment-accounts/delete', {
+    ...command,
+    id: resolvedId,
+    ids: command.ids ?? [resolvedId],
+  })
 }
 
 export function getDeploymentAccounts(params?: GetDeploymentAccountsRequest) {

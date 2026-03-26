@@ -289,12 +289,16 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
     : []
 
   const tolerations = Array.isArray(tmplSpec.tolerations)
-    ? (tmplSpec.tolerations as Record<string, unknown>[]).map((t) => ({
-        key: str(t.key),
-        operator: str(t.operator) || 'Equal',
-        value: str(t.value),
-        effect: str(t.effect),
-      }))
+    ? (tmplSpec.tolerations as Record<string, unknown>[]).map((t) => {
+        const operator = str(t.operator) || 'Equal'
+        const isExistsOperator = operator.trim().toLowerCase() === 'exists'
+        return {
+          key: str(t.key),
+          operator,
+          value: isExistsOperator ? '' : str(t.value),
+          effect: str(t.effect),
+        }
+      })
     : []
 
   const imagePullSecrets = Array.isArray(tmplSpec.imagePullSecrets)

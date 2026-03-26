@@ -489,9 +489,12 @@ function appendPodTemplate(
   if (tolerations.length > 0) {
     lines.push(`${at(4)}tolerations:`)
     for (const tol of tolerations) {
+      const operator = String(tol.operator ?? '').trim() || 'Equal'
+      const isExistsOperator = operator.toLowerCase() === 'exists'
+      const value = String(tol.value ?? '').trim()
       lines.push(`${at(6)}- key: ${tol.key}`)
-      lines.push(`${at(8)}operator: ${tol.operator || 'Equal'}`)
-      if (tol.value) lines.push(`${at(8)}value: ${JSON.stringify(tol.value)}`)
+      lines.push(`${at(8)}operator: ${operator}`)
+      if (!isExistsOperator && value) lines.push(`${at(8)}value: ${JSON.stringify(value)}`)
       if (tol.effect) lines.push(`${at(8)}effect: ${tol.effect}`)
     }
   }
