@@ -1,5 +1,8 @@
-import React from 'react';
-import { SpaceDto } from 'pages/apis/space';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Input, Modal, Select, Spin, message } from 'antd';
+import { createSpace, type SpaceDto } from 'pages/apis/space';
+import { getTeams } from 'pages/apis/team';
+import { getUsers, type UserDto } from 'pages/apis/user';
 
 const ExternalLinkIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'inline', verticalAlign: 'middle', marginLeft: 2 }}>
@@ -124,15 +127,242 @@ interface SpaceSwitcherDropdownProps {
   spaces: SpaceDto[];
   currentSpaceId: number;
   onSelectSpace: (space: SpaceDto) => void;
+  onCreateSpace?: (space: SpaceDto) => void;
   onClose: () => void;
+}
+
+interface CreateSpaceFormState {
+  name: string;
+  slug: string;
+  ownerTeamIds: number[];
+  ownerUserIds: number[];
+}
+
+const EMPTY_CREATE_FORM: CreateSpaceFormState = {
+  name: '',
+  slug: '',
+  ownerTeamIds: [],
+  ownerUserIds: [],
+};
+
+function normalizeSpaceSlug(name: string) {
+  return name
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9-_]/g, '');
+}
+
+function normalizeIdList(values: number[]) {
+  return [...new Set(values.filter((value) => Number.isFinite(value) && value > 0))].sort((a, b) => a - b);
+}
+
+function isAutoSpaceOwnersTeamName(name: string | undefined) {
+  return (name || '').trim().startsWith('Space Owners (');
+}
+
+function formatUserLabel(user: UserDto) {
+  const displayName = user.displayName?.trim() || '';
+  const userName = user.userName?.trim() || '';
+  if (displayName && userName && displayName !== userName) return `${displayName} (${userName})`;
+  if (displayName) return displayName;
+  if (userName) return userName;
+  return `User ${user.id}`;
 }
 
 const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
   spaces,
   currentSpaceId,
   onSelectSpace,
+  onCreateSpace,
   onClose,
 }) => {
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createFormState, setCreateFormState] = useState<CreateSpaceFormState>(EMPTY_CREATE_FORM);
+  const [loadingTeamOptions, setLoadingTeamOptions] = useState(false);
+  const [loadingUserOptions, setLoadingUserOptions] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [managerTeamOptions, setManagerTeamOptions] = useState<Array<{ value: number; label: string }>>([]);
+  const [managerUserOptions, setManagerUserOptions] = useState<Array<{ value: number; label: string }>>([]);
+
+  const openCreateDialog = () => {
+    setCreateFormState(EMPTY_CREATE_FORM);
+    setCreateDialogOpen(true);
+  };
+
+  useEffect(() => {
+    if (!createDialogOpen) return;
+    let cancelled = false;
+
+    const loadTeamOptions = async () => {
+      try {
+        setLoadingTeamOptions(true);
+        const systemTeamsResult = await getTeams({ spaceId: 0 });
+        if (cancelled) return;
+
+        const options = (systemTeamsResult.teams ?? [])
+          .filter((team) => !isAutoSpaceOwnersTeamName(team.name))
+          .map((team) => ({ value: team.id, label: team.name }))
+          .sort((left, right) => left.label.localeCompare(right.label));
+        setManagerTeamOptions(options);
+      } catch (error: any) {
+        if (!cancelled) {
+          setManagerTeamOptions([]);
+          message.error(error?.message || 'Failed to load manager teams.');
+        }
+      } finally {
+        if (!cancelled) setLoadingTeamOptions(false);
+      }
+    };
+
+    const loadUserOptions = async () => {
+      try {
+        setLoadingUserOptions(true);
+        const result = await getUsers({ pageIndex: 1, pageSize: 1000 });
+        if (cancelled) return;
+        const options = (result.users ?? [])
+          .map((user) => ({ value: user.id, label: formatUserLabel(user) }))
+          .sort((left, right) => left.label.localeCompare(right.label));
+        setManagerUserOptions(options);
+      } catch (error: any) {
+        if (!cancelled) {
+          setManagerUserOptions([]);
+          message.error(error?.message || 'Failed to load manager users.');
+        }
+      } finally {
+        if (!cancelled) setLoadingUserOptions(false);
+      }
+    };
+
+    void loadTeamOptions();
+    void loadUserOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [createDialogOpen, currentSpaceId]);
+
+  const canSave = useMemo(() => createFormState.name.trim().length > 0 && !creating, [createFormState.name, creating]);
+
+  const handleCreateSpace = async () => {
+    const name = createFormState.name.trim();
+    const slug = createFormState.slug.trim() || normalizeSpaceSlug(name);
+    if (!name) {
+      message.warning('New space name is required.');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      const createdSpace = await createSpace({
+        name,
+        slug: slug || undefined,
+        ownerTeamIds: normalizeIdList(createFormState.ownerTeamIds),
+        ownerUserIds: normalizeIdList(createFormState.ownerUserIds),
+      });
+      message.success('Space created.');
+      setCreateDialogOpen(false);
+      if (onCreateSpace) {
+        onCreateSpace(createdSpace);
+      } else {
+        onSelectSpace(createdSpace);
+      }
+      onClose();
+    } catch (error: any) {
+      message.error(error?.message || 'Failed to create space.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const createSpaceModal = (
+    <Modal
+      open={createDialogOpen}
+      title="Add New Space"
+      onCancel={() => setCreateDialogOpen(false)}
+      onOk={() => void handleCreateSpace()}
+      okText="Save"
+      cancelText="Cancel"
+      okButtonProps={{ disabled: !canSave }}
+      confirmLoading={creating}
+      maskClosable={false}
+      keyboard={false}
+      closable={false}
+      destroyOnClose
+      width={640}
+      getContainer={() => dropdownRef.current ?? document.body}
+    >
+      <div className="pt-1 space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">New space name</label>
+          <Input
+            value={createFormState.name}
+            onChange={(event) => {
+              const nextName = event.target.value;
+              setCreateFormState((previous) => ({
+                ...previous,
+                name: nextName,
+                slug: previous.slug || normalizeSpaceSlug(nextName),
+              }));
+            }}
+            placeholder="Default"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">New space slug</label>
+          <Input
+            value={createFormState.slug}
+            onChange={(event) => setCreateFormState((previous) => ({ ...previous, slug: event.target.value }))}
+            placeholder="default-space"
+          />
+          <div className="mt-1 text-xs text-slate-500">Will be generated on save if left blank.</div>
+        </div>
+
+        <div className="pt-1">
+          <h4 className="m-0 text-sm font-semibold text-slate-800">Select members and teams to be managers of this space</h4>
+          <p className="mt-2 mb-0 text-xs text-slate-600 leading-relaxed">
+            The members and teams selected will be added to the Space Manager team and will have management permissions and access to everything in this space.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Select space managers (members)</label>
+          <Select<number[]>
+            mode="multiple"
+            className="w-full"
+            value={createFormState.ownerUserIds}
+            onChange={(value) => setCreateFormState((previous) => ({ ...previous, ownerUserIds: normalizeIdList(value) }))}
+            options={managerUserOptions}
+            loading={loadingUserOptions}
+            placeholder="Select space managers (members)"
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={loadingUserOptions ? <Spin size="small" /> : 'No available users'}
+            getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Select space managers (teams)</label>
+          <Select<number[]>
+            mode="multiple"
+            className="w-full"
+            value={createFormState.ownerTeamIds}
+            onChange={(value) => setCreateFormState((previous) => ({ ...previous, ownerTeamIds: normalizeIdList(value) }))}
+            options={managerTeamOptions}
+            loading={loadingTeamOptions}
+            placeholder="Select space managers (teams)"
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={loadingTeamOptions ? <Spin size="small" /> : 'No available teams'}
+            getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+
   const dropdownStyle: React.CSSProperties = {
     top: 'calc(100% + 8px)',
     left: 0,
@@ -143,98 +373,106 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
 
   if (spaces.length === 0) {
     return (
+      <>
+        <div
+          ref={dropdownRef}
+          role="dialog"
+          aria-label="Space switcher dropdown"
+          className="absolute z-50 bg-white rounded-lg overflow-hidden"
+          style={dropdownStyle}
+        >
+          <div className="px-6 pt-6 pb-5 flex flex-col items-center text-center">
+            <SpacesIllustration />
+            <h3 className="mt-3 text-sm font-semibold text-gray-900 leading-snug">
+              Create spaces for your teams
+            </h3>
+            <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+              Spaces allow teams to group their projects, infrastructure, tenants, and library assets
+            </p>
+            <button
+              className="mt-4 w-full py-2 px-4 rounded text-sm font-medium text-white transition-colors"
+              style={{ backgroundColor: '#0d80d8' }}
+              onClick={openCreateDialog}
+            >
+              Create new space
+            </button>
+          </div>
+          <div className="border-t border-gray-200 px-6 py-3 bg-gray-50">
+            <span className="text-xs text-gray-600">
+              Learn more about{' '}
+              <a
+                href="https://oc.to/spaces"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline font-medium"
+              >
+                Spaces
+                <ExternalLinkIcon />
+              </a>
+            </span>
+          </div>
+        </div>
+        {createSpaceModal}
+      </>
+    );
+  }
+
+  return (
+    <>
       <div
+        ref={dropdownRef}
         role="dialog"
         aria-label="Space switcher dropdown"
         className="absolute z-50 bg-white rounded-lg overflow-hidden"
         style={dropdownStyle}
       >
-        <div className="px-6 pt-6 pb-5 flex flex-col items-center text-center">
-          <SpacesIllustration />
-          <h3 className="mt-3 text-sm font-semibold text-gray-900 leading-snug">
-            Create spaces for your teams
-          </h3>
-          <p className="mt-2 text-xs text-gray-500 leading-relaxed">
-            Spaces allow teams to group their projects, infrastructure, tenants, and library assets
-          </p>
+        {/* Space list */}
+        <div className="py-1">
+          {spaces.map(space => {
+            const isActive = space.id === currentSpaceId;
+            return (
+              <button
+                key={space.id}
+                onClick={() => { onSelectSpace(space); onClose(); }}
+                className={[
+                  'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors border-0 cursor-pointer text-left',
+                  isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50',
+                ].join(' ')}
+              >
+                {/* Space logo */}
+                <div
+                  className="flex items-center justify-center flex-shrink-0 overflow-hidden rounded"
+                  style={{
+                    width: '1.5rem',
+                    height: '1.5rem',
+                    backgroundColor: '#fff',
+                    border: '1px solid rgba(0,0,0,0.1)',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <img src="/squid-logo.png" alt="" className="w-full h-full object-contain" />
+                </div>
+                <span className={`flex-1 font-medium ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
+                  {space.name}
+                </span>
+                {isActive && <span className="text-blue-600"><CheckIcon /></span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex justify-center">
           <button
-            className="mt-4 w-full py-2 px-4 rounded text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#0d80d8' }}
-            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-md bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-semibold text-white border-0 cursor-pointer transition-colors shadow-sm"
+            onClick={openCreateDialog}
           >
             Create new space
           </button>
         </div>
-        <div className="border-t border-gray-200 px-6 py-3 bg-gray-50">
-          <span className="text-xs text-gray-600">
-            Learn more about{' '}
-            <a
-              href="https://oc.to/spaces"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:underline font-medium"
-            >
-              Spaces
-              <ExternalLinkIcon />
-            </a>
-          </span>
-        </div>
       </div>
-    );
-  }
-
-  return (
-    <div
-      role="dialog"
-      aria-label="Space switcher dropdown"
-      className="absolute z-50 bg-white rounded-lg overflow-hidden"
-      style={dropdownStyle}
-    >
-      {/* Space list */}
-      <div className="py-1">
-        {spaces.map(space => {
-          const isActive = space.id === currentSpaceId;
-          return (
-            <button
-              key={space.id}
-              onClick={() => { onSelectSpace(space); onClose(); }}
-              className={[
-                'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors border-0 cursor-pointer text-left',
-                isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50',
-              ].join(' ')}
-            >
-              {/* Space logo */}
-              <div
-                className="flex items-center justify-center flex-shrink-0 overflow-hidden rounded"
-                style={{
-                  width: '1.5rem',
-                  height: '1.5rem',
-                  backgroundColor: '#fff',
-                  border: '1px solid rgba(0,0,0,0.1)',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                }}
-              >
-                <img src="/squid-logo.png" alt="" className="w-full h-full object-contain" />
-              </div>
-              <span className={`flex-1 font-medium ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
-                {space.name}
-              </span>
-              {isActive && <span className="text-blue-600"><CheckIcon /></span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex justify-center">
-        <button
-          className="inline-flex items-center justify-center rounded-md bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-xs font-semibold text-white border-0 cursor-pointer transition-colors shadow-sm"
-          onClick={onClose}
-        >
-          Create new space
-        </button>
-      </div>
-    </div>
+      {createSpaceModal}
+    </>
   );
 };
 

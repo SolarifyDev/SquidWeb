@@ -109,6 +109,12 @@ function mapTeamList(payload: any): TeamDto[] {
   return mapped.sort((a: TeamDto, b: TeamDto) => a.name.localeCompare(b.name))
 }
 
+function mapSingleTeam(payload: any): TeamDto {
+  const mapped = mapTeam(payload?.team ?? payload)
+  if (mapped) return mapped
+  throw new Error('Invalid team payload returned by server')
+}
+
 function mapScopedUserRole(raw: any): ScopedUserRoleDto | null {
   const id = Number(raw?.id)
   if (!Number.isFinite(id) || id <= 0) return null
@@ -168,11 +174,11 @@ export async function getTeam(teamId: number, request?: GetTeamRequest) {
 }
 
 export function createTeam(command: CreateTeamCommand) {
-  return post<{ team: TeamDto }>('/teams/create', command).then((res) => res.team)
+  return post<any>('/teams/create', command).then((res) => mapSingleTeam(res))
 }
 
 export function updateTeam(command: UpdateTeamCommand) {
-  return post<{ team: TeamDto }>('/teams/update', command).then((res) => res.team)
+  return post<any>('/teams/update', command).then((res) => mapSingleTeam(res))
 }
 
 export function deleteTeam(command: DeleteTeamCommand) {

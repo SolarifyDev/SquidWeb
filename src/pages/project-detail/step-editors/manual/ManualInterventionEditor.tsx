@@ -70,6 +70,10 @@ function parseSpaceNumericId(spaceId: string): number {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : 1
 }
 
+function isEveryoneTeamName(name: string | undefined) {
+  return (name ?? '').trim().toLowerCase() === 'everyone'
+}
+
 function buildActionProperties(
   existingAction: DeploymentActionDto | undefined,
   instructions: string,
@@ -183,6 +187,16 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
           if (cancelled) return
           const teams = [...(result.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name))
           setTeamOptions(teams)
+          const everyoneTeamIds = new Set(
+            teams
+              .filter((team) => isEveryoneTeamName(team.name))
+              .map((team) => String(team.id))
+              .filter(Boolean),
+          )
+          if (everyoneTeamIds.size > 0) {
+            // Old data may store "Everyone" team id; treat it as no explicit team restriction.
+            setResponsibleTeams((previous) => previous.filter((id) => !everyoneTeamIds.has(id)))
+          }
         })
         .catch(() => {
           if (cancelled) return
@@ -278,14 +292,15 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
     const displayName = stepName.trim() || 'Manual Intervention Required'
+    const filteredTeamOptions = teamOptions.filter((team) => !isEveryoneTeamName(team.name))
     const teamSelectValue = responsibleTeams
-    const knownTeamIds = new Set(teamOptions.map((team) => String(team.id)))
+    const knownTeamIds = new Set(filteredTeamOptions.map((team) => String(team.id)))
     const unknownResponsibleTeams = responsibleTeams
       .filter((id) => !knownTeamIds.has(id))
       .map((id) => ({ label: `Team #${id}`, value: id }))
     const selectOptions = [
       { label: 'Everyone', value: EVERYONE_VALUE },
-      ...teamOptions.map((team) => ({ label: team.name, value: String(team.id) })),
+      ...filteredTeamOptions.map((team) => ({ label: team.name, value: String(team.id) })),
       ...unknownResponsibleTeams,
     ]
 
