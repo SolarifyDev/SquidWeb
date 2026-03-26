@@ -32,7 +32,6 @@ import {
   PictureOutlined,
   LinkOutlined,
   CodeOutlined,
-  ThunderboltFilled,
   CloseOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -54,6 +53,19 @@ interface DashboardGroupView {
   count: number;
   environments: import('pages/apis/project').ProjectDashboardEnvironment[];
   rows: DashboardRow[];
+}
+
+interface LifecyclePreviewPhase {
+  id: number;
+  name: string;
+  isOptionalPhase: boolean;
+  sortOrder: number;
+}
+
+interface LifecycleOption {
+  value: string;
+  label: string;
+  phases: LifecyclePreviewPhase[];
 }
 
 import { useNavigate } from "react-router-dom";
@@ -87,7 +99,7 @@ const Project: React.FC = () => {
   const [projectDescription, setProjectDescription] = useState('');
   const [selectedLifecycle, setSelectedLifecycle] = useState<string | undefined>(undefined);
   const [showLifecyclePreview, setShowLifecyclePreview] = useState(false);
-  const [lifecycleOptions, setLifecycleOptions] = useState<{ value: string; label: string; phases: { name: string; type?: string }[] }[]>([]);
+  const [lifecycleOptions, setLifecycleOptions] = useState<LifecycleOption[]>([]);
   const [loadingLifecycles, setLoadingLifecycles] = useState(false);
   const [storageLocation, setStorageLocation] = useState('squid');
   const [deployTarget, setDeployTarget] = useState('kubernetes');
@@ -116,22 +128,33 @@ const Project: React.FC = () => {
     }
   }, [deployTarget, manageWith]);
 
+  const parseLifecyclePhasesFromJson = (json: string): LifecyclePreviewPhase[] => {
+    if (!json) return [];
+    try {
+      const parsed = JSON.parse(json);
+      const phases = Array.isArray(parsed?.phases) ? parsed.phases : [];
+      return phases.map((phase: any, index: number): LifecyclePreviewPhase => ({
+        id: Number(phase?.id ?? index + 1),
+        name: String(phase?.name ?? phase?.Name ?? ''),
+        isOptionalPhase: Boolean(phase?.isOptionalPhase),
+        sortOrder: Number(phase?.sortOrder ?? index),
+      })).sort((a: LifecyclePreviewPhase, b: LifecyclePreviewPhase) => a.sortOrder - b.sortOrder);
+    } catch {
+      return [];
+    }
+  };
+
   const mapLifecycleOptions = (lifecycles: LifecycleDto[]) => {
     return lifecycles.map((lc: LifecycleDto) => {
-      let phases: { name: string; type?: string }[] = [];
-      if (lc.json) {
-        try {
-          const parsed = JSON.parse(lc.json);
-          if (Array.isArray(parsed.phases)) {
-            phases = parsed.phases.map((p: any) => ({
-              name: p.name || p.Name || '',
-              type: p.isOptionalPhase ? 'default' : 'active',
-            }));
-          }
-        } catch {
-          phases = [];
-        }
-      }
+      const phasesFromApi = (lc.phases ?? [])
+        .map((phase, index) => ({
+          id: Number(phase.id ?? index + 1),
+          name: String(phase.name ?? ''),
+          isOptionalPhase: Boolean(phase.isOptionalPhase),
+          sortOrder: Number(phase.sortOrder ?? index),
+        }))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      const phases = phasesFromApi.length > 0 ? phasesFromApi : parseLifecyclePhasesFromJson(lc.json);
       return { value: String(lc.id), label: lc.name, phases };
     });
   };
@@ -142,9 +165,12 @@ const Project: React.FC = () => {
       const res = await getLifecycles({ pageIndex: 1, pageSize: 200 });
       const options = mapLifecycleOptions(res.lifecycles ?? []);
       setLifecycleOptions(options);
-      if (!selectedLifecycle && options.length > 0) {
-        setSelectedLifecycle(options[0].value);
+      if (options.length === 0) {
+        setSelectedLifecycle(undefined);
+        return;
       }
+      const hasSelected = selectedLifecycle != null && options.some((option) => option.value === selectedLifecycle);
+      if (!hasSelected) setSelectedLifecycle(options[0].value);
     } catch (error) {
       console.error('Failed to load lifecycles', error);
       setLifecycleOptions([]);
@@ -691,6 +717,13 @@ const Project: React.FC = () => {
       overflow: hidden;
       height: 100vh;
     }
+    .fullscreen-add-project-modal .add-project-inline-field .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+      border-bottom: 0 !important;
+    }
+    .fullscreen-add-project-modal .add-project-inline-field .ant-select-focused:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector,
+    .fullscreen-add-project-modal .add-project-inline-field .ant-select-open:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector {
+      border-bottom-color: transparent !important;
+    }
   `;
 
   const deployTargetOptions = [
@@ -1211,7 +1244,7 @@ const Project: React.FC = () => {
 
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Project group</label>
-                          <div className="border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                          <div className="add-project-inline-field border-b border-gray-300 focus-within:border-squid-blue transition-colors">
                             <Select
                               className="w-full"
                               loading={loadingProjectGroups}
@@ -1231,7 +1264,7 @@ const Project: React.FC = () => {
 
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Lifecycle</label>
-                          <div className="flex items-center gap-2 border-b border-gray-300 focus-within:border-squid-blue transition-colors">
+                          <div className="add-project-inline-field flex items-center gap-2 border-b border-gray-300 focus-within:border-squid-blue transition-colors">
                             <Select
                               className="flex-1"
                               loading={loadingLifecycles}
@@ -1278,19 +1311,16 @@ const Project: React.FC = () => {
                                   <div className="space-y-1.5">
                                     {sel.phases.map((phase, i) => (
                                       <div key={i} className="flex items-center gap-2 text-sm">
-                                        {phase.type === 'active' ? (
-                                          <ThunderboltFilled className="text-orange-500 text-xs" />
-                                        ) : (
-                                          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-gray-400" />
-                                        )}
-                                        <span className={phase.type === 'active' ? 'text-orange-600 font-medium' : 'text-gray-600'}>
-                                          {phase.name}
+                                        <span className={`inline-block w-2.5 h-2.5 rounded-sm ${phase.isOptionalPhase ? 'border border-gray-400 bg-white' : 'bg-slate-500'}`} />
+                                        <span className={phase.isOptionalPhase ? 'text-gray-600' : 'text-slate-700 font-medium'}>
+                                          {(phase.name || `Phase ${i + 1}`)}
+                                          {phase.isOptionalPhase ? <span className="text-gray-500"> (optional)</span> : null}
                                         </span>
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <span className="text-xs text-gray-500">Uses default conventions</span>
+                                  <span className="text-xs text-gray-500">Deployments can progress through environments in their configured order unless explicit phases are added.</span>
                                 )}
                               </div>
                             );

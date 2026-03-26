@@ -29,6 +29,7 @@ import { getUsers, type UserDto } from 'pages/apis/user'
 import { SettingsDetailPanel as DetailPanel } from './components/DetailFormTemplate'
 
 type TeamDetailTab = 'members' | 'userRoles' | 'settings'
+type TeamRolePermissionTab = 'space' | 'system'
 type TeamSettingsCardKey = 'name' | 'description'
 
 interface TeamFormState {
@@ -139,6 +140,17 @@ function isLegacySpaceSlug(value: string) {
   return /^Spaces-\d+$/i.test(value.trim())
 }
 
+function isTrueFlag(value: unknown) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') return value.trim().toLowerCase() === 'true'
+  return false
+}
+
+function isSystemAdministratorRole(role: UserRoleDto) {
+  return role.name.trim().toLowerCase() === 'system administrator'
+}
+
 export function TeamsSettings({
   spaceId,
   canView,
@@ -179,6 +191,7 @@ export function TeamsSettings({
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([])
 
   const [detailTab, setDetailTab] = useState<TeamDetailTab>('members')
+  const [rolePermissionTab, setRolePermissionTab] = useState<TeamRolePermissionTab>('space')
 
   const [loadingTeamRoles, setLoadingTeamRoles] = useState(false)
   const [teamRoles, setTeamRoles] = useState<ScopedUserRoleDto[]>([])
@@ -187,6 +200,7 @@ export function TeamsSettings({
   const [nextDraftRoleId, setNextDraftRoleId] = useState(-1)
   const [savingTeamRoles, setSavingTeamRoles] = useState(false)
   const [allUserRoles, setAllUserRoles] = useState<UserRoleDto[]>([])
+  const [loadingRoleCatalog, setLoadingRoleCatalog] = useState(false)
   const [spaces, setSpaces] = useState<SpaceDto[]>([])
   const [projects, setProjects] = useState<ProjectDto[]>([])
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
@@ -260,6 +274,20 @@ export function TeamsSettings({
     for (const item of spaces) map.set(item.id, item)
     return map
   }, [spaces])
+  const userRoleById = useMemo(() => {
+    const map = new Map<number, UserRoleDto>()
+    for (const role of allUserRoles) map.set(role.id, role)
+    return map
+  }, [allUserRoles])
+  const spaceAssignableUserRoles = useMemo(
+    () => allUserRoles.filter((role) => isTrueFlag(role.canApplyAtSpaceLevel) && !isSystemAdministratorRole(role)),
+    [allUserRoles],
+  )
+  const systemAssignableUserRoles = useMemo(
+    () => allUserRoles.filter((role) => isTrueFlag(role.canApplyAtSystemLevel)),
+    [allUserRoles],
+  )
+  const visibleAssignableUserRoles = rolePermissionTab === 'space' ? spaceAssignableUserRoles : systemAssignableUserRoles
 
   const rawSpaceFilter = useMemo(() => searchParams.get('spaces')?.trim() || '', [searchParams])
   const normalizedSpaceFilter = useMemo(() => {
@@ -398,6 +426,7 @@ export function TeamsSettings({
       return
     }
     try {
+      setLoadingRoleCatalog(true)
       const result = await getUserRoles()
       setAllUserRoles([...(result ?? [])].sort((a, b) => a.name.localeCompare(b.name)))
     } catch (error: any) {
@@ -406,6 +435,8 @@ export function TeamsSettings({
         message.error(error?.message || 'Failed to load roles.')
       }
       setAllUserRoles([])
+    } finally {
+      setLoadingRoleCatalog(false)
     }
   }, [canView])
 
@@ -548,7 +579,23 @@ export function TeamsSettings({
       if (loadedTeamRolesTeamId !== selectedTeamId) void loadTeamRoles(selectedTeamId)
       if (spaces.length === 0) void loadRoleSpaces()
     }
-  }, [detailTab, isTeamDetailPage, loadMembers, loadRoleSpaces, loadTeamDetail, loadTeamRoles, loadedTeamRolesTeamId, selectedTeamId, spaces.length])
+  }, [
+    detailTab,
+    isTeamDetailPage,
+    loadMembers,
+    loadRoleSpaces,
+    loadTeamDetail,
+    loadTeamRoles,
+    loadedTeamRolesTeamId,
+    selectedTeamId,
+    spaces.length,
+  ])
+
+  useEffect(() => {
+    if (!isTeamDetailPage) return
+    if (detailTab !== 'userRoles') return
+    void loadRoleCatalog()
+  }, [detailTab, isTeamDetailPage, loadRoleCatalog])
 
   useEffect(() => {
     if (!activeTeam) {
@@ -717,9 +764,10 @@ export function TeamsSettings({
       return
     }
     setAssignRoleUserRoleId(null)
-    setAssignRoleSpaceId(numericSpaceId)
+    setAssignRoleSpaceId(rolePermissionTab === 'space' ? numericSpaceId : null)
     setAssignRoleDialogOpen(true)
     if (allUserRoles.length === 0) void loadRoleCatalog()
+    if (rolePermissionTab === 'space' && spaces.length === 0) void loadRoleSpaces()
   }
 
   const handleAssignRole = () => {
@@ -733,10 +781,16 @@ export function TeamsSettings({
       return
     }
 
-    const nextSpaceId = assignRoleSpaceId ?? numericSpaceId
+    const nextSpaceId = rolePermissionTab === 'system' ? null : assignRoleSpaceId
+    if (rolePermissionTab === 'space' && (nextSpaceId == null || nextSpaceId <= 0)) {
+      message.warning('Select a space.')
+      return
+    }
     const duplicateExists = teamRoleDrafts.some((role) => role.userRoleId === assignRoleUserRoleId && (role.spaceId ?? null) === nextSpaceId)
     if (duplicateExists) {
-      message.warning('This user role is already included for the selected space.')
+      message.warning(rolePermissionTab === 'system'
+        ? 'This user role is already included in system permissions.'
+        : 'This user role is already included for the selected space.')
       return
     }
     const matchedRole = allUserRoles.find((role) => role.id === assignRoleUserRoleId)
@@ -777,6 +831,10 @@ export function TeamsSettings({
   const openScopeDialog = (role: ScopedUserRoleDto) => {
     if (!canEdit) {
       message.warning('Permission denied: TeamEdit')
+      return
+    }
+    if (role.spaceId == null) {
+      message.info('System permissions do not support scope restrictions.')
       return
     }
     setEditingScopeRole(role)
@@ -855,7 +913,8 @@ export function TeamsSettings({
           userRoleId: role.userRoleId,
           spaceId: role.spaceId,
         })
-        const hasScopedRestrictions = role.projectGroupIds.length > 0 || role.projectIds.length > 0 || role.environmentIds.length > 0
+        const hasScopedRestrictions = role.spaceId != null
+          && (role.projectGroupIds.length > 0 || role.projectIds.length > 0 || role.environmentIds.length > 0)
         const createdRoleId = Number(createdRole?.id ?? 0)
         if (hasScopedRestrictions && createdRoleId > 0) {
           await updateTeamRoleScope(activeTeam.id, createdRoleId, {
@@ -867,6 +926,7 @@ export function TeamsSettings({
       }
 
       for (const role of rolesToUpdate) {
+        if (role.spaceId == null) continue
         await updateTeamRoleScope(activeTeam.id, role.id, {
           projectIds: normalizeScopeIds(role.projectIds),
           environmentIds: normalizeScopeIds(role.environmentIds),
@@ -898,12 +958,6 @@ export function TeamsSettings({
     const resolvedSpaceName = spaceById.get(roleSpaceId)?.name || (roleSpaceId === numericSpaceId ? (space.name || 'Default') : '')
     return resolvedSpaceName || 'Unknown'
   }, [numericSpaceId, space.name, spaceById])
-
-  const getRoleSpaceTitle = useCallback((roleSpaceId: number | null) => {
-    if (roleSpaceId == null) return 'System'
-    const spaceName = getRoleSpaceName(roleSpaceId)
-    return spaceName.toLowerCase().endsWith(' space') ? spaceName : `${spaceName} Space`
-  }, [getRoleSpaceName])
 
   const getRoleDescription = useCallback((userRoleId: number) => {
     return allUserRoles.find((role) => role.id === userRoleId)?.description || ''
@@ -1032,76 +1086,99 @@ export function TeamsSettings({
   )
 
   const renderRolesPanel = () => {
-    const groupedRoles = teamRoleDrafts.reduce<Record<string, { title: string; roles: ScopedUserRoleDto[] }>>((acc, role) => {
-      const title = getRoleSpaceTitle(role.spaceId)
-      const key = role.spaceId == null ? 'system' : `space-${role.spaceId}`
-      if (!acc[key]) acc[key] = { title, roles: [] }
-      acc[key].roles.push(role)
-      return acc
-    }, {})
-
-    const orderedGroups = Object.values(groupedRoles).sort((a, b) => a.title.localeCompare(b.title))
+    const canRenderInSystemTab = (role: ScopedUserRoleDto) => {
+      const catalogRole = userRoleById.get(role.userRoleId)
+      if (!catalogRole) return false
+      return role.spaceId == null && isTrueFlag(catalogRole.canApplyAtSystemLevel)
+    }
+    const spaceRoles = teamRoleDrafts
+      .filter((role) => role.spaceId != null)
+      .sort((left, right) => {
+        const leftSpaceName = getRoleSpaceName(left.spaceId)
+        const rightSpaceName = getRoleSpaceName(right.spaceId)
+        if (leftSpaceName !== rightSpaceName) return leftSpaceName.localeCompare(rightSpaceName)
+        return left.userRoleName.localeCompare(right.userRoleName)
+      })
+    const systemRoles = teamRoleDrafts
+      .filter(canRenderInSystemTab)
+      .sort((left, right) => left.userRoleName.localeCompare(right.userRoleName))
+    const visibleRoles = rolePermissionTab === 'space' ? spaceRoles : systemRoles
 
     return (
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="px-4 pt-4 pb-3">
-          <p className="text-sm text-slate-600 mb-3">
-            Assign user roles to this team and optionally restrict access scope by project, environment, and project group.
-          </p>
+          <div className="flex items-center gap-1 border-b border-slate-200 mb-3">
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm border-b-2 ${rolePermissionTab === 'space' ? 'border-squid-blue text-squid-blue font-medium' : 'border-transparent text-slate-600'}`}
+              onClick={() => {
+                setRolePermissionTab('space')
+                void loadRoleCatalog()
+              }}
+            >
+              Space Permissions
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm border-b-2 ${rolePermissionTab === 'system' ? 'border-squid-blue text-squid-blue font-medium' : 'border-transparent text-slate-600'}`}
+              onClick={() => {
+                setRolePermissionTab('system')
+                void loadRoleCatalog()
+              }}
+            >
+              System Permissions
+            </button>
+          </div>
 
           <div className="flex items-center justify-end gap-2 mb-3">
             <Button type="primary" onClick={openAssignRoleDialog} disabled={!canEdit}>Include User Role</Button>
           </div>
 
-          {loadingTeamRoles ? (
+          {loadingTeamRoles || loadingRoleCatalog ? (
             <div className="py-8 flex items-center justify-center"><Spin /></div>
-          ) : teamRoleDrafts.length === 0 ? (
+          ) : visibleRoles.length === 0 ? (
             <div className="py-5 text-sm text-slate-500">No roles assigned yet.</div>
           ) : (
-            <div className="space-y-3">
-              {orderedGroups.map((group) => (
-                <div key={group.title} className="rounded-lg border border-slate-200 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
-                    <div className="text-sm font-semibold text-slate-900">{group.title}</div>
+            <div className="space-y-2">
+              {visibleRoles.map((role) => {
+                const roleMenuItems: MenuProps['items'] = role.spaceId == null
+                  ? [{ key: 'delete', label: 'Delete', disabled: !canEdit }]
+                  : [
+                    { key: 'edit', label: 'Edit', disabled: !canEdit },
+                    { key: 'delete', label: 'Delete', disabled: !canEdit },
+                  ]
+                const handleRoleMenuClick: MenuProps['onClick'] = ({ key }) => {
+                  if (key === 'edit') {
+                    openScopeDialog(role)
+                    return
+                  }
+                  if (key === 'delete') handleRemoveAssignedRole(role)
+                }
+
+                return (
+                  <div key={role.id} className="rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link className="text-sm font-semibold text-squid-blue hover:underline" to={`/${spaceId}/settings/user-roles?roleId=${role.userRoleId}`} target="_self">
+                          {role.userRoleName}
+                        </Link>
+                        {role.spaceId == null ? (
+                          <div className="text-xs text-slate-500 mt-0.5">{getRoleDescription(role.userRoleId) || 'Assigned at system level.'}</div>
+                        ) : (
+                          <>
+                            <div className="text-xs text-slate-500 mt-0.5">Space: {getRoleSpaceName(role.spaceId)}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">{describeRoleScoping(role)}</div>
+                          </>
+                        )}
+                      </div>
+
+                      <Dropdown menu={{ items: roleMenuItems, onClick: handleRoleMenuClick }} trigger={['click']} placement="bottomRight">
+                        <Button type="text" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="OverflowMenu" />
+                      </Dropdown>
+                    </div>
                   </div>
-
-                  <div className="p-3 space-y-2">
-                    {group.roles.map((role) => {
-                      const roleMenuItems: MenuProps['items'] = [
-                        { key: 'edit', label: 'Edit', disabled: !canEdit },
-                        { key: 'delete', label: 'Delete', disabled: !canEdit },
-                      ]
-
-                      const handleRoleMenuClick: MenuProps['onClick'] = ({ key }) => {
-                        if (key === 'edit') {
-                          openScopeDialog(role)
-                          return
-                        }
-                        if (key === 'delete') {
-                          handleRemoveAssignedRole(role)
-                        }
-                      }
-
-                      return (
-                        <div key={role.id} className="rounded-md border border-slate-200 bg-white px-3 py-2.5">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <Link className="text-sm font-semibold text-squid-blue hover:underline" to={`/${spaceId}/settings/user-roles?roleId=${role.userRoleId}`} target="_self">
-                                {role.userRoleName}
-                              </Link>
-                              <div className="text-xs text-slate-500 mt-0.5">{describeRoleScoping(role)}</div>
-                            </div>
-
-                            <Dropdown menu={{ items: roleMenuItems, onClick: handleRoleMenuClick }} trigger={['click']} placement="bottomRight">
-                              <Button type="text" icon={<MoreOutlined style={{ fontSize: 18 }} />} aria-label="OverflowMenu" />
-                            </Dropdown>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -1444,22 +1521,45 @@ export function TeamsSettings({
         title="Include User Role"
         onCancel={() => setAssignRoleDialogOpen(false)}
         footer={(
-          <div className="flex items-center justify-between">
-            <Button disabled>Define scope</Button>
-            <div className="flex items-center gap-2">
-              <Button onClick={() => setAssignRoleDialogOpen(false)}>Cancel</Button>
-              <Button
-                type="primary"
-                onClick={() => void handleAssignRole()}
-                disabled={!canEdit || assignRoleUserRoleId == null}
-              >
-                Apply
-              </Button>
-            </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button onClick={() => setAssignRoleDialogOpen(false)}>Cancel</Button>
+            <Button
+              type="primary"
+              onClick={() => void handleAssignRole()}
+              disabled={!canEdit || assignRoleUserRoleId == null || (rolePermissionTab === 'space' && (assignRoleSpaceId == null || assignRoleSpaceId <= 0))}
+            >
+              Apply
+            </Button>
           </div>
         )}
       >
         <div className="space-y-3 pt-1">
+          <div className="flex items-center gap-1 border-b border-slate-200">
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm border-b-2 ${rolePermissionTab === 'space' ? 'border-squid-blue text-squid-blue font-medium' : 'border-transparent text-slate-600'}`}
+              onClick={() => {
+                setRolePermissionTab('space')
+                setAssignRoleUserRoleId(null)
+                setAssignRoleSpaceId(numericSpaceId)
+                if (spaces.length === 0) void loadRoleSpaces()
+              }}
+            >
+              Space Permissions
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm border-b-2 ${rolePermissionTab === 'system' ? 'border-squid-blue text-squid-blue font-medium' : 'border-transparent text-slate-600'}`}
+              onClick={() => {
+                setRolePermissionTab('system')
+                setAssignRoleUserRoleId(null)
+                setAssignRoleSpaceId(null)
+              }}
+            >
+              System Permissions
+            </button>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Select a user role</label>
             <Select<number>
@@ -1467,7 +1567,7 @@ export function TeamsSettings({
               placeholder="Select a user role"
               value={assignRoleUserRoleId ?? undefined}
               onChange={(value) => setAssignRoleUserRoleId(value)}
-              options={allUserRoles.map((role) => ({
+              options={visibleAssignableUserRoles.map((role) => ({
                 value: role.id,
                 label: role.name,
               }))}
@@ -1476,12 +1576,21 @@ export function TeamsSettings({
               optionFilterProp="label"
             />
           </div>
-          <div className="text-xs text-slate-500">
-            A user role specifies what actions users in this team will be able to perform.
-          </div>
-          <div className="text-xs text-slate-500">
-            In order to view/assign a user role to a space-scoped team, that user role must contain at least one space-level permission.
-          </div>
+          {rolePermissionTab === 'space' ? (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Select a space</label>
+              <Select<number>
+                className="w-full"
+                placeholder="Select a space"
+                value={assignRoleSpaceId ?? undefined}
+                onChange={(value) => setAssignRoleSpaceId(value)}
+                options={spaces.map((item) => ({ value: item.id, label: item.name }))}
+                loading={loadingScopeOptions && spaces.length === 0}
+                showSearch
+                optionFilterProp="label"
+              />
+            </div>
+          ) : null}
         </div>
       </Modal>
 

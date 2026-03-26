@@ -301,14 +301,8 @@ export function SpacesSettings({
 
     try {
       setLoadingManagerDialogData(true)
-      const [systemTeamsResult, currentSpaceTeamsResult] = await Promise.all([
-        getTeams({ spaceId: 0 }),
-        getTeams({ spaceId: currentSpaceNumericId }),
-      ])
-      const mergedTeamMap = new Map<number, TeamDto>()
-      for (const team of systemTeamsResult.teams ?? []) mergedTeamMap.set(team.id, team)
-      for (const team of currentSpaceTeamsResult.teams ?? []) mergedTeamMap.set(team.id, team)
-      const mergedTeams = Array.from(mergedTeamMap.values())
+      const systemTeamsResult = await getTeams({ spaceId: 0 })
+      const mergedTeams = (systemTeamsResult.teams ?? [])
         .filter((team) => !isAutoSpaceOwnersTeamName(team.name))
         .sort((a, b) => a.name.localeCompare(b.name))
       setAvailableTeams(mergedTeams)
@@ -318,7 +312,7 @@ export function SpacesSettings({
     } finally {
       setLoadingManagerDialogData(false)
     }
-  }, [canManageManagers, currentSpaceNumericId])
+  }, [canManageManagers])
 
   const loadUsers = useCallback(async () => {
     if (!canManageManagers) {
@@ -397,7 +391,7 @@ export function SpacesSettings({
     const name = createFormState.name.trim()
     const slug = createFormState.slug.trim() || normalizeSpaceSlug(name)
     if (!name) {
-      message.warning('Space name is required.')
+      message.warning('New space name is required.')
       return
     }
 
@@ -836,16 +830,22 @@ export function SpacesSettings({
 
       <Modal
         open={spaceDialogOpen}
-        title="Create Space"
+        title="Add New Space"
         onCancel={() => setSpaceDialogOpen(false)}
         onOk={() => void handleCreateSpace()}
-        okText="Create"
+        okText="Save"
+        cancelText="Cancel"
         confirmLoading={creating}
-        okButtonProps={{ disabled: !canCreate }}
+        okButtonProps={{ disabled: createFormState.name.trim().length === 0 || creating }}
+        maskClosable={false}
+        keyboard={false}
+        closable={false}
+        destroyOnClose
+        width={640}
       >
-        <div className="space-y-3 pt-1">
+        <div className="pt-1 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Name</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">New space name</label>
             <Input
               value={createFormState.name}
               onChange={(event) => {
@@ -861,66 +861,55 @@ export function SpacesSettings({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Slug</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">New space slug</label>
             <Input
               value={createFormState.slug}
               onChange={(event) => setCreateFormState((previous) => ({ ...previous, slug: event.target.value }))}
               placeholder="default-space"
             />
+            <div className="mt-1 text-xs text-slate-500">Will be generated on save if left blank.</div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Description</label>
-            <Input.TextArea
-              value={createFormState.description}
-              onChange={(event) => setCreateFormState((previous) => ({ ...previous, description: event.target.value }))}
-              autoSize={{ minRows: 3, maxRows: 6 }}
-              placeholder="The default space"
-            />
-          </div>
-
-          <div className="rounded-md border border-slate-200 px-3 py-2.5 flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium text-slate-900">Private Space</div>
-              <div className="text-xs text-slate-500">Only explicitly granted users and teams can access this space.</div>
-            </div>
-            <Switch
-              checked={createFormState.isPrivate}
-              onChange={(checked) => setCreateFormState((previous) => ({ ...previous, isPrivate: checked }))}
-            />
+          <div className="pt-1">
+            <h4 className="m-0 text-sm font-semibold text-slate-800">Select members and teams to be managers of this space</h4>
+            <p className="mt-2 mb-0 text-xs text-slate-600 leading-relaxed">
+              The members and teams selected will be added to the Space Manager team and will have management permissions and access to everything in this space.
+            </p>
           </div>
 
           {canManageManagers ? (
             <>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Select space managers (teams)</label>
-                <Select<number[]>
-                  mode="multiple"
-                  className="w-full"
-                  placeholder="Select teams"
-                  value={createFormState.ownerTeamIds}
-                  onChange={(value) => setCreateFormState((previous) => ({ ...previous, ownerTeamIds: normalizeIdList(value) }))}
-                  options={managerTeamOptions}
-                  loading={loadingManagerDialogData}
-                  showSearch
-                  optionFilterProp="label"
-                  notFoundContent={loadingManagerDialogData ? <Spin size="small" /> : 'No available teams'}
-                />
-              </div>
-
-              <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Select space managers (members)</label>
                 <Select<number[]>
                   mode="multiple"
                   className="w-full"
-                  placeholder="Select users"
                   value={createFormState.ownerUserIds}
                   onChange={(value) => setCreateFormState((previous) => ({ ...previous, ownerUserIds: normalizeIdList(value) }))}
                   options={managerUserOptions}
                   loading={loadingManagerUsers}
+                  placeholder="Select space managers (members)"
                   showSearch
                   optionFilterProp="label"
                   notFoundContent={loadingManagerUsers ? <Spin size="small" /> : 'No available users'}
+                  getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Select space managers (teams)</label>
+                <Select<number[]>
+                  mode="multiple"
+                  className="w-full"
+                  value={createFormState.ownerTeamIds}
+                  onChange={(value) => setCreateFormState((previous) => ({ ...previous, ownerTeamIds: normalizeIdList(value) }))}
+                  options={managerTeamOptions}
+                  loading={loadingManagerDialogData}
+                  placeholder="Select space managers (teams)"
+                  showSearch
+                  optionFilterProp="label"
+                  notFoundContent={loadingManagerDialogData ? <Spin size="small" /> : 'No available teams'}
+                  getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
                 />
               </div>
             </>

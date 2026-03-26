@@ -6,6 +6,8 @@ export interface UserRoleDto {
   description: string
   isBuiltIn: boolean
   permissions: string[]
+  canApplyAtSpaceLevel: boolean
+  canApplyAtSystemLevel: boolean
 }
 
 export interface CreateUserRoleCommand {

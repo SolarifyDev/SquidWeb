@@ -196,6 +196,9 @@ function App() {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInsideModalOrDropdown = Boolean(target?.closest('.ant-modal-root') || target?.closest('.ant-select-dropdown'));
+      if (isInsideModalOrDropdown) return;
       if (spaceSwitcherRef.current && !spaceSwitcherRef.current.contains(e.target as Node)) {
         setShowSpaceSwitcher(false);
       }
@@ -212,6 +215,16 @@ function App() {
   const handleSelectSpace = (space: SpaceDto) => {
     navigate(`/Spaces-${space.id}/projects`);
     setShowSpaceSwitcher(false);
+  };
+
+  const handleCreateSpaceFromSwitcher = (space: SpaceDto) => {
+    setSpaces((previous) => {
+      const nextMap = new Map<number, SpaceDto>();
+      for (const item of previous) nextMap.set(item.id, item);
+      nextMap.set(space.id, space);
+      return Array.from(nextMap.values()).sort((left, right) => left.name.localeCompare(right.name));
+    });
+    handleSelectSpace(space);
   };
 
   const handleLogout = () => {
@@ -317,6 +330,7 @@ function App() {
               spaces={spaces}
               currentSpaceId={currentSpace.id}
               onSelectSpace={handleSelectSpace}
+              onCreateSpace={handleCreateSpaceFromSwitcher}
               onClose={() => setShowSpaceSwitcher(false)}
             />
           )}
