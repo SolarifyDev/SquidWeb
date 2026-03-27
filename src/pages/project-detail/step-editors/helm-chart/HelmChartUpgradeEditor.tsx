@@ -563,7 +563,7 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
     const [packageSearchLoading, setPackageSearchLoading] = useState(false)
     const packageSearchRequestId = useRef(0)
     const [templateValueDrawerOpen, setTemplateValueDrawerOpen] = useState(false)
-    const [editingTemplateValueSourceId, setEditingTemplateValueSourceId] = useState<string | null>(null)
+    const [editingTemplateValueSourceIndex, setEditingTemplateValueSourceIndex] = useState<number | null>(null)
     const [templateValueSourceType, setTemplateValueSourceType] = useState<TemplateValueSourceType>('InlineYaml')
     const [templateValueInlineYaml, setTemplateValueInlineYaml] = useState('')
     const [templateValueKeyValues, setTemplateValueKeyValues] = useState<KeyValueItem[]>([])
@@ -774,7 +774,7 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
       [templateValueSourceType],
     )
     const resetTemplateValueDrawer = useCallback((nextType: TemplateValueSourceType = 'InlineYaml') => {
-      setEditingTemplateValueSourceId(null)
+      setEditingTemplateValueSourceIndex(null)
       setTemplateValueSourceType(nextType)
       setTemplateValueInlineYaml('')
       setTemplateValueKeyValues([])
@@ -783,13 +783,13 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
       resetTemplateValueDrawer()
       setTemplateValueDrawerOpen(true)
     }, [resetTemplateValueDrawer])
-    const openTemplateValueSourceEditor = useCallback((source: TemplateValueSource) => {
+    const openTemplateValueSourceEditor = useCallback((index: number, source: TemplateValueSource) => {
       if (!isTemplateValueSourceSupported(source.type)) {
         message.warning('This template values source type is not editable yet')
         return
       }
 
-      setEditingTemplateValueSourceId(source.id)
+      setEditingTemplateValueSourceIndex(index)
       setTemplateValueSourceType(source.type)
 
       if (source.type === 'InlineYaml') {
@@ -819,9 +819,9 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
           return
         }
         setTemplateValueSources((prev) => {
-          if (!editingTemplateValueSourceId) return [...prev, createTemplateValueSource('InlineYaml', normalizedInlineYaml)]
-          return prev.map((source) => (
-            source.id === editingTemplateValueSourceId
+          if (editingTemplateValueSourceIndex == null) return [...prev, createTemplateValueSource('InlineYaml', normalizedInlineYaml)]
+          return prev.map((source, index) => (
+            index === editingTemplateValueSourceIndex
               ? { ...source, type: 'InlineYaml', value: normalizedInlineYaml }
               : source
           ))
@@ -838,9 +838,9 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
       }
       const serializedKeyValues = serializeTemplateValues(normalizedKeyValues)
       setTemplateValueSources((prev) => {
-        if (!editingTemplateValueSourceId) return [...prev, createTemplateValueSource('KeyValues', serializedKeyValues)]
-        return prev.map((source) => (
-          source.id === editingTemplateValueSourceId
+        if (editingTemplateValueSourceIndex == null) return [...prev, createTemplateValueSource('KeyValues', serializedKeyValues)]
+        return prev.map((source, index) => (
+          index === editingTemplateValueSourceIndex
             ? { ...source, type: 'KeyValues', value: serializedKeyValues }
             : source
         ))
@@ -848,7 +848,7 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
       setTemplateValueDrawerOpen(false)
       resetTemplateValueDrawer()
     }, [
-      editingTemplateValueSourceId,
+      editingTemplateValueSourceIndex,
       templateValueInlineYaml,
       templateValueKeyValues,
       templateValueSourceType,
@@ -1164,13 +1164,13 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
                 <div className="text-xs text-slate-500">No template value sources configured yet.</div>
               ) : (
                 <div className="space-y-2">
-                  {templateValueSources.map((source) => {
+                  {templateValueSources.map((source, index) => {
                     const sourceOption = TemplateValueSourceOptions.find((option) => option.type === source.type)
                     return (
                       <div
                         key={source.id}
                         className="cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 transition-colors hover:bg-slate-50"
-                        onClick={() => openTemplateValueSourceEditor(source)}
+                        onClick={() => openTemplateValueSourceEditor(index, source)}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -1326,7 +1326,7 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
           open={templateValueDrawerOpen}
           onClose={closeTemplateValueDrawer}
           width={640}
-          title={editingTemplateValueSourceId ? 'Edit Template Values' : 'Add Template Values'}
+          title={editingTemplateValueSourceIndex != null ? 'Edit Template Values' : 'Add Template Values'}
           destroyOnClose={false}
           extra={(
             <div className="flex items-center gap-2">
