@@ -726,9 +726,10 @@ const DeploymentTargets: React.FC = () => {
 
   const filteredHealthy = deploymentData.healthy.filter(targetMatchesFilters)
   const filteredDisabled = deploymentData.disabled.filter(targetMatchesFilters)
-  const displayHealthy = disabledOnly ? [] : filteredHealthy
+  const displayHealthy = disabledOnly ? [] : filteredHealthy.filter((target) => target.healthState === 'Healthy')
+  const displayNonHealthyEnabled = disabledOnly ? [] : filteredHealthy.filter((target) => target.healthState !== 'Healthy')
   const displayDisabled = filteredDisabled
-  const total = displayHealthy.length + displayDisabled.length
+  const total = displayHealthy.length + displayNonHealthyEnabled.length + displayDisabled.length
 
   const deploymentTypes = [
     { key: 'Kubernetes', label: 'Kubernetes' },
@@ -915,12 +916,29 @@ const DeploymentTargets: React.FC = () => {
               {displayHealthy.length > 0 && (
                 <div className="mb-4">
                   <div className="flex items-center gap-2 px-1 py-2 mb-1">
-                    <span className="text-sm font-semibold text-gray-800">Enabled</span>
+                    <HealthyIcon size={16} />
+                    <span className="text-sm font-semibold text-gray-800">Healthy</span>
                     <span className="text-sm text-gray-500">({displayHealthy.length})</span>
                   </div>
                   <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
                     {displayHealthy.map((t, i) =>
                       renderMachineRow(t, i === displayHealthy.length - 1)
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              {/* Non-healthy enabled section */}
+              {displayNonHealthyEnabled.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 px-1 py-2 mb-1">
+                    <UnknownHealthIcon size={16} />
+                    <span className="text-sm font-semibold text-gray-800">Unhealthy / Unavailable / Unknown</span>
+                    <span className="text-sm text-gray-500">({displayNonHealthyEnabled.length})</span>
+                  </div>
+                  <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
+                    {displayNonHealthyEnabled.map((t, i) =>
+                      renderMachineRow(t, i === displayNonHealthyEnabled.length - 1)
                     )}
                   </ul>
                 </div>

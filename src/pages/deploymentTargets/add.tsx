@@ -16,7 +16,7 @@ import {
   type KubernetesAgentStorageType,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
-import { createDeploymentAccount, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
+import { getDeploymentAccounts } from 'pages/apis/deploymentAccount'
 
 const deploymentTypes = [
   { key: 'Kubernetes', label: 'Kubernetes' },
@@ -291,6 +291,13 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiToken, setApiToken] = useState('')
   const [apiUsername, setApiUsername] = useState('')
   const [apiPassword, setApiPassword] = useState('')
+  const [apiAwsUseInstanceServiceRole, setApiAwsUseInstanceServiceRole] = useState(false)
+  const [apiAwsAssumeDifferentServiceRole, setApiAwsAssumeDifferentServiceRole] = useState(false)
+  const [apiAwsServiceRoleArn, setApiAwsServiceRoleArn] = useState('')
+  const [apiAwsEksClusterName, setApiAwsEksClusterName] = useState('')
+  const [apiAwsRegion, setApiAwsRegion] = useState('')
+  const [apiAwsAssumeRoleSessionDuration, setApiAwsAssumeRoleSessionDuration] = useState('')
+  const [apiAwsAssumeRoleExternalId, setApiAwsAssumeRoleExternalId] = useState('')
   const [apiSaving, setApiSaving] = useState(false)
   const [apiClusterUrl, setApiClusterUrl] = useState('')
   const [apiClusterCertificate, setApiClusterCertificate] = useState<string | undefined>(undefined)
@@ -365,6 +372,13 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiToken('')
     setApiUsername('')
     setApiPassword('')
+    setApiAwsUseInstanceServiceRole(false)
+    setApiAwsAssumeDifferentServiceRole(false)
+    setApiAwsServiceRoleArn('')
+    setApiAwsEksClusterName('')
+    setApiAwsRegion('')
+    setApiAwsAssumeRoleSessionDuration('')
+    setApiAwsAssumeRoleExternalId('')
     setApiClusterUrl('')
     setApiClusterCertificate(undefined)
     setApiSkipTlsVerification(false)
@@ -612,13 +626,22 @@ const AddDeploymentTargetPage: React.FC = () => {
         apiAuthType === 'usernamepassword' ||
         apiAuthType === 'azureserviceprincipal' ||
         apiAuthType === 'azureoidc' ||
-        apiAuthType === 'awsaccount' ||
         apiAuthType === 'awsoidc' ||
         apiAuthType === 'googlecloud'
       ) {
         const accountId = Number(apiSelectedAccountId)
         if (!Number.isFinite(accountId) || accountId <= 0) {
           message.warning('Please select an account')
+          return
+        }
+        resourceReferences.push({
+          type: EndpointResourceType.AuthenticationAccount,
+          resourceId: accountId,
+        })
+      } else if (apiAuthType === 'awsaccount' && !apiAwsUseInstanceServiceRole) {
+        const accountId = Number(apiSelectedAccountId)
+        if (!Number.isFinite(accountId) || accountId <= 0) {
+          message.warning('Please select an AWS account')
           return
         }
         resourceReferences.push({
@@ -637,6 +660,23 @@ const AddDeploymentTargetPage: React.FC = () => {
         })
       }
 
+      if (apiAuthType === 'awsaccount' && apiAwsAssumeDifferentServiceRole && !apiAwsServiceRoleArn.trim()) {
+        message.warning('Please enter an AWS service role ARN')
+        return
+      }
+      if (apiAuthType === 'awsaccount' && !apiAwsEksClusterName.trim()) {
+        message.warning('Please enter an EKS cluster name')
+        return
+      }
+      if (apiAuthType === 'awsaccount' && !apiAwsRegion.trim()) {
+        message.warning('Please enter an AWS region')
+        return
+      }
+      if (apiAuthType === 'awsaccount' && apiAwsAssumeRoleSessionDuration.trim() && !/^\d+$/.test(apiAwsAssumeRoleSessionDuration.trim())) {
+        message.warning('Assume role session duration must be a number of seconds')
+        return
+      }
+
       const clusterCertificateId = Number(apiClusterCertificate)
       if (Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
         resourceReferences.push({
@@ -645,13 +685,37 @@ const AddDeploymentTargetPage: React.FC = () => {
         })
       }
 
+      const allowNoAuthResourceReference = apiAuthType === 'awsaccount' && apiAwsUseInstanceServiceRole
       if (resourceReferences.length === 0) {
         if (apiAuthType === 'podserviceaccount') {
           message.warning('Pod Service Account currently requires a cluster certificate selection before saving.')
           return
         }
-        message.warning('Please select at least one authentication or certificate resource')
-        return
+        if (!allowNoAuthResourceReference) {
+          message.warning('Please select at least one authentication or certificate resource')
+          return
+        }
+      }
+
+      let providerType: number | undefined
+      let providerConfig: string | undefined
+      if (apiAuthType === 'awsaccount') {
+        providerType = 1 // AwsEks
+        const providerConfigPayload: Record<string, unknown> = {
+          clusterName: apiAwsEksClusterName.trim(),
+          region: apiAwsRegion.trim(),
+          useInstanceRole: apiAwsUseInstanceServiceRole,
+        }
+        if (apiAwsAssumeDifferentServiceRole && apiAwsServiceRoleArn.trim()) {
+          providerConfigPayload.assumeRoleArn = apiAwsServiceRoleArn.trim()
+          if (apiAwsAssumeRoleSessionDuration.trim()) {
+            providerConfigPayload.assumeRoleSessionDuration = apiAwsAssumeRoleSessionDuration.trim()
+          }
+          if (apiAwsAssumeRoleExternalId.trim()) {
+            providerConfigPayload.assumeRoleExternalId = apiAwsAssumeRoleExternalId.trim()
+          }
+        }
+        providerConfig = JSON.stringify(providerConfigPayload)
       }
 
       await registerKubernetesApi({
@@ -662,6 +726,8 @@ const AddDeploymentTargetPage: React.FC = () => {
         clusterUrl: apiClusterUrl.trim(),
         namespace: apiDefaultNamespace.trim() || 'default',
         skipTlsVerification: apiSkipTlsVerification,
+        providerType,
+        providerConfig,
         resourceReferences,
       })
 
@@ -725,33 +791,28 @@ const AddDeploymentTargetPage: React.FC = () => {
     }
   }, [space.id])
 
-  useEffect(() => {
-    let mounted = true
+  const loadDeploymentAccounts = useCallback(async () => {
     setLoadingDeploymentAccounts(true)
-    getDeploymentAccounts({ pageSize: 1000, spaceId: space.id })
-      .then((res) => {
-        if (!mounted) return
-        setDeploymentAccountOptions(
-          (res.deploymentAccounts ?? []).map((account) => ({
-            value: String(account.id),
-            label: account.name,
-            accountType: account.accountType,
-          }))
-        )
-      })
-      .catch((error) => {
-        if (!mounted) return
-        console.error('Failed to load deployment accounts', error)
-        setDeploymentAccountOptions([])
-      })
-      .finally(() => {
-        if (mounted) setLoadingDeploymentAccounts(false)
-      })
-
-    return () => {
-      mounted = false
+    try {
+      const res = await getDeploymentAccounts({ pageSize: 1000, spaceId: space.id })
+      setDeploymentAccountOptions(
+        (res.deploymentAccounts ?? []).map((account) => ({
+          value: String(account.id),
+          label: account.name,
+          accountType: account.accountType,
+        }))
+      )
+    } catch (error) {
+      console.error('Failed to load deployment accounts', error)
+      setDeploymentAccountOptions([])
+    } finally {
+      setLoadingDeploymentAccounts(false)
     }
   }, [space.id])
+
+  useEffect(() => {
+    void loadDeploymentAccounts()
+  }, [loadDeploymentAccounts])
 
   useEffect(() => {
     void loadCertificates()
@@ -760,7 +821,25 @@ const AddDeploymentTargetPage: React.FC = () => {
   useEffect(() => {
     setApiSelectedAccountId(undefined)
     setApiSelectedClientCertificateId(undefined)
+    if (apiAuthType !== 'awsaccount') {
+      setApiAwsUseInstanceServiceRole(false)
+      setApiAwsAssumeDifferentServiceRole(false)
+      setApiAwsServiceRoleArn('')
+      setApiAwsEksClusterName('')
+      setApiAwsRegion('')
+      setApiAwsAssumeRoleSessionDuration('')
+      setApiAwsAssumeRoleExternalId('')
+    }
   }, [apiAuthType])
+
+  useEffect(() => {
+    if (apiClusterCertificate) {
+      setApiSkipTlsVerification(false)
+      return
+    }
+
+    setApiSkipTlsVerification(true)
+  }, [apiClusterCertificate])
 
   useEffect(() => {
     if (apiAuthType !== 'certificate') return
@@ -1327,15 +1406,93 @@ const AddDeploymentTargetPage: React.FC = () => {
 
                 {apiAuthType === 'awsaccount' && (
                   <>
-                    <SelectField
-                      label="Select account"
-                      placeholder="Select an AWS account"
-                      value={apiSelectedAccountId}
-                      onChange={setApiSelectedAccountId}
-                      options={awsAccountOptions}
-                      loading={loadingDeploymentAccounts}
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Execute using the AWS service role for an EC2 instance</label>
+                      <Radio.Group
+                        value={apiAwsUseInstanceServiceRole ? 'yes' : 'no'}
+                        onChange={(event) => setApiAwsUseInstanceServiceRole(event.target.value === 'yes')}
+                      >
+                        <Radio value="yes">Yes</Radio>
+                        <Radio value="no">No</Radio>
+                      </Radio.Group>
+                    </div>
+
+                    {!apiAwsUseInstanceServiceRole && (
+                      <div className="mb-5">
+                        <div className="flex items-end gap-3">
+                          <div className="flex-1">
+                            <SelectField
+                              label="Select account"
+                              placeholder="Select an AWS account"
+                              value={apiSelectedAccountId}
+                              onChange={setApiSelectedAccountId}
+                              options={awsAccountOptions}
+                              loading={loadingDeploymentAccounts}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1 pb-5">
+                            <Button
+                              icon={<ReloadOutlined />}
+                              aria-label="Refresh AWS accounts"
+                              loading={loadingDeploymentAccounts}
+                              onClick={() => { void loadDeploymentAccounts() }}
+                            />
+                            <Button
+                              icon={<PlusOutlined />}
+                              aria-label="Add AWS account"
+                              onClick={() => window.open(`/${space.slug}/infrastructure/accounts/create?accountType=6`, '_blank', 'noopener,noreferrer')}
+                            />
+                          </div>
+                        </div>
+                        <NoteBlock>Only Amazon Web Service Accounts may be selected.</NoteBlock>
+                      </div>
+                    )}
+
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Assume a different AWS service role</label>
+                      <Radio.Group
+                        value={apiAwsAssumeDifferentServiceRole ? 'yes' : 'no'}
+                        onChange={(event) => setApiAwsAssumeDifferentServiceRole(event.target.value === 'yes')}
+                      >
+                        <Radio value="yes">Yes</Radio>
+                        <Radio value="no">No</Radio>
+                      </Radio.Group>
+                    </div>
+
+                    {apiAwsAssumeDifferentServiceRole && (
+                      <>
+                        <FormField
+                          label="AWS service role ARN"
+                          placeholder="arn:aws:iam::123456789012:role/MyRole"
+                          value={apiAwsServiceRoleArn}
+                          onChange={setApiAwsServiceRoleArn}
+                        />
+                        <FormField
+                          label="Assume role session duration (seconds)"
+                          placeholder="3600"
+                          value={apiAwsAssumeRoleSessionDuration}
+                          onChange={setApiAwsAssumeRoleSessionDuration}
+                        />
+                        <FormField
+                          label="Assume role external ID"
+                          placeholder="optional-external-id"
+                          value={apiAwsAssumeRoleExternalId}
+                          onChange={setApiAwsAssumeRoleExternalId}
+                        />
+                      </>
+                    )}
+
+                    <FormField
+                      label="EKS cluster name"
+                      value={apiAwsEksClusterName}
+                      onChange={setApiAwsEksClusterName}
                     />
-                    <NoteBlock>Select a deployment account with AWS credentials.</NoteBlock>
+                    <FormField
+                      label="AWS region"
+                      placeholder="us-west-2"
+                      value={apiAwsRegion}
+                      onChange={setApiAwsRegion}
+                    />
                   </>
                 )}
 
@@ -1428,17 +1585,16 @@ const AddDeploymentTargetPage: React.FC = () => {
                   <NoteBlock>The optional cluster certificate authority.</NoteBlock>
                 </div>
 
-                <div className="mb-4">
-                  <Checkbox
-                    checked={apiSkipTlsVerification}
-                    onChange={(e) => setApiSkipTlsVerification(e.target.checked)}
-                  >
-                    <span className="text-base text-gray-700">Skip TLS verification</span>
-                  </Checkbox>
-                  <NoteBlock>
-                    Enable this option to skip the verification of the cluster certificate. This can only be selected if no cluster certificate is specified.
-                  </NoteBlock>
-                </div>
+                {!apiClusterCertificate && (
+                  <div className="mb-4">
+                    <Checkbox checked={apiSkipTlsVerification} disabled>
+                      <span className="text-base text-gray-700">Skip TLS verification</span>
+                    </Checkbox>
+                    <NoteBlock>
+                      Automatically enabled when no cluster certificate is selected.
+                    </NoteBlock>
+                  </div>
+                )}
 
                 <FormField
                   label="Default Kubernetes namespace"

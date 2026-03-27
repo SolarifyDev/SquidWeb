@@ -71,6 +71,12 @@ export interface UpdateMachineCommand {
   roles?: string[] | null
   environmentIds?: number[] | null
   machinePolicyId?: number | null
+  clusterUrl?: string | null
+  namespace?: string | null
+  skipTlsVerification?: boolean | null
+  providerType?: number | null
+  providerConfig?: string | null
+  resourceReferences?: EndpointResourceReference[] | null
 }
 
 export function updateMachine(command: UpdateMachineCommand) {
@@ -149,6 +155,8 @@ export interface RegisterKubernetesApiCommand {
   clusterUrl: string
   namespace: string
   skipTlsVerification: boolean
+  providerType?: number
+  providerConfig?: string
   resourceReferences: EndpointResourceReference[]
 }
 
