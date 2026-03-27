@@ -18,6 +18,7 @@ interface KeyValueListEditorProps {
   addLabel?: string
   layout?: 'simple' | 'octopus'
   keyOptions?: string[]
+  multilineValue?: boolean
 }
 
 function UnderlineInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
@@ -42,6 +43,7 @@ export function KeyValueListEditor({
   addLabel = 'Add',
   layout = 'simple',
   keyOptions = [],
+  multilineValue = false,
 }: KeyValueListEditorProps) {
   const [openNameOptionsRow, setOpenNameOptionsRow] = React.useState<number | null>(null)
   const [nameDropdownStyle, setNameDropdownStyle] = React.useState<{ top: number; left: number; width: number } | null>(null)
@@ -204,13 +206,23 @@ export function KeyValueListEditor({
                   </div>
 
                   <div className="relative flex-1 min-w-0 border-b border-slate-300 focus-within:border-blue-500 transition-colors">
-                    <input
-                      type="text"
-                      value={item.value}
-                      placeholder={valueLabel}
-                      onChange={(event) => updateItem(index, 'value', event.target.value)}
-                      className="w-full bg-transparent border-0 outline-none text-sm text-slate-800 py-1 px-0 pr-[74px] placeholder-slate-400"
-                    />
+                    {multilineValue ? (
+                      <textarea
+                        value={item.value}
+                        placeholder={valueLabel}
+                        onChange={(event) => updateItem(index, 'value', event.target.value)}
+                        rows={3}
+                        className="w-full bg-transparent border-0 outline-none text-sm text-slate-800 py-1 px-0 pr-[74px] placeholder-slate-400 resize-y leading-5"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={item.value}
+                        placeholder={valueLabel}
+                        onChange={(event) => updateItem(index, 'value', event.target.value)}
+                        className="w-full bg-transparent border-0 outline-none text-sm text-slate-800 py-1 px-0 pr-[74px] placeholder-slate-400"
+                      />
+                    )}
                     <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1">
                       <span className="inline-block w-7 h-7" aria-hidden="true" />
                       <button
