@@ -656,9 +656,22 @@ const DeploymentTargetDetailPage: React.FC = () => {
       setManualHealthCheckData(data ?? null)
     } catch (error) {
       const status = (error as any)?.response?.status
-      const errorText = status
-        ? `Health check failed (${status})`
-        : (error instanceof Error ? error.message : 'Health check failed')
+      const responseData = (error as any)?.response?.data
+      const detailedMessage = typeof responseData === 'string'
+        ? responseData.trim()
+        : (
+          responseData?.message
+          ?? responseData?.error
+          ?? responseData?.detail
+          ?? responseData?.title
+          ?? null
+        )
+      const normalizedDetailedMessage = typeof detailedMessage === 'string' ? detailedMessage.trim() : ''
+      const errorText = normalizedDetailedMessage
+        ? normalizedDetailedMessage
+        : status
+          ? `Health check failed (${status})`
+          : (error instanceof Error ? error.message : 'Health check failed')
       setHealthCheckError(errorText)
     } finally {
       setHealthCheckLoading(false)
@@ -1266,11 +1279,12 @@ function ConnectivityTab({
           <div className="mb-5 rounded border border-rose-200 bg-rose-50 px-4 py-3" role="alert">
             <div className="flex items-start gap-3">
               <div className="pt-0.5">
-                <UnavailableIcon size={24} />
+                {healthState === 'Unhealthy' ? <UnhealthyIcon size={24} /> : <UnavailableIcon size={24} />}
               </div>
               <div>
                 <div className="text-base font-semibold text-rose-800">{mappedHealthStatus}</div>
-                <div className="text-sm text-rose-700 mt-1">{healthLastCheckedText}</div>
+                <div className="text-sm text-rose-700 mt-1 whitespace-pre-wrap break-words">{healthDetailText}</div>
+                <div className="text-sm text-rose-700 mt-2">{healthLastCheckedText}</div>
               </div>
             </div>
           </div>
