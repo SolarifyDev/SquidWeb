@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useSpace } from 'contexts/SpaceContext';
 import { Button, Dropdown, Input, Popover, Select, Spin, Tabs, message } from 'antd';
 import { EditOutlined, FilterOutlined, MoreOutlined, SearchOutlined } from '@ant-design/icons';
+import VariableValueCell from 'components/variables/VariableValueCell';
 import { getEnvironments } from 'pages/apis/environment';
 import { getMachines } from 'pages/apis/machine';
 import { getTargetTags } from 'pages/apis/targetTag';
@@ -35,6 +36,9 @@ interface ScopeEditorState {
 interface DraftValueRow {
   id: string;
   value: string;
+  description: string;
+  type: VariableType;
+  isSensitive: boolean;
   scopes: VariableScopeDto[];
 }
 
@@ -56,6 +60,9 @@ function createDraftValueRow(): DraftValueRow {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     value: '',
+    description: '',
+    type: VariableType.String,
+    isSensitive: false,
     scopes: [],
   };
 }
@@ -311,7 +318,7 @@ const RowControlActions: React.FC<{
 interface SingleRowProps {
   entry: VariableDto;
   onNameChange: (id: number, name: string) => void;
-  onValueChange: (id: number, value: string) => void;
+  onEntryPatch: (id: number, patch: Partial<VariableDto>) => void;
   isModified: boolean;
   rowMenuItems: { key: string; label: string; danger?: boolean }[];
   onRowMenuAction: (entry: VariableDto, key: string) => void;
@@ -323,7 +330,7 @@ interface SingleRowProps {
 const SingleVariableRow: React.FC<SingleRowProps> = ({
   entry,
   onNameChange,
-  onValueChange,
+  onEntryPatch,
   isModified,
   rowMenuItems,
   onRowMenuAction,
@@ -335,8 +342,15 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
     <div style={{ width: NAME_COL_WIDTH }} className="px-3">
       <InlineVariableInput value={entry.name} onChange={(next) => onNameChange(entry.id, next)} />
     </div>
-    <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-      <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
+    <div style={{ width: VALUE_COL_WIDTH }} className="px-3 self-stretch flex items-start">
+      <VariableValueCell
+        name={entry.name}
+        value={entry.value}
+        description={entry.description}
+        type={entry.type}
+        isSensitive={entry.isSensitive}
+        onSave={(patch) => onEntryPatch(entry.id, patch)}
+      />
     </div>
     <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
       <ScopeCell
@@ -358,7 +372,7 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
 
 interface GroupProps {
   group: VariableGroup;
-  onValueChange: (id: number, value: string) => void;
+  onEntryPatch: (id: number, patch: Partial<VariableDto>) => void;
   isVariableModified: (entry: VariableDto) => boolean;
   getRowMenuItems: (entry: VariableDto, allowAddValue: boolean) => { key: string; label: string; danger?: boolean }[];
   onRowMenuAction: (entry: VariableDto, key: string) => void;
@@ -369,7 +383,7 @@ interface GroupProps {
 
 const MultiVariableGroup: React.FC<GroupProps> = ({
   group,
-  onValueChange,
+  onEntryPatch,
   isVariableModified,
   getRowMenuItems,
   onRowMenuAction,
@@ -405,8 +419,15 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
       {group.entries.map((entry) => (
         <div key={entry.id} className="flex items-stretch" style={{ minHeight: ROW_HEIGHT }}>
           <div style={{ width: NAME_COL_WIDTH }} className="px-3" />
-          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
-            <InlineVariableInput value={entry.value} onChange={(next) => onValueChange(entry.id, next)} />
+          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-start">
+            <VariableValueCell
+              name={entry.name}
+              value={entry.value}
+              description={entry.description}
+              type={entry.type}
+              isSensitive={entry.isSensitive}
+              onSave={(patch) => onEntryPatch(entry.id, patch)}
+            />
           </div>
           <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
             <ScopeCell
@@ -560,9 +581,9 @@ const VariableSetDetail: React.FC = () => {
         variableSetId: parsedVariableSetId ?? 0,
         name: newVar.name.trim(),
         value: row.value,
-        description: '',
-        type: VariableType.String,
-        isSensitive: false,
+        description: row.description,
+        type: row.type,
+        isSensitive: row.isSensitive,
         sortOrder: localVariables.length + index,
         lastModifiedOn: null,
         lastModifiedBy: '',
@@ -585,12 +606,25 @@ const VariableSetDetail: React.FC = () => {
     setDraftValueRows((prev) => [...prev, createDraftValueRow()]);
   };
 
-  const handleDraftValueChange = (rowId: string, value: string) => {
-    setDraftValueRows((prev) => prev.map((row) => (row.id === rowId ? { ...row, value } : row)));
+  const handleDraftEntryPatch = (rowId: string, patch: Partial<VariableDto>) => {
+    setDraftValueRows((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+            ...row,
+            value: patch.value ?? row.value,
+            description: patch.description ?? row.description,
+            type: patch.type ?? row.type,
+            isSensitive: patch.isSensitive ?? row.isSensitive,
+          }
+          : row,
+      ),
+    );
+    if (typeof patch.name === 'string') setNewVar({ name: patch.name });
   };
 
-  const handleValueChange = (varId: number, value: string) => {
-    applyLocalVariables((prev) => prev.map((v) => (v.id === varId ? { ...v, value } : v)));
+  const handleEntryPatch = (varId: number, patch: Partial<VariableDto>) => {
+    applyLocalVariables((prev) => prev.map((item) => (item.id === varId ? { ...item, ...patch } : item)));
   };
 
   const handleNameChange = (varId: number, name: string) => {
@@ -820,11 +854,11 @@ const VariableSetDetail: React.FC = () => {
         </div>
       </section>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
+      <div className="border border-gray-200 rounded-md overflow-visible bg-white">
         <div className="flex border-b border-gray-200 bg-white">
           <div style={{ width: NAME_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700">Name</div>
-          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700">Value</div>
-          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700">Scope</div>
+          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700 border-l border-gray-200">Value</div>
+          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700 border-l border-gray-200">Scope</div>
           <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 py-2" />
         </div>
 
@@ -848,11 +882,15 @@ const VariableSetDetail: React.FC = () => {
                   <div className="h-7" />
                 )}
               </div>
-              <div style={{ width: VALUE_COL_WIDTH }} className="px-3">
-                <InlineVariableInput
-                  placeholder="Enter value"
+              <div style={{ width: VALUE_COL_WIDTH }} className="px-3 self-stretch flex items-start">
+                <VariableValueCell
+                  name={newVar.name}
                   value={row.value}
-                  onChange={(next) => handleDraftValueChange(row.id, next)}
+                  description={row.description}
+                  type={row.type}
+                  isSensitive={row.isSensitive}
+                  placeholder="Enter value"
+                  onSave={(patch) => handleDraftEntryPatch(row.id, patch)}
                 />
               </div>
               <div style={{ width: SCOPE_COL_WIDTH }} className="px-3">
@@ -907,7 +945,7 @@ const VariableSetDetail: React.FC = () => {
               key={group.entries[0].id}
               entry={group.entries[0]}
               onNameChange={handleNameChange}
-              onValueChange={handleValueChange}
+              onEntryPatch={handleEntryPatch}
               isModified={isVariableModified(group.entries[0])}
               rowMenuItems={getRowMenuItems(group.entries[0], true)}
               onRowMenuAction={handleRowMenuAction}
@@ -919,7 +957,7 @@ const VariableSetDetail: React.FC = () => {
             <MultiVariableGroup
               key={group.name}
               group={group}
-              onValueChange={handleValueChange}
+              onEntryPatch={handleEntryPatch}
               isVariableModified={isVariableModified}
               getRowMenuItems={getRowMenuItems}
               onRowMenuAction={handleRowMenuAction}
@@ -973,7 +1011,7 @@ const VariableSetDetail: React.FC = () => {
   return (
     <div className="bg-white min-h-screen">
       <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+        <div className="border border-gray-200 rounded-md bg-white overflow-visible">
           <div className="px-6 pt-4 pb-4 border-b border-gray-200">
             <nav>
               <ol>
