@@ -40,7 +40,7 @@ interface DeploymentTarget {
   summary: string
   environmentNames: string[]
   tags: string[]
-  status?: string
+  healthState: 'Healthy' | 'Unhealthy' | 'Unavailable' | 'Unknown' | 'Disabled'
 }
 
 interface DeploymentData {
@@ -144,6 +144,50 @@ function unique(items: string[]): string[] {
   return Array.from(new Set(items))
 }
 
+function resolveMachineHealthState(machine: MachineDto): DeploymentTarget['healthState'] {
+  if (machine.isDisabled) return 'Disabled'
+
+  const rawValue = (
+    machine.healthStatus
+    ?? machine.HealthStatus
+    ?? (machine as any).machineHealthStatus
+    ?? (machine as any).MachineHealthStatus
+    ?? null
+  )
+
+  if (rawValue === null || rawValue === undefined) return 'Unknown'
+
+  if (typeof rawValue === 'number') {
+    if (rawValue === 1) return 'Healthy'
+    if (rawValue === 2) return 'Unhealthy'
+    if (rawValue === 3) return 'Unavailable'
+    if (rawValue === 4) return 'Disabled'
+    return 'Unknown'
+  }
+
+  if (typeof rawValue === 'boolean') {
+    return rawValue ? 'Healthy' : 'Unhealthy'
+  }
+
+  const normalized = String(rawValue).trim().toLowerCase()
+  if (!normalized) return 'Unknown'
+  if (normalized.includes('disabled')) return 'Disabled'
+  if (normalized.includes('unavailable')) return 'Unavailable'
+  if (
+    normalized.includes('unhealthy')
+    || normalized.includes('warning')
+    || normalized.includes('warn')
+    || normalized.includes('fail')
+    || normalized.includes('error')
+  ) {
+    return 'Unhealthy'
+  }
+  if (normalized.includes('healthy') || normalized.includes('success') || normalized.includes('ok')) {
+    return 'Healthy'
+  }
+  return 'Unknown'
+}
+
 function mapMachineToTarget(m: MachineDto, envLookup: Map<string, string>, targetTagLookup: Map<string, string>): DeploymentTarget {
   const envIds = (m.environmentIds ?? []).map(String)
   const envNames = unique(envIds.map((id) => resolveEnvironmentName(id, envLookup)).filter(Boolean))
@@ -165,7 +209,7 @@ function mapMachineToTarget(m: MachineDto, envLookup: Map<string, string>, targe
     summary: endpointSummary(ep),
     environmentNames: envNames,
     tags: rolesList,
-    status: m.isDisabled ? 'Disabled' : 'Healthy',
+    healthState: resolveMachineHealthState(m),
   }
 }
 
@@ -195,6 +239,43 @@ function DisabledIcon({ size = 14 }: { size?: number }) {
       </g>
     </svg>
   )
+}
+
+function UnhealthyIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <g fill="none" fillRule="evenodd">
+        <circle fill="#E53935" cx="8" cy="8" r="8" />
+        <path d="M5.12 5.12l5.76 5.76M10.88 5.12L5.12 10.88" stroke="#FFF" strokeWidth="1.4" strokeLinecap="round" />
+      </g>
+    </svg>
+  )
+}
+
+function UnknownHealthIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+      <g fill="none" fillRule="evenodd">
+        <circle fill="#9CA3AF" cx="8" cy="8" r="8" />
+        <path d="M8 11.2a.9.9 0 110 1.8.9.9 0 010-1.8zm0-7.4c1.66 0 3 1.17 3 2.62 0 .94-.45 1.43-1.08 1.95-.54.45-.92.76-.92 1.53v.17H7.1v-.24c0-1.23.6-1.84 1.26-2.38.46-.38.74-.64.74-1.03 0-.46-.48-.84-1.1-.84-.66 0-1.17.42-1.28 1.02H4.9C5.04 4.84 6.34 3.8 8 3.8z" fill="#FFF" />
+      </g>
+    </svg>
+  )
+}
+
+function renderHealthIcon(healthState: DeploymentTarget['healthState']) {
+  if (healthState === 'Healthy') return <HealthyIcon size={16} />
+  if (healthState === 'Unhealthy') return <UnhealthyIcon size={16} />
+  if (healthState === 'Disabled') return <DisabledIcon size={16} />
+  return <UnknownHealthIcon size={16} />
+}
+
+function healthStateTextClass(healthState: DeploymentTarget['healthState']): string {
+  if (healthState === 'Healthy') return 'text-green-600'
+  if (healthState === 'Unhealthy') return 'text-rose-600'
+  if (healthState === 'Unavailable') return 'text-amber-600'
+  if (healthState === 'Disabled') return 'text-gray-400'
+  return 'text-gray-500'
 }
 
 // ── Machine type icon ──────────────────────────────────────────────────────────
@@ -614,14 +695,37 @@ const DeploymentTargets: React.FC = () => {
   }
 
   // Filtered lists
-  const filteredHealthy = deploymentData.healthy.filter((t) =>
-    t.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    t.communicationStyle.toLowerCase().includes(searchText.toLowerCase())
-  )
-  const filteredDisabled = deploymentData.disabled.filter((t) =>
-    t.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    t.communicationStyle.toLowerCase().includes(searchText.toLowerCase())
-  )
+  const targetMatchesFilters = useCallback((target: DeploymentTarget) => {
+    const lowerSearch = searchText.trim().toLowerCase()
+    const matchesSearch = lowerSearch.length === 0
+      || target.name.toLowerCase().includes(lowerSearch)
+      || target.communicationStyle.toLowerCase().includes(lowerSearch)
+
+    if (!matchesSearch) return false
+
+    const { environments, tags, types, health } = selectedFilters
+
+    const matchesEnvironment = environments.length === 0
+      || environments.some((env) => target.environmentNames.includes(env))
+    if (!matchesEnvironment) return false
+
+    const matchesTag = tags.length === 0
+      || tags.some((tag) => target.tags.includes(tag))
+    if (!matchesTag) return false
+
+    const matchesType = types.length === 0
+      || types.includes(target.communicationStyle)
+    if (!matchesType) return false
+
+    const matchesHealth = health.length === 0
+      || health.includes(target.healthState)
+    if (!matchesHealth) return false
+
+    return true
+  }, [searchText, selectedFilters])
+
+  const filteredHealthy = deploymentData.healthy.filter(targetMatchesFilters)
+  const filteredDisabled = deploymentData.disabled.filter(targetMatchesFilters)
   const displayHealthy = disabledOnly ? [] : filteredHealthy
   const displayDisabled = filteredDisabled
   const total = displayHealthy.length + displayDisabled.length
@@ -639,7 +743,8 @@ const DeploymentTargets: React.FC = () => {
 
   // ── Machine row ─────────────────────────────────────────────────────────────
 
-  const renderMachineRow = (target: DeploymentTarget, isDisabled: boolean, isLast: boolean) => {
+  const renderMachineRow = (target: DeploymentTarget, isLast: boolean) => {
+    const isDisabled = target.healthState === 'Disabled'
     // collapsed = show summary ("N environments" + first 2 tags)
     // expanded = show all individual chips (default when total <= 4)
     const isSummary = expandedTargets.has(target.id)
@@ -683,9 +788,9 @@ const DeploymentTargets: React.FC = () => {
 
         {/* Col 3: Health status */}
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-4">
-          {isDisabled ? <DisabledIcon size={16} /> : <HealthyIcon size={16} />}
-          <span className={`text-xs font-medium ${isDisabled ? 'text-gray-400' : 'text-green-600'}`}>
-            {isDisabled ? 'Disabled' : 'Healthy'}
+          {renderHealthIcon(target.healthState)}
+          <span className={`text-xs font-medium ${healthStateTextClass(target.healthState)}`}>
+            {target.healthState}
           </span>
         </div>
 
@@ -810,13 +915,12 @@ const DeploymentTargets: React.FC = () => {
               {displayHealthy.length > 0 && (
                 <div className="mb-4">
                   <div className="flex items-center gap-2 px-1 py-2 mb-1">
-                    <HealthyIcon size={16} />
-                    <span className="text-sm font-semibold text-gray-800">Healthy</span>
+                    <span className="text-sm font-semibold text-gray-800">Enabled</span>
                     <span className="text-sm text-gray-500">({displayHealthy.length})</span>
                   </div>
                   <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
                     {displayHealthy.map((t, i) =>
-                      renderMachineRow(t, false, i === displayHealthy.length - 1)
+                      renderMachineRow(t, i === displayHealthy.length - 1)
                     )}
                   </ul>
                 </div>
@@ -832,7 +936,7 @@ const DeploymentTargets: React.FC = () => {
                   </div>
                   <ul className="list-none m-0 p-0 border border-gray-200 rounded-md overflow-hidden bg-white">
                     {displayDisabled.map((t, i) =>
-                      renderMachineRow(t, true, i === displayDisabled.length - 1)
+                      renderMachineRow(t, i === displayDisabled.length - 1)
                     )}
                   </ul>
                 </div>
