@@ -57,9 +57,8 @@ export interface CreateApiKeyResult {
   plainTextKey: string | null
 }
 
-const AUTH_BASE_URL =
-  (import.meta.env.VITE_AUTH_BASE_URL as string | undefined) ??
-  'https://localhost:7078'
+const AUTH_BASE_URL = (import.meta.env.VITE_AUTH_BASE_URL as string | undefined)?.trim()
+if (!AUTH_BASE_URL) throw new Error('VITE_AUTH_BASE_URL is required')
 
 const AUTH_SUCCESS_CODE = 200
 

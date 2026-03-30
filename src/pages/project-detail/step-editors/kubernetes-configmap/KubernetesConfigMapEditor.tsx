@@ -9,7 +9,7 @@ import { ConfigMapSection } from '../kubernetes-containers/sections/ConfigMapSec
 import { ConditionsSection } from '../kubernetes-containers/sections/ConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 const ACTION_TYPE = 'Squid.KubernetesDeployConfigMap'
 
 export const KubernetesConfigMapEditor = forwardRef<StepEditorHandle, StepEditorProps>(
@@ -24,6 +24,17 @@ export const KubernetesConfigMapEditor = forwardRef<StepEditorHandle, StepEditor
     const handleSave = async () => {
       if (!state.stepName.trim()) {
         message.warning('Step name is required')
+        return
+      }
+
+      if (!state.configMapName.trim()) {
+        message.warning('ConfigMap name is required')
+        return
+      }
+
+      const hasConfigMapItems = state.configMapValues.some((item) => item.key.trim())
+      if (!hasConfigMapItems) {
+        message.warning('At least one ConfigMap item is required')
         return
       }
 

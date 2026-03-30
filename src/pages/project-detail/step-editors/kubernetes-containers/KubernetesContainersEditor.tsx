@@ -13,7 +13,7 @@ import { ConfigMapSection } from './sections/ConfigMapSection'
 import { SecretSection } from './sections/SecretSection'
 import { ConditionsSection } from './sections/ConditionsSection'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
 export interface KubernetesContainersEditorHandle {
   save: () => Promise<void>
