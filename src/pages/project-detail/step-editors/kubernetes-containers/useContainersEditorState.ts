@@ -31,7 +31,11 @@ function kvFromJson(value: string | undefined): KeyValueItem[] {
 }
 
 function kvToJson(items: KeyValueItem[]): string {
-  return JSON.stringify(items.filter((i) => i.key).map((i) => ({ Key: i.key, Value: i.value })))
+  const normalized = items
+    .map((item) => ({ key: item.key.trim(), value: item.value }))
+    .filter((item) => item.key)
+    .map((item) => ({ Key: item.key, Value: item.value }))
+  return normalized.length > 0 ? JSON.stringify(normalized) : ''
 }
 
 function normalizeServicePorts(value: string | undefined): ContainersEditorState['servicePorts'] {
@@ -146,22 +150,25 @@ function serializeServicePorts(ports: ContainersEditorState['servicePorts']): st
       return item
     })
 
-  return JSON.stringify(mapped)
+  return mapped.length > 0 ? JSON.stringify(mapped) : ''
 }
 
 function serializeIngressRules(rules: ContainersEditorState['ingressRules']): string {
-  const mapped = rules.map((rule) => ({
-    host: rule.host,
-    paths: rule.paths.map((path) => ({
-      path: path.path,
-      pathType: path.pathType,
-      serviceName: path.backend.serviceName,
-      servicePort: path.backend.servicePort.trim()
-        ? toNumericIfPossible(path.backend.servicePort.trim())
-        : '',
-    })),
-  }))
-  return JSON.stringify(mapped)
+  const mapped = rules
+    .map((rule) => ({
+      host: rule.host,
+      paths: rule.paths
+        .filter((path) => path.backend.serviceName.trim() && path.backend.servicePort.trim())
+        .map((path) => ({
+          path: path.path,
+          pathType: path.pathType,
+          serviceName: path.backend.serviceName,
+          servicePort: toNumericIfPossible(path.backend.servicePort.trim()),
+        })),
+    }))
+    .filter((rule) => rule.paths.length > 0)
+
+  return mapped.length > 0 ? JSON.stringify(mapped) : ''
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -546,6 +553,10 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
   if (!action) return { ...defaultEditorState(), stepName: step.name }
 
   const get = (key: string) => getActionProp(action, key)
+  const resolvedNamespace =
+    get(KubernetesProperties.Namespace) ??
+    get('Squid.Action.Kubernetes.Namespace') ??
+    'default'
 
   const targetRoles = getStepProp(step, [KubernetesProperties.TargetRoles, KubernetesProperties.TargetRolesLegacy])
   const conditionExpression = getStepProp(step, [KubernetesProperties.StepConditionExpression])
@@ -563,7 +574,7 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
     targetRoles,
     resourceType: get(KubernetesProperties.DeploymentResourceType) ?? 'Deployment',
     deploymentName: get(KubernetesProperties.DeploymentName) ?? '',
-    namespace: get(KubernetesProperties.Namespace) ?? 'default',
+    namespace: resolvedNamespace,
     replicas: get(KubernetesProperties.Replicas) ?? '1',
     revisionHistoryLimit: get(KubernetesProperties.RevisionHistoryLimit) ?? '',
     progressDeadlineSeconds: get(KubernetesProperties.ProgressDeadlineSeconds) ?? '',
@@ -630,11 +641,68 @@ function deserializeState(step: DeploymentStepDto): ContainersEditorState {
   }
 }
 
-function buildActionProperties(state: ContainersEditorState): DeploymentActionPropertyDto[] {
-  const props: DeploymentActionPropertyDto[] = []
+const ManagedActionPropertyNames = new Set<string>(Object.values(KubernetesProperties) as string[])
+const ActionTypeService = 'Squid.KubernetesDeployService'
+const ActionTypeConfigMap = 'Squid.KubernetesDeployConfigMap'
+const ActionTypeSecret = 'Squid.KubernetesDeploySecret'
+const ActionTypeIngress = 'Squid.KubernetesDeployIngress'
+
+function managedPropertiesForAction(actionType: string): Set<string> {
+  if (actionType === ActionTypeService) {
+    return new Set([
+      KubernetesProperties.Namespace,
+      KubernetesProperties.ServiceName,
+      KubernetesProperties.ServiceType,
+      KubernetesProperties.ServiceClusterIp,
+      KubernetesProperties.ServicePorts,
+      KubernetesProperties.ServiceAnnotations,
+      KubernetesProperties.DeploymentName,
+      KubernetesProperties.DeploymentLabels,
+    ])
+  }
+
+  if (actionType === ActionTypeConfigMap) {
+    return new Set([
+      KubernetesProperties.Namespace,
+      KubernetesProperties.ConfigMapName,
+      KubernetesProperties.ConfigMapValues,
+    ])
+  }
+
+  if (actionType === ActionTypeSecret) {
+    return new Set([
+      KubernetesProperties.Namespace,
+      KubernetesProperties.SecretName,
+      KubernetesProperties.SecretValues,
+    ])
+  }
+
+  if (actionType === ActionTypeIngress) {
+    return new Set([
+      KubernetesProperties.Namespace,
+      KubernetesProperties.IngressName,
+      KubernetesProperties.IngressClassName,
+      KubernetesProperties.IngressAnnotations,
+      KubernetesProperties.IngressRules,
+      KubernetesProperties.IngressTlsCertificates,
+    ])
+  }
+
+  return ManagedActionPropertyNames
+}
+
+function buildActionProperties(state: ContainersEditorState, actionType: string, existingAction?: DeploymentActionDto): DeploymentActionPropertyDto[] {
+  const managedPropertyNames = managedPropertiesForAction(actionType)
+  const preserved = (existingAction?.properties ?? []).filter(
+    (property) =>
+      !ManagedActionPropertyNames.has(property.propertyName) &&
+      !property.propertyName.startsWith('Octopus.'),
+  )
+  const props: DeploymentActionPropertyDto[] = [...preserved]
   const add = (name: string, value: string) => {
+    if (!managedPropertyNames.has(name)) return
     if (value !== undefined && value !== '') {
-      props.push({ id: 0, actionId: 0, propertyName: name, propertyValue: value })
+      props.push({ id: 0, actionId: existingAction?.id ?? 0, propertyName: name, propertyValue: value })
     }
   }
 
@@ -669,7 +737,7 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KubernetesProperties.DeploymentAnnotations, kvToJson(state.deploymentAnnotations))
   add(KubernetesProperties.PodAnnotations, kvToJson(state.podAnnotations))
   add(KubernetesProperties.Containers, serializeContainers(state.containers, state.packageId, state.feedId))
-  add(KubernetesProperties.CombinedVolumes, JSON.stringify(state.volumes))
+  add(KubernetesProperties.CombinedVolumes, state.volumes.length > 0 ? JSON.stringify(state.volumes) : '')
   add(KubernetesProperties.ServiceName, state.serviceName)
   add(KubernetesProperties.ServiceType, state.serviceType)
   add(KubernetesProperties.ServiceClusterIp, state.serviceClusterIp)
@@ -681,25 +749,26 @@ function buildActionProperties(state: ContainersEditorState): DeploymentActionPr
   add(KubernetesProperties.IngressClassName, state.ingressClassName)
   add(KubernetesProperties.IngressAnnotations, kvToJson(state.ingressAnnotations))
   add(KubernetesProperties.IngressRules, serializeIngressRules(state.ingressRules))
-  add(KubernetesProperties.IngressTlsCertificates, JSON.stringify(state.ingressTls))
+  add(KubernetesProperties.IngressTlsCertificates, state.ingressTls.length > 0 ? JSON.stringify(state.ingressTls) : '')
   add(KubernetesProperties.SecretName, state.secretName)
   add(KubernetesProperties.SecretValues, kvToJson(state.secretValues))
   add(KubernetesProperties.ObjectStatusCheck, state.objectStatusCheck)
-  add(KubernetesProperties.HostAliases, JSON.stringify(state.hostAliases))
-  add(KubernetesProperties.Tolerations, JSON.stringify(normalizeTolerations(state.tolerations)))
+  add(KubernetesProperties.HostAliases, state.hostAliases.length > 0 ? JSON.stringify(state.hostAliases) : '')
+  const normalizedTolerations = normalizeTolerations(state.tolerations)
+  add(KubernetesProperties.Tolerations, normalizedTolerations.length > 0 ? JSON.stringify(normalizedTolerations) : '')
   if (state.nodeAffinity) add(KubernetesProperties.NodeAffinity, state.nodeAffinity)
   if (state.podAffinity) add(KubernetesProperties.PodAffinity, state.podAffinity)
   if (state.podAntiAffinity) add(KubernetesProperties.PodAntiAffinity, state.podAntiAffinity)
-  add(KubernetesProperties.PodSecurityImagePullSecrets, JSON.stringify(state.imagePullSecrets))
-  add(KubernetesProperties.PodSecuritySysctls, JSON.stringify(state.sysctls))
-  add(KubernetesProperties.DnsConfigOptions, JSON.stringify(state.dnsConfigOptions))
+  add(KubernetesProperties.PodSecurityImagePullSecrets, state.imagePullSecrets.length > 0 ? JSON.stringify(state.imagePullSecrets) : '')
+  add(KubernetesProperties.PodSecuritySysctls, state.sysctls.length > 0 ? JSON.stringify(state.sysctls) : '')
+  add(KubernetesProperties.DnsConfigOptions, state.dnsConfigOptions.length > 0 ? JSON.stringify(state.dnsConfigOptions) : '')
 
   return props
 }
 
 export function serializeToStep(state: ContainersEditorState, processId: number, existingStep?: DeploymentStepDto, actionType?: string): DeploymentStepDto {
-  const actionProperties = buildActionProperties(state)
   const resolvedActionType = actionType ?? 'Squid.KubernetesDeployContainers'
+  const actionProperties = buildActionProperties(state, resolvedActionType, existingStep?.actions[0])
 
   const actionEnvironments = state.environmentMode === 'include' ? state.environmentIds : []
   const actionExcludedEnvironments = state.environmentMode === 'exclude' ? state.environmentIds : []

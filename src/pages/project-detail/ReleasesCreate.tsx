@@ -138,8 +138,8 @@ const parseFeedId = (value: string) => {
 }
 
 const HELM_ACTION_TYPE = 'squid.helmchartupgrade'
-const HELM_FEED_ID_KEYS = ['Squid.Action.Package.FeedId', 'Octopus.Action.Package.FeedId']
-const HELM_PACKAGE_ID_KEYS = ['Squid.Action.Package.PackageId', 'Octopus.Action.Package.PackageId']
+const HELM_FEED_ID_KEYS = ['Squid.Action.Package.FeedId']
+const HELM_PACKAGE_ID_KEYS = ['Squid.Action.Package.PackageId']
 
 const extractHelmPackageReferences = (steps: DeploymentStepDto[], feedNameById: Map<number, string>): PackageReferenceItem[] => {
   const refs: PackageReferenceItem[] = []

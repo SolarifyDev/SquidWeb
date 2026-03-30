@@ -16,7 +16,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 const ACTION_TYPE = 'Squid.HelmChartUpgrade'
 const DEFAULT_STEP_NAME = 'Deploy a Helm Chart'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'
@@ -49,25 +49,25 @@ const TemplateValueSourceOptions: Array<{
 ]
 
 const HelmProperties = {
-  chartSource: ['Squid.Action.Helm.ChartSource', 'Octopus.Action.Helm.ChartSource'],
-  packageFeed: ['Squid.Action.Package.FeedId', 'Octopus.Action.Package.FeedId'],
-  packageId: ['Squid.Action.Package.PackageId', 'Octopus.Action.Package.PackageId'],
-  chartPath: ['Squid.Action.Helm.ChartPath', 'Octopus.Action.Helm.ChartPath', 'Squid.Action.Helm.ChartDirectory', 'Octopus.Action.Helm.ChartDirectory'],
-  releaseName: ['Squid.Action.Helm.ReleaseName', 'Octopus.Action.Helm.ReleaseName'],
-  namespace: ['Squid.Action.Kubernetes.Namespace', 'Octopus.Action.Kubernetes.Namespace', 'Squid.Action.KubernetesContainers.Namespace', 'Octopus.Action.KubernetesContainers.Namespace', 'Squid.Action.Helm.Namespace', 'Octopus.Action.Helm.Namespace'],
-  resetValues: ['Squid.Action.Helm.ResetValues', 'Octopus.Action.Helm.ResetValues'],
-  timeout: ['Squid.Action.Helm.Timeout', 'Octopus.Action.Helm.Timeout'],
-  yamlValues: ['Squid.Action.Helm.YamlValues', 'Octopus.Action.Helm.YamlValues'],
-  keyValues: ['Squid.Action.Helm.KeyValues', 'Octopus.Action.Helm.KeyValues', 'Squid.Action.Helm.TemplateValues', 'Octopus.Action.Helm.TemplateValues'],
-  valueSources: ['Squid.Action.Helm.ValueSources', 'Octopus.Action.Helm.ValueSources'],
-  additionalArguments: ['Squid.Action.Helm.AdditionalArgs', 'Octopus.Action.Helm.AdditionalArgs', 'Squid.Action.Helm.AdditionalArguments', 'Octopus.Action.Helm.AdditionalArguments'],
-  customHelmExecutable: ['Squid.Action.Helm.CustomHelmExecutable', 'Octopus.Action.Helm.CustomHelmExecutable', 'Squid.Action.Helm.ClientPath', 'Octopus.Action.Helm.ClientPath'],
-  legacyHelmClientTool: ['Squid.Action.Helm.ClientTool', 'Octopus.Action.Helm.ClientTool'],
-  legacyHelmClientPackageId: ['Squid.Action.Helm.ClientPackageId', 'Octopus.Action.Helm.ClientPackageId'],
-  gitRepositoryUrl: ['Squid.Action.Git.RepositoryUrl', 'Octopus.Action.Git.RepositoryUrl'],
-  gitReference: ['Squid.Action.Git.Reference', 'Octopus.Action.Git.Reference'],
-  gitChartPath: ['Squid.Action.Helm.Git.ChartPath', 'Octopus.Action.Helm.Git.ChartPath'],
-  scriptSyntax: ['Squid.Action.Script.Syntax', 'Octopus.Action.Script.Syntax'],
+  chartSource: ['Squid.Action.Helm.ChartSource'],
+  packageFeed: ['Squid.Action.Package.FeedId'],
+  packageId: ['Squid.Action.Package.PackageId'],
+  chartPath: ['Squid.Action.Helm.ChartPath', 'Squid.Action.Helm.ChartDirectory'],
+  releaseName: ['Squid.Action.Helm.ReleaseName'],
+  namespace: ['Squid.Action.Kubernetes.Namespace', 'Squid.Action.KubernetesContainers.Namespace', 'Squid.Action.Helm.Namespace'],
+  resetValues: ['Squid.Action.Helm.ResetValues'],
+  timeout: ['Squid.Action.Helm.Timeout'],
+  yamlValues: ['Squid.Action.Helm.YamlValues'],
+  keyValues: ['Squid.Action.Helm.KeyValues', 'Squid.Action.Helm.TemplateValues'],
+  valueSources: ['Squid.Action.Helm.ValueSources'],
+  additionalArguments: ['Squid.Action.Helm.AdditionalArgs', 'Squid.Action.Helm.AdditionalArguments'],
+  customHelmExecutable: ['Squid.Action.Helm.CustomHelmExecutable', 'Squid.Action.Helm.ClientPath'],
+  legacyHelmClientTool: ['Squid.Action.Helm.ClientTool'],
+  legacyHelmClientPackageId: ['Squid.Action.Helm.ClientPackageId'],
+  gitRepositoryUrl: ['Squid.Action.Git.RepositoryUrl'],
+  gitReference: ['Squid.Action.Git.Reference'],
+  gitChartPath: ['Squid.Action.Helm.Git.ChartPath'],
+  scriptSyntax: ['Squid.Action.Script.Syntax'],
 } as const
 
 interface HelmActionValues {
@@ -271,7 +271,7 @@ function getTemplateValueSourceSummary(source: TemplateValueSource): string {
 
 function buildActionProperties(existingAction: DeploymentActionDto | undefined, values: HelmActionValues): DeploymentActionPropertyDto[] {
   const preserved = (existingAction?.properties ?? []).filter(
-    (property) => !ActionPropertyFilterSet.has(property.propertyName),
+    (property) => !ActionPropertyFilterSet.has(property.propertyName) && !property.propertyName.startsWith('Octopus.'),
   )
   const next: DeploymentActionPropertyDto[] = [...preserved]
   const hasFeed = values.packageFeed.trim().length > 0
@@ -928,86 +928,88 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
 
           {chartSource === 'Package' ? (
             <CollapsibleSection title="Chart Package" subtitle="Choose the package containing the chart you want to deploy." defaultOpen fullWidth>
-              <p className="m-0 text-xs text-slate-500">
-                Select an available package feed and then choose a package ID from that feed.
-              </p>
-              <div className="flex items-end gap-2">
-                <div className="flex-1">
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Package feed</label>
-                  <Select
-                    value={packageFeed || undefined}
-                    options={packageFeedSelectOptions}
-                    onChange={(value) => {
-                      const normalizedValue = String(value ?? '').trim()
-                      setPackageFeed(normalizedValue)
-                      if (!normalizedValue) {
-                        setPackageId('')
-                        setPackageSearchTerm('')
-                        setPackageSearchOptions([])
-                        return
-                      }
-                      setPackageSearchTerm(packageId)
-                    }}
-                    size="small"
-                    className="w-full"
-                    showSearch
-                    loading={feedsLoading}
-                    allowClear
-                    optionFilterProp="label"
-                    placeholder="Select a feed..."
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
-                  aria-label="Refresh feeds"
-                  onClick={() => void loadFeeds()}
-                >
-                  <ReloadOutlined style={{ fontSize: 13 }} />
-                </button>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">Package ID</label>
-                <div className="flex min-h-[28px] items-center gap-2">
-                  <AutoComplete
-                    size="small"
-                    className="w-full min-w-0"
-                    value={packageId}
-                    placeholder="helm-chart-package-id"
-                    options={packageSearchOptions.map((value) => ({ value }))}
-                    onSearch={setPackageSearchTerm}
-                    onSelect={(value) => {
-                      setPackageSearchTerm(value)
-                      setPackageId(value)
-                    }}
-                    onChange={(value) => {
-                      setPackageSearchTerm(value)
-                      setPackageId(value)
-                    }}
-                    filterOption={false}
-                    allowClear
-                    notFoundContent={
-                      selectedPackageFeedId && packageSearchTerm.trim()
-                        ? packageSearchLoading
-                          ? 'Searching packages...'
-                          : 'No packages found'
-                        : null
-                    }
-                  />
+              <div className="ml-[216px] space-y-4">
+                <p className="m-0 text-xs text-slate-500">
+                  Select an available package feed and then choose a package ID from that feed.
+                </p>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs font-medium text-slate-600">Package feed</label>
+                    <Select
+                      value={packageFeed || undefined}
+                      options={packageFeedSelectOptions}
+                      onChange={(value) => {
+                        const normalizedValue = String(value ?? '').trim()
+                        setPackageFeed(normalizedValue)
+                        if (!normalizedValue) {
+                          setPackageId('')
+                          setPackageSearchTerm('')
+                          setPackageSearchOptions([])
+                          return
+                        }
+                        setPackageSearchTerm(packageId)
+                      }}
+                      size="small"
+                      className="w-full"
+                      showSearch
+                      loading={feedsLoading}
+                      allowClear
+                      optionFilterProp="label"
+                      placeholder="Select a feed..."
+                    />
+                  </div>
                   <button
                     type="button"
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
-                    aria-label="Insert Variable"
-                    onClick={() => message.info('Insert Variable is not available yet')}
+                    aria-label="Refresh feeds"
+                    onClick={() => void loadFeeds()}
                   >
-                    <span className="text-[10px] font-semibold">{'{ }'}</span>
+                    <ReloadOutlined style={{ fontSize: 13 }} />
                   </button>
                 </div>
-                <p className="mb-0 mt-4 text-xs leading-relaxed text-slate-500">
-                  Enter the ID of the package containing your Helm chart.
-                  {selectedFeedName ? <> Searching in <code>{selectedFeedName}</code>.</> : null}
-                </p>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Package ID</label>
+                  <div className="flex min-h-[28px] items-center gap-2">
+                    <AutoComplete
+                      size="small"
+                      className="w-full min-w-0"
+                      value={packageId}
+                      placeholder="helm-chart-package-id"
+                      options={packageSearchOptions.map((value) => ({ value }))}
+                      onSearch={setPackageSearchTerm}
+                      onSelect={(value) => {
+                        setPackageSearchTerm(value)
+                        setPackageId(value)
+                      }}
+                      onChange={(value) => {
+                        setPackageSearchTerm(value)
+                        setPackageId(value)
+                      }}
+                      filterOption={false}
+                      allowClear
+                      notFoundContent={
+                        selectedPackageFeedId && packageSearchTerm.trim()
+                          ? packageSearchLoading
+                            ? 'Searching packages...'
+                            : 'No packages found'
+                          : null
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
+                      aria-label="Insert Variable"
+                      onClick={() => message.info('Insert Variable is not available yet')}
+                    >
+                      <span className="text-[10px] font-semibold">{'{ }'}</span>
+                    </button>
+                  </div>
+                  <p className="mb-0 mt-4 text-xs leading-relaxed text-slate-500">
+                    Enter the ID of the package containing your Helm chart.
+                    {selectedFeedName ? <> Searching in <code>{selectedFeedName}</code>.</> : null}
+                  </p>
+                </div>
               </div>
             </CollapsibleSection>
           ) : (

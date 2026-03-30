@@ -17,6 +17,7 @@ import { KubernetesIngressEditor } from './step-editors/kubernetes-ingress/Kuber
 import { KubernetesServiceEditor } from './step-editors/kubernetes-service/KubernetesServiceEditor'
 import { KubernetesConfigMapEditor } from './step-editors/kubernetes-configmap/KubernetesConfigMapEditor'
 import { KubernetesSecretEditor } from './step-editors/kubernetes-secret/KubernetesSecretEditor'
+import { KubernetesRawYamlEditor } from './step-editors/kubernetes-raw-yaml/KubernetesRawYamlEditor'
 import { ManualInterventionEditor } from './step-editors/manual/ManualInterventionEditor'
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
@@ -32,6 +33,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeployService':    KubernetesServiceEditor,
   'Squid.KubernetesDeployConfigMap':  KubernetesConfigMapEditor,
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
+  'Squid.KubernetesDeployRawYaml':    KubernetesRawYamlEditor,
   'Squid.HelmChartUpgrade':           HelmChartUpgradeEditor,
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,
@@ -40,7 +42,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
 
 // ── API base for image URLs ────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
 function stepLogoUrl(spaceId: string, actionType: string) {
   return `${API_BASE}/${spaceId}/actiontemplates/${actionType}/logo`
@@ -56,6 +58,7 @@ function actionSummary(actionType: string): string {
     'Squid.KubernetesDeployContainers': 'Deploy containers to Kubernetes, optionally exposed by a service and an ingress rule.',
     'Squid.KubernetesDeployRawYaml': 'Deploy Kubernetes YAML',
     'Squid.HelmChartUpgrade': 'Deploy a Helm Chart',
+    'Squid.KubernetesKustomize': 'Deploy with Kustomize',
     'Squid.Kubernetes.Kustomize': 'Deploy with Kustomize',
     'Squid.IIS': 'Deploy to IIS',
     'Squid.TentaclePackage': 'Deploy a Package',
@@ -345,7 +348,7 @@ const STEP_TEMPLATES: StepTemplate[] = [
   {
     id: 'kustomize',
     title: 'Deploy with Kustomize',
-    actionType: 'Squid.Kubernetes.Kustomize',
+    actionType: 'Squid.KubernetesKustomize',
     bullets: [
       'Source YAML files from a Git repository or package',
       'Use Kustomize to customize YAML files',

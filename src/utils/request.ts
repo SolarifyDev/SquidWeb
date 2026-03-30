@@ -6,9 +6,8 @@ import axios, {
 } from 'axios'
 import { getAuthToken, handleUnauthorizedSession, isAuthenticated } from 'utils/auth'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as
-  | string
-  | undefined
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
+if (!API_BASE_URL) throw new Error('VITE_API_BASE_URL is required')
 const CURRENT_SPACE_ID_KEY = 'CURRENT_SPACE_ID'
 const SPACE_ID_HEADER = 'X-Space-Id'
 const SPACE_ROUTE_PATTERN = /^\/Spaces-(\d+)(?:\/|$)/i
@@ -16,7 +15,7 @@ const SPACE_ID_PARAM = 'spaceId'
 
 // 创建 axios 实例
 const instance: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL ?? 'https://localhost:7078/api',
+  baseURL: API_BASE_URL,
   timeout: 15000,
 })
 

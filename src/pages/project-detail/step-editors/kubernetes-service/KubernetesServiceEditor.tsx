@@ -9,7 +9,7 @@ import { ServiceSection } from '../kubernetes-containers/sections/ServiceSection
 import { ConditionsSection } from '../kubernetes-containers/sections/ConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:7078/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 const ACTION_TYPE = 'Squid.KubernetesDeployService'
 
 export const KubernetesServiceEditor = forwardRef<StepEditorHandle, StepEditorProps>(
@@ -24,6 +24,17 @@ export const KubernetesServiceEditor = forwardRef<StepEditorHandle, StepEditorPr
     const handleSave = async () => {
       if (!state.stepName.trim()) {
         message.warning('Step name is required')
+        return
+      }
+
+      if (!state.serviceName.trim()) {
+        message.warning('Service name is required')
+        return
+      }
+
+      const hasServicePorts = state.servicePorts.some((port) => port.port.trim())
+      if (!hasServicePorts) {
+        message.warning('At least one service port is required')
         return
       }
 
