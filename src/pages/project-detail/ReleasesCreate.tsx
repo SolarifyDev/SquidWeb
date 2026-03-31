@@ -454,9 +454,13 @@ const ReleasesCreate: React.FC = () => {
 
     ;(async () => {
       try {
+        const findProject = (items: ProjectDto[]) => items.find((p) => p.slug === projectName || p.name === projectName)
         const projectRes = await getProjects({ pageSize: 500 })
-        const foundProject =
-          projectRes.projects.find((p) => p.slug === projectName || p.name === projectName) ?? null
+        let foundProject = findProject(projectRes.projects) ?? null
+        if (!foundProject) {
+          const fallbackRes = await getProjects({ pageSize: 100, keyword: projectName }).catch(() => null)
+          foundProject = fallbackRes ? findProject(fallbackRes.projects) ?? null : null
+        }
         setProject(foundProject)
 
         if (!foundProject) {
@@ -465,7 +469,7 @@ const ReleasesCreate: React.FC = () => {
         }
 
         const [channelRes, pkgRefRes, stepsRes, feedsRes] = await Promise.all([
-          getChannels({ pageSize: 1000 }),
+          getChannels({ projectId: foundProject.id, pageSize: 1000 }),
           getPackageReferences(foundProject.id).catch(() => ({ packageReferences: [] })),
           getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageSize: 1000 }).catch(() => ({ steps: [] })),
           getExternalFeeds({ pageSize: 1000 }).catch(() => ({ externalFeeds: [] })),
@@ -479,13 +483,11 @@ const ReleasesCreate: React.FC = () => {
 
         setPackageReferences(mergedPackageReferences)
 
-        const projectChannels = channelRes.channels
-          .filter((c) => c.projectId === foundProject.id)
-          .sort((a, b) => {
-            if (a.isDefault && !b.isDefault) return -1
-            if (!a.isDefault && b.isDefault) return 1
-            return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-          })
+        const projectChannels = channelRes.channels.sort((a, b) => {
+          if (a.isDefault && !b.isDefault) return -1
+          if (!a.isDefault && b.isDefault) return 1
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+        })
 
         setChannels(projectChannels)
         setSelectedChannelId(projectChannels.find((c) => c.isDefault)?.id ?? projectChannels[0]?.id ?? null)

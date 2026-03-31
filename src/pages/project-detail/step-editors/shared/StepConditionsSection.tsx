@@ -52,6 +52,22 @@ const PACKAGE_REQUIREMENT_OPTIONS = [
   { value: 'AfterPackageAcquisition', label: 'After package acquisition' },
 ]
 
+function dedupeChannels(items: ChannelDto[]): ChannelDto[] {
+  const byId = new Map<number, ChannelDto>()
+  for (const item of items) {
+    if (!byId.has(item.id)) byId.set(item.id, item)
+  }
+
+  const byName = new Map<string, ChannelDto>()
+  for (const item of byId.values()) {
+    const nameKey = item.name.trim().toLowerCase()
+    const key = nameKey || String(item.id)
+    if (!byName.has(key)) byName.set(key, item)
+  }
+
+  return [...byName.values()]
+}
+
 function normalizeRequirement(value: string): string {
   if (!value) return 'LetSquidDecide'
   const matched = PACKAGE_REQUIREMENT_OPTIONS.find((item) => item.value === value)
@@ -79,12 +95,12 @@ export function StepConditionsSection({
       try {
         const [envRes, channelRes] = await Promise.all([
           getEnvironments({ pageSize: 1000 }).catch(() => null),
-          projectId ? getChannels({ projectId, pageSize: 1000 }).catch(() => null) : Promise.resolve(null),
+          typeof projectId === 'number' ? getChannels({ projectId, pageSize: 1000 }).catch(() => null) : Promise.resolve(null),
         ])
         if (cancelled) return
 
         setEnvironments([...(envRes?.environments ?? [])].sort((a, b) => a.sortOrder - b.sortOrder))
-        setChannels([...(channelRes?.channels ?? [])].sort((a, b) => a.name.localeCompare(b.name)))
+        setChannels(dedupeChannels(channelRes?.channels ?? []).sort((a, b) => a.name.localeCompare(b.name)))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -185,7 +201,10 @@ export function StepConditionsSection({
               mode="multiple"
               value={value.channelIds}
               options={channelOptions}
-              onChange={(ids) => onChange({ ...value, channelIds: (ids as number[]).map(Number) })}
+              onChange={(ids) => {
+                const unique = Array.from(new Set((ids as number[]).map(Number)))
+                onChange({ ...value, channelIds: unique })
+              }}
               placeholder="Select channels"
               size="small"
               className="w-full"
