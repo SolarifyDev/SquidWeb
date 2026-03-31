@@ -665,7 +665,7 @@ const ProjectVariables: React.FC = () => {
       getEnvironments({ pageIndex: 1, pageSize: 1000, spaceId: space.id }),
       getTargetTags(),
       getMachines({ pageIndex: 1, pageSize: 1000, spaceId: space.id }),
-      getChannels({ pageIndex: 1, pageSize: 1000, projectId: projectScopeContext.id }),
+      getChannels({ pageSize: 1000, projectId: projectScopeContext.id }),
       getDeploymentSteps({ processId: projectScopeContext.deploymentProcessId, pageIndex: 1, pageSize: 1000 }),
     ])
       .then(([envRes, tagRes, machineRes, channelRes, stepRes]) => {

@@ -21,6 +21,7 @@ import { KubernetesRawYamlEditor } from './step-editors/kubernetes-raw-yaml/Kube
 import { ManualInterventionEditor } from './step-editors/manual/ManualInterventionEditor'
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
+import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
   'Squid.KubernetesDeployRawYaml':    KubernetesRawYamlEditor,
   'Squid.HelmChartUpgrade':           HelmChartUpgradeEditor,
+  'Squid.Script':                     RunScriptEditor,
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,
   'Squid.HealthCheck':                HealthCheckEditor,
@@ -1326,10 +1328,13 @@ const Process: React.FC = () => {
 
     ;(async () => {
       try {
+        const findProject = (items: ProjectDto[]) => items.find((p) => p.slug === projectName || p.name === projectName)
         const projRes = await getProjects({ pageSize: 500 })
-        const project = projRes.projects.find(
-          (p) => p.slug === projectName || p.name === projectName
-        )
+        let project = findProject(projRes.projects)
+        if (!project) {
+          const fallbackRes = await getProjects({ pageSize: 100, keyword: projectName }).catch(() => null)
+          project = fallbackRes ? findProject(fallbackRes.projects) : undefined
+        }
         if (!project) return
         setProjectDetail(project)
         setProjectId(project.id)

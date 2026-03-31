@@ -72,14 +72,12 @@ const Releases: React.FC = () => {
         }
 
         try {
-          const channelRes = await getChannels({ pageSize: 1000 })
-          const projectChannels = channelRes.channels
-            .filter((ch) => ch.projectId === foundProject.id)
-            .sort((a, b) => {
-              if (a.isDefault && !b.isDefault) return -1
-              if (!a.isDefault && b.isDefault) return 1
-              return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-            })
+          const channelRes = await getChannels({ projectId: foundProject.id, pageSize: 1000 })
+          const projectChannels = channelRes.channels.sort((a, b) => {
+            if (a.isDefault && !b.isDefault) return -1
+            if (!a.isDefault && b.isDefault) return 1
+            return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+          })
           setChannels(projectChannels)
         } catch {
           setChannels([])
