@@ -423,6 +423,7 @@ const ReleasesCreate: React.FC = () => {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [channelReleases, setChannelReleases] = useState<ReleaseDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
+  const [fallbackPackageReferences, setFallbackPackageReferences] = useState<PackageReferenceItem[]>([])
   const [version, setVersion] = useState('')
   const [versionTouched, setVersionTouched] = useState(false)
   const [showVersionHelp, setShowVersionHelp] = useState(false)
@@ -481,6 +482,7 @@ const ReleasesCreate: React.FC = () => {
         const fallbackHelmReferences = extractHelmPackageReferences(stepsRes.steps ?? [], feedNameById)
         const mergedPackageReferences = mergePackageReferences(pkgRefRes.packageReferences ?? [], fallbackHelmReferences)
 
+        setFallbackPackageReferences(fallbackHelmReferences)
         setPackageReferences(mergedPackageReferences)
 
         const projectChannels = channelRes.channels.sort((a, b) => {
@@ -498,6 +500,29 @@ const ReleasesCreate: React.FC = () => {
       }
     })()
   }, [projectName])
+
+  useEffect(() => {
+    if (!project?.id) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const refsRes = await getPackageReferences(
+          project.id,
+          typeof selectedChannelId === 'number' ? { channelId: selectedChannelId } : undefined,
+        )
+        if (cancelled) return
+        setPackageReferences(mergePackageReferences(refsRes.packageReferences ?? [], fallbackPackageReferences))
+      } catch {
+        if (cancelled) return
+        setPackageReferences(fallbackPackageReferences)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [fallbackPackageReferences, project?.id, selectedChannelId])
 
   useEffect(() => {
     if (!project?.id || !selectedChannelId) {
