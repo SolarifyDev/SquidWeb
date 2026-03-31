@@ -190,10 +190,13 @@ export interface GetPackageReferencesResponseData {
   packageReferences: PackageReferenceItem[]
 }
 
-export async function getPackageReferences(projectId: number) {
-  try {
-    return await get<GetPackageReferencesResponseData>(`/deployment-process/${projectId}/package-references`)
-  } catch {
-    return get<GetPackageReferencesResponseData>(`/deployment-processes/${projectId}/package-references`)
-  }
+export interface GetPackageReferencesRequest {
+  channelId?: number
+}
+
+export function getPackageReferences(projectId: number, params?: GetPackageReferencesRequest) {
+  const query = typeof params?.channelId === 'number' ? { channelId: params.channelId } : undefined
+  return get<GetPackageReferencesResponseData>(`/deployment-processes/${projectId}/package-references`, {
+    params: query,
+  })
 }
