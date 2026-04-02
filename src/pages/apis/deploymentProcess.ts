@@ -182,8 +182,10 @@ export interface PackageReferenceItem {
   packageReferenceName: string
   packageId: string
   feedId: number
-  feedName: string
+  feedName: string | null
   lastReleaseVersion?: string | null
+  published?: string | null
+  platform?: string | null
 }
 
 export interface GetPackageReferencesResponseData {

@@ -282,7 +282,8 @@ function healthStateTextClass(healthState: DeploymentTarget['healthState']): str
 
 function MachineTypeIcon({ machineType, isDisabled }: { machineType: string; isDisabled: boolean }) {
   const isKubernetes = machineType.toLowerCase().includes('kubernetes')
-  const bg = isDisabled ? '#e0e0e0' : isKubernetes ? '#326ce5' : '#4caf50'
+  const isOpenClaw = machineType.toLowerCase().includes('openclaw')
+  const bg = isDisabled ? '#e0e0e0' : isKubernetes ? '#326ce5' : isOpenClaw ? '#ecfdf3' : '#4caf50'
   return (
     <div
       className="flex items-center justify-center rounded flex-shrink-0"
@@ -301,6 +302,18 @@ function MachineTypeIcon({ machineType, isDisabled }: { machineType: string; isD
           <line x1="24.5" y1="7.5" x2="20.2" y2="11.8" stroke="white" strokeWidth="1.5" />
           <line x1="11.8" y1="20.2" x2="7.5" y2="24.5" stroke="white" strokeWidth="1.5" />
         </svg>
+      ) : isOpenClaw ? (
+        <img
+          src="/openclaw-icon.png"
+          alt="OpenClaw"
+          width={22}
+          height={22}
+          style={{
+            objectFit: 'contain',
+            filter: isDisabled ? 'grayscale(1)' : 'none',
+            opacity: isDisabled ? 0.65 : 1,
+          }}
+        />
       ) : (
         <svg viewBox="0 0 24 24" width="20" height="20" fill="white">
           <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h12v1.5H6zm0 3h8v1.5H6z" />

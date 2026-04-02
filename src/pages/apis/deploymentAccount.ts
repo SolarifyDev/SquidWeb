@@ -12,6 +12,7 @@ export enum DeploymentAccountType {
   AzureOidc = 9,
   GoogleCloudAccount = 10,
   AmazonWebServicesOidcAccount = 11,
+  OpenClawGateway = 12,
 }
 
 export interface DeploymentAccountDto {
@@ -31,6 +32,7 @@ export interface DeploymentAccountDto {
     | AzureServicePrincipalCredentialsSummary
     | AzureOidcCredentialsSummary
     | GcpCredentialsSummary
+    | OpenClawGatewayCredentialsSummary
     | null
 }
 
@@ -75,6 +77,11 @@ export interface AzureOidcCredentialsSummary {
 
 export interface GcpCredentialsSummary {
   jsonKeyHasValue: boolean
+}
+
+export interface OpenClawGatewayCredentialsSummary {
+  gatewayTokenHasValue: boolean
+  hooksTokenHasValue: boolean
 }
 
 export interface UsernamePasswordCredentials {
@@ -133,6 +140,11 @@ export interface AmazonWebServicesOidcCredentials {
   webIdentityToken: string
 }
 
+export interface OpenClawGatewayCredentials {
+  gatewayToken: string
+  hooksToken: string
+}
+
 export type DeploymentAccountCredentials =
   | UsernamePasswordCredentials
   | SshKeyPairCredentials
@@ -144,6 +156,7 @@ export type DeploymentAccountCredentials =
   | AzureOidcCredentials
   | GoogleCloudCredentials
   | AmazonWebServicesOidcCredentials
+  | OpenClawGatewayCredentials
 
 export interface CreateDeploymentAccountCommand {
   spaceId: number

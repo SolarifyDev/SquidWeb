@@ -24,6 +24,8 @@ type SectionKey =
   | 'azureApplicationId'
   | 'azureApplicationPassword'
   | 'googleCloudKeyFile'
+  | 'openClawGatewayToken'
+  | 'openClawHooksToken'
   | 'environments'
 type AwsAuthenticationMethod = 'AmazonWebServicesAccount' | 'AmazonWebServicesOidcAccount'
 type AzureAuthenticationMethod = 'AzureServicePrincipal' | 'AzureSubscription' | 'AzureOidc'
@@ -85,7 +87,8 @@ const AccountsCreatePage: React.FC = () => {
   const isAwsType = accountType === 6
   const isAzureType = accountType === 5
   const isGoogleCloudType = accountType === 10
-  const isSupportedType = isTokenType || isUsernamePasswordType || isSshKeyPairType || isAwsType || isAzureType || isGoogleCloudType
+  const isOpenClawType = accountType === 12
+  const isSupportedType = isTokenType || isUsernamePasswordType || isSshKeyPairType || isAwsType || isAzureType || isGoogleCloudType || isOpenClawType
 
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
@@ -106,6 +109,8 @@ const AccountsCreatePage: React.FC = () => {
   const [azureApplicationId, setAzureApplicationId] = useState('')
   const [azureApplicationPassword, setAzureApplicationPassword] = useState('')
   const [googleCloudJsonKey, setGoogleCloudJsonKey] = useState('')
+  const [openClawGatewayToken, setOpenClawGatewayToken] = useState('')
+  const [openClawHooksToken, setOpenClawHooksToken] = useState('')
   const googleCloudKeyFileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] = useState<number[]>([])
   const [environmentOptions, setEnvironmentOptions] = useState<EnvironmentDto[]>([])
@@ -128,6 +133,8 @@ const AccountsCreatePage: React.FC = () => {
     azureApplicationId: true,
     azureApplicationPassword: true,
     googleCloudKeyFile: true,
+    openClawGatewayToken: true,
+    openClawHooksToken: true,
     environments: true,
   })
 
@@ -167,6 +174,9 @@ const AccountsCreatePage: React.FC = () => {
     if (isGoogleCloudType) {
       return name.trim().length > 0 && googleCloudJsonKey.trim().length > 0
     }
+    if (isOpenClawType) {
+      return name.trim().length > 0 && openClawGatewayToken.trim().length > 0 && openClawHooksToken.trim().length > 0
+    }
     return false
   }, [
     isTokenType,
@@ -175,6 +185,7 @@ const AccountsCreatePage: React.FC = () => {
     isAwsType,
     isAzureType,
     isGoogleCloudType,
+    isOpenClawType,
     awsAuthenticationMethod,
     azureAuthenticationMethod,
     name,
@@ -190,11 +201,13 @@ const AccountsCreatePage: React.FC = () => {
     azureApplicationId,
     azureApplicationPassword,
     googleCloudJsonKey,
+    openClawGatewayToken,
+    openClawHooksToken,
   ])
 
   const handleSave = async () => {
     if (!isSupportedType) {
-      message.info('Only Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, and Google Cloud account creation are currently supported.')
+      message.info('Only Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, Google Cloud, and OpenClaw account creation are currently supported.')
       return
     }
     if (!canSave) return
@@ -271,6 +284,18 @@ const AccountsCreatePage: React.FC = () => {
             accountType: 10,
             credentials: {
               jsonKey: googleCloudJsonKey.trim(),
+            },
+            environmentIds: selectedEnvironmentIds,
+            description: description.trim() || undefined,
+          })
+        } else if (isOpenClawType) {
+          await createDeploymentAccount({
+            spaceId: space.id,
+            name: name.trim(),
+            accountType: 12,
+            credentials: {
+              gatewayToken: openClawGatewayToken.trim(),
+              hooksToken: openClawHooksToken.trim(),
             },
             environmentIds: selectedEnvironmentIds,
             description: description.trim() || undefined,
@@ -424,6 +449,8 @@ const AccountsCreatePage: React.FC = () => {
                     azureApplicationId: next,
                     azureApplicationPassword: next,
                     googleCloudKeyFile: next,
+                    openClawGatewayToken: next,
+                    openClawHooksToken: next,
                     environments: next,
                   })
                 }}
@@ -435,7 +462,7 @@ const AccountsCreatePage: React.FC = () => {
 
           {!isSupportedType && (
             <div className="px-6 py-4 text-sm text-amber-700 bg-amber-50 border-b border-amber-200">
-              This account type is not supported yet. Use Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, or Google Cloud for now.
+              This account type is not supported yet. Use Token, Username/Password, SSH Key Pair, AWS Access Key, Azure Service Principal, Google Cloud, or OpenClaw for now.
             </div>
           )}
 
@@ -813,6 +840,46 @@ const AccountsCreatePage: React.FC = () => {
                 </p>
               </div>
             </FormPanel>
+          )}
+
+          {isOpenClawType && (
+            <>
+              <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">
+                OpenClaw Details
+              </div>
+
+              <FormPanel
+                title="Gateway Token"
+                subtitle="OpenClaw gateway.auth.token, used for /tools/invoke."
+                isOpen={expanded.openClawGatewayToken}
+                onToggle={() => setExpanded((prev) => ({ ...prev, openClawGatewayToken: !prev.openClawGatewayToken }))}
+              >
+                <div className="max-w-[600px]">
+                  <Input.Password
+                    placeholder="oc_gw_xxxxxxxxxxxx"
+                    autoComplete="new-password"
+                    value={openClawGatewayToken}
+                    onChange={(e) => setOpenClawGatewayToken(e.target.value)}
+                  />
+                </div>
+              </FormPanel>
+
+              <FormPanel
+                title="Hooks Token"
+                subtitle="OpenClaw hooks.token, used for /hooks/agent and /hooks/wake."
+                isOpen={expanded.openClawHooksToken}
+                onToggle={() => setExpanded((prev) => ({ ...prev, openClawHooksToken: !prev.openClawHooksToken }))}
+              >
+                <div className="max-w-[600px]">
+                  <Input.Password
+                    placeholder="oc_hk_xxxxxxxxxxxx"
+                    autoComplete="new-password"
+                    value={openClawHooksToken}
+                    onChange={(e) => setOpenClawHooksToken(e.target.value)}
+                  />
+                </div>
+              </FormPanel>
+            </>
           )}
 
           <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">

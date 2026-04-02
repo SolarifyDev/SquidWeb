@@ -602,7 +602,7 @@ const ReleasesCreate: React.FC = () => {
       packageReferenceName: ref.packageReferenceName,
       packageId: ref.packageId,
       feedId: ref.feedId,
-      feedName: ref.feedName,
+      feedName: ref.feedName ?? `Feed #${ref.feedId}`,
       lastReleaseVersion: normalizePackageVersion(ref.lastReleaseVersion),
     }))
   }, [packageReferences])

@@ -22,6 +22,7 @@ import { ManualInterventionEditor } from './step-editors/manual/ManualInterventi
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
+import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
@@ -36,6 +37,8 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
   'Squid.KubernetesDeployRawYaml':    KubernetesRawYamlEditor,
   'Squid.HelmChartUpgrade':           HelmChartUpgradeEditor,
+  'Squid.KubernetesKustomize':        KustomizeEditor,
+  'Squid.Kubernetes.Kustomize':       KustomizeEditor,
   'Squid.Script':                     RunScriptEditor,
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,

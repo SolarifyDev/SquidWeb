@@ -196,6 +196,7 @@ function extractDescription(account: DeploymentAccountLike): string | undefined 
 }
 
 const addAccountMenuLabelByKey: Record<string, string> = {
+  '12': 'OpenClaw Gateway',
   '11': 'AWS OIDC',
   '10': 'Google Cloud',
   '9': 'Azure OIDC',
@@ -210,6 +211,7 @@ const addAccountMenuLabelByKey: Record<string, string> = {
 };
 
 const addAccountMenuItems: MenuProps['items'] = [
+  { key: '12', label: 'OpenClaw Gateway' },
   { key: '5', label: 'Azure Service Principal' },
   { key: '6', label: 'AWS Account' },
   { key: '7', label: 'AWS Role' },
@@ -310,7 +312,15 @@ const AccountsPage: React.FC = () => {
 
   const handleAddMenuClick: MenuProps['onClick'] = ({ key }) => {
     const accountTypeKey = String(key);
-    if (accountTypeKey === '1' || accountTypeKey === '2' || accountTypeKey === '3' || accountTypeKey === '5' || accountTypeKey === '6' || accountTypeKey === '10') {
+    if (
+      accountTypeKey === '1'
+      || accountTypeKey === '2'
+      || accountTypeKey === '3'
+      || accountTypeKey === '5'
+      || accountTypeKey === '6'
+      || accountTypeKey === '10'
+      || accountTypeKey === '12'
+    ) {
       navigate(`/${space.slug}/infrastructure/accounts/create?accountType=${accountTypeKey}`);
       return;
     }
