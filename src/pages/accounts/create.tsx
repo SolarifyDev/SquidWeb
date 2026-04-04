@@ -175,7 +175,7 @@ const AccountsCreatePage: React.FC = () => {
       return name.trim().length > 0 && googleCloudJsonKey.trim().length > 0
     }
     if (isOpenClawType) {
-      return name.trim().length > 0 && openClawGatewayToken.trim().length > 0 && openClawHooksToken.trim().length > 0
+      return name.trim().length > 0 && openClawGatewayToken.trim().length > 0
     }
     return false
   }, [
@@ -289,13 +289,15 @@ const AccountsCreatePage: React.FC = () => {
             description: description.trim() || undefined,
           })
         } else if (isOpenClawType) {
+          const gatewayToken = openClawGatewayToken.trim()
+          const hooksToken = openClawHooksToken.trim()
           await createDeploymentAccount({
             spaceId: space.id,
             name: name.trim(),
             accountType: 12,
             credentials: {
-              gatewayToken: openClawGatewayToken.trim(),
-              hooksToken: openClawHooksToken.trim(),
+              gatewayToken,
+              ...(hooksToken.length > 0 ? { hooksToken } : {}),
             },
             environmentIds: selectedEnvironmentIds,
             description: description.trim() || undefined,
@@ -850,7 +852,11 @@ const AccountsCreatePage: React.FC = () => {
 
               <FormPanel
                 title="Gateway Token"
-                subtitle="OpenClaw gateway.auth.token, used for /tools/invoke."
+                subtitle={(
+                  <span>
+                    Required. Used for <code>/tools/invoke</code> and <code>/v1/chat/completions</code>.
+                  </span>
+                )}
                 isOpen={expanded.openClawGatewayToken}
                 onToggle={() => setExpanded((prev) => ({ ...prev, openClawGatewayToken: !prev.openClawGatewayToken }))}
               >
@@ -861,12 +867,19 @@ const AccountsCreatePage: React.FC = () => {
                     value={openClawGatewayToken}
                     onChange={(e) => setOpenClawGatewayToken(e.target.value)}
                   />
+                  <p className="text-xs text-gray-500 mt-2 mb-0">
+                    Get it: <code>openclaw config get gateway.auth.token</code>
+                  </p>
                 </div>
               </FormPanel>
 
               <FormPanel
                 title="Hooks Token"
-                subtitle="OpenClaw hooks.token, used for /hooks/agent and /hooks/wake."
+                subtitle={(
+                  <span>
+                    Required only for RunAgent and Wake actions.
+                  </span>
+                )}
                 isOpen={expanded.openClawHooksToken}
                 onToggle={() => setExpanded((prev) => ({ ...prev, openClawHooksToken: !prev.openClawHooksToken }))}
               >
@@ -877,6 +890,15 @@ const AccountsCreatePage: React.FC = () => {
                     value={openClawHooksToken}
                     onChange={(e) => setOpenClawHooksToken(e.target.value)}
                   />
+                  <p className="text-xs text-gray-500 mt-2 mb-0">
+                    OpenClaw uses a separate token for <code>/hooks/*</code> endpoints.
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 mb-0">
+                    Get it: <code>openclaw config get hooks.token</code>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 mb-0">
+                    Set it: <code>openclaw config set hooks.token &lt;value&gt;</code>
+                  </p>
                 </div>
               </FormPanel>
             </>

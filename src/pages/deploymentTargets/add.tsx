@@ -834,11 +834,11 @@ const AddDeploymentTargetPage: React.FC = () => {
       } else {
         const inlineGatewayToken = openClawInlineGatewayToken.trim()
         const inlineHooksToken = openClawInlineHooksToken.trim()
-        if (!inlineGatewayToken && !inlineHooksToken) {
-          message.warning('Please provide at least one inline token')
+        if (!inlineGatewayToken) {
+          message.warning('Please provide an inline gateway token')
           return
         }
-        if (inlineGatewayToken) requestPayload.inlineGatewayToken = inlineGatewayToken
+        requestPayload.inlineGatewayToken = inlineGatewayToken
         if (inlineHooksToken) requestPayload.inlineHooksToken = inlineHooksToken
       }
 
@@ -1550,20 +1550,38 @@ const AddDeploymentTargetPage: React.FC = () => {
                 ) : (
                   <>
                     <div className="mb-5">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Gateway Token</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Gateway Token *</label>
                       <Input.Password
                         placeholder="dev-gw-token"
                         value={openClawInlineGatewayToken}
                         onChange={(event) => setOpenClawInlineGatewayToken(event.target.value)}
                       />
+                      <p className="text-xs text-gray-500 mt-2 mb-0">
+                        Required. Used for <code>/tools/invoke</code> and <code>/v1/chat/completions</code>.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Get it: <code>openclaw config get gateway.auth.token</code>
+                      </p>
                     </div>
                     <div className="mb-5">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Hooks Token</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Hooks Token (Optional)</label>
                       <Input.Password
                         placeholder="dev-hooks-token"
                         value={openClawInlineHooksToken}
                         onChange={(event) => setOpenClawInlineHooksToken(event.target.value)}
                       />
+                      <p className="text-xs text-gray-500 mt-2 mb-0">
+                        Required only for RunAgent and Wake actions.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        OpenClaw uses a separate token for <code>/hooks/*</code> endpoints.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Get it: <code>openclaw config get hooks.token</code>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Set it: <code>openclaw config set hooks.token &lt;value&gt;</code>
+                      </p>
                     </div>
                     <NoteBlock>Account tokens take precedence over inline tokens when both are provided.</NoteBlock>
                   </>

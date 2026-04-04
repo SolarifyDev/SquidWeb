@@ -142,7 +142,7 @@ export interface AmazonWebServicesOidcCredentials {
 
 export interface OpenClawGatewayCredentials {
   gatewayToken: string
-  hooksToken: string
+  hooksToken?: string
 }
 
 export type DeploymentAccountCredentials =
