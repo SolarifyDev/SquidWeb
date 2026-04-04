@@ -651,7 +651,7 @@ const DeployCreate: React.FC = () => {
           return
         }
 
-        navigate(`${basePath}/releases/${encodeURIComponent(release.version)}`)
+        navigate(`${basePath}/releases/${encodeURIComponent(release.version)}?releaseId=${release.id}`)
         return
       }
 
@@ -753,7 +753,7 @@ const DeployCreate: React.FC = () => {
                 <li><span className="text-slate-300 mx-1">/</span></li>
                 <li>
                   <Link
-                    to={`${basePath}/releases/${encodeURIComponent(release.version)}`}
+                    to={`${basePath}/releases/${encodeURIComponent(release.version)}?releaseId=${release.id}`}
                     className="text-squid-blue hover:underline"
                   >
                     {release.version}

@@ -130,3 +130,32 @@ export function listExternalFeedPackageVersions(params: ListExternalFeedPackageV
 
   return get<ListExternalFeedPackageVersionsResponseData>('/external-feeds/package-versions', { params: query })
 }
+
+export interface ExternalFeedPackageNotesRequestPackage {
+  feedId: number
+  packageId: string
+  version: string
+}
+
+export interface ExternalFeedPackageNotesRequest {
+  spaceId?: number
+  packages: ExternalFeedPackageNotesRequestPackage[]
+}
+
+export interface ExternalFeedPackageNotesItem {
+  feedId: number
+  packageId: string
+  version: string
+  succeeded: boolean
+  notes: string | null
+  failureReason: string | null
+  published: string | null
+}
+
+export interface ExternalFeedPackageNotesResponseData {
+  packages: ExternalFeedPackageNotesItem[]
+}
+
+export function getExternalFeedPackageNotes(command: ExternalFeedPackageNotesRequest) {
+  return post<ExternalFeedPackageNotesResponseData>('/external-feeds/package-notes', command)
+}

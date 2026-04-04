@@ -1263,7 +1263,12 @@ const DeploymentDetail: React.FC = () => {
             </li>
             <li><span className="text-slate-300 mx-1">/</span></li>
             <li>
-              <Link to={`${baseProjectPath}/releases/${encodedVersion}`} className="text-squid-blue hover:underline">{releaseVersion}</Link>
+              <Link
+                to={`${baseProjectPath}/releases/${encodedVersion}${release?.id ? `?releaseId=${release.id}` : ''}`}
+                className="text-squid-blue hover:underline"
+              >
+                {releaseVersion}
+              </Link>
             </li>
           </ol>
         </nav>

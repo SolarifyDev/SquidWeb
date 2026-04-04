@@ -800,7 +800,9 @@ const ReleasesCreate: React.FC = () => {
       })
       message.success('Release created.')
       const createdVersion = (createdRelease?.version ?? version.trim()).trim()
-      navigate(`${basePath}/${encodeURIComponent(createdVersion)}`)
+      navigate(
+        `${basePath}/${encodeURIComponent(createdVersion)}${createdRelease?.id ? `?releaseId=${createdRelease.id}` : ''}`,
+      )
     } catch (error: any) {
       message.error(error?.message || 'Failed to create release.')
     } finally {
@@ -925,7 +927,7 @@ const ReleasesCreate: React.FC = () => {
                     className="text-squid-blue hover:underline"
                     href={`/${spaceId}/projects/${projectName}/releases/${encodeURIComponent(
                       latestRelease.version,
-                    )}`}
+                    )}?releaseId=${latestRelease.id}`}
                   >
                     {latestRelease.version}
                   </a>

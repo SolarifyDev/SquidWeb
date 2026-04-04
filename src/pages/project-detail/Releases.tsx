@@ -311,7 +311,7 @@ const Releases: React.FC = () => {
                           <Link
                             to={`/${spaceId}/projects/${projectName}/releases/${encodeURIComponent(
                               release.version,
-                            )}`}
+                            )}?releaseId=${release.id}`}
                             className="no-underline text-squid-blue hover:text-blue-700"
                           >
                             <h3 className="m-0 text-lg font-semibold break-all inline-flex items-center gap-2">

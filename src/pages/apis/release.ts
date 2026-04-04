@@ -12,6 +12,15 @@ export interface ReleaseDto {
   assembled: string
   lastModified?: string
   releaseNote?: string
+  selectedPackages?: ReleaseSelectedPackageDto[]
+}
+
+export interface ReleaseSelectedPackageDto {
+  actionName: string
+  version: string
+  packageReferenceName: string
+  feedId?: number
+  packageId?: string
 }
 
 export interface GetReleasesRequest {
@@ -25,6 +34,22 @@ export interface GetReleasesResponseData {
   count: number
   releases: ReleaseDto[]
   currentDeployedReleaseIds: number[]
+}
+
+interface GetReleaseByIdResponseDto {
+  id: number
+  version: string
+  channelId: number
+  projectId: number
+  projectVariableSetSnapshotId?: number
+  projectDeploymentProcessSnapshotId?: number
+  spaceId: number
+  assembled?: string
+  createdDate?: string
+  lastModified?: string
+  lastModifiedDate?: string
+  releaseNote?: string
+  selectedPackages?: ReleaseSelectedPackageDto[]
 }
 
 export interface CreateReleaseSelectedPackageDto {
@@ -57,6 +82,15 @@ export async function getReleases(params?: GetReleasesRequest) {
     // Backward-compatible endpoint
     return get<GetReleasesResponseData>('/release', { params: query })
   }
+}
+
+export async function getRelease(releaseId: number) {
+  const response = await get<GetReleaseByIdResponseDto>(`/releases/${releaseId}`)
+  return {
+    ...response,
+    assembled: response.assembled ?? response.createdDate ?? '',
+    lastModified: response.lastModified ?? response.lastModifiedDate,
+  } satisfies ReleaseDto
 }
 
 export async function createRelease(command: CreateReleaseCommand) {

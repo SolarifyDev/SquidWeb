@@ -12,6 +12,7 @@ export interface ProjectGroupDto {
 export interface GetProjectGroupsRequest {
   pageIndex?: number
   pageSize?: number
+  spaceId?: number
 }
 
 export interface GetProjectGroupsResponseData {
@@ -23,6 +24,7 @@ export function getProjectGroups(params?: GetProjectGroupsRequest) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 1000,
+    ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
   return get<GetProjectGroupsResponseData>('/project-groups/list', { params: query })

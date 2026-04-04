@@ -191,7 +191,7 @@ const Project: React.FC = () => {
     const loadProjectGroupData = async () => {
       setLoadingProjectGroups(true);
       try {
-        const res = await getProjectGroups({ pageIndex: 1, pageSize: 1000 });
+        const res = await getProjectGroups({ pageIndex: 1, pageSize: 1000, spaceId: space.id });
         if (cancelled) return;
         const items = res.projectGroups ?? [];
         setProjectGroupItems(items);
@@ -226,7 +226,7 @@ const Project: React.FC = () => {
   const loadProjectSummaries = async () => {
     setLoadingProjects(true);
     try {
-      const res = await getProjectSummaries();
+      const res = await getProjectSummaries({ spaceId: space.id });
       setSummaryGroups(res.groups ?? []);
       setSummaryEnvironments(res.environments ?? []);
       setSummaryItems(res.items ?? []);
