@@ -16,6 +16,7 @@ import MachinePolicyDetail from 'pages/machinePolicies/detail'
 import Accounts from 'pages/accounts'
 import AccountsCreatePage from 'pages/accounts/create'
 import AccountsDetailPage from 'pages/accounts/detail'
+import InfrastructureOverviewPage from 'pages/infrastructure/overview'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
@@ -101,6 +102,11 @@ const routes = [
             path: "environments",
             component: Environments,
             name: "Environments",
+          },
+          {
+            path: "infrastructure/overview",
+            component: InfrastructureOverviewPage,
+            name: "Infrastructure Overview",
           },
           {
             path: "infrastructure/machinepolicies/:policyId",

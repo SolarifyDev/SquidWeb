@@ -227,7 +227,7 @@ function ChannelGrid({
             style={{ width: RELEASE_COL, minHeight: ROW_MIN_H }}
           >
             <Link
-              to={`${basePath}/releases/${encodeURIComponent(item.release.version)}`}
+              to={`${basePath}/releases/${encodeURIComponent(item.release.version)}?releaseId=${item.release.id}`}
               className="text-squid-blue text-base font-medium no-underline hover:no-underline break-all leading-snug"
             >
               {item.release.version}

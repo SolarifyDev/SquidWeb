@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Spin, message } from 'antd'
 import {
   CheckOutlined,
@@ -12,11 +12,13 @@ import {
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import {
   getReleaseVariableSnapshot,
+  getRelease,
   getReleaseLifecycleProgression,
   getReleases,
   updateReleaseVariables,
   type ReleaseLifecycleProgressionDto,
   type ReleaseDto,
+  type ReleaseSelectedPackageDto,
 } from 'pages/apis/release'
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
@@ -35,28 +37,53 @@ import {
   type VariableDto,
   type VariableScopeDto,
 } from 'pages/apis/variableSet'
+import {
+  getExternalFeedPackageNotes,
+  type ExternalFeedPackageNotesItem,
+} from 'pages/apis/externalFeed'
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 
-async function findRelease(projectId: number, channels: ChannelDto[], version: string): Promise<ReleaseDto | null> {
-  const res = await getReleases({ projectId, pageSize: 200 }).catch(() => null)
-  const match = res?.releases.find((r) => r.version === version)
-  if (match) return match
+async function findRelease(
+  projectId: number,
+  version: string,
+  channels: ChannelDto[],
+): Promise<ReleaseDto | null> {
+  const targetVersion = version.trim()
+  if (!targetVersion) return null
 
-  if (channels.length === 0) return null
+  const pageSize = 200
+  const maxPages = 50
 
-  const responses = await Promise.all(
-    channels.map((ch) =>
-      getReleases({ projectId, channelId: ch.id, pageSize: 200 }).catch(() => null),
-    ),
-  )
+  const findInScope = async (channelId?: number): Promise<ReleaseDto | null> => {
+    for (let pageIndex = 1; pageIndex <= maxPages; pageIndex += 1) {
+      const response = await getReleases({
+        projectId,
+        pageIndex,
+        pageSize,
+        ...(typeof channelId === 'number' ? { channelId } : {}),
+      }).catch(() => null)
+      if (!response) return null
 
-  for (const r of responses) {
-    const found = r?.releases.find((rel) => rel.version === version)
-    if (found) return found
+      const found = (response.releases ?? []).find((release) => release.version?.trim() === targetVersion)
+      if (found) return found
+
+      const totalCount = Number.isFinite(response.count) ? response.count : 0
+      if (totalCount <= pageIndex * pageSize) break
+      if ((response.releases ?? []).length === 0) break
+    }
+
+    return null
   }
 
-  return null
+  if (channels.length > 0) {
+    for (const channel of channels) {
+      const found = await findInScope(channel.id)
+      if (found) return found
+    }
+  }
+
+  return findInScope()
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -191,6 +218,18 @@ function buildEnvironmentIdsQuery(environmentIds: number[]): string {
   return params.toString()
 }
 
+function buildPackageNoteLookupKey(feedId: number, packageId: string, version: string): string {
+  return `${feedId}::${packageId}::${version}`
+}
+
+function buildSelectedPackageLookupKey(actionName: string, packageReferenceName: string): string {
+  return `${actionName.trim().toLowerCase()}::${packageReferenceName.trim().toLowerCase()}`
+}
+
+function buildFeedPackageLookupKey(feedId: number, packageId: string): string {
+  return `${feedId}::${packageId}`
+}
+
 function formatActionScopeLabel(stepOrder: number, stepName: string, actionName: string, actionId: number): string {
   const normalizedStepName = (stepName ?? '').trim()
   const normalizedActionName = (actionName ?? '').trim()
@@ -293,11 +332,18 @@ function PackageSuccessIcon() {
 
 const ReleaseDetail: React.FC = () => {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { spaceId, projectName, version } = useParams<{
     spaceId: string
     projectName: string
     version: string
   }>()
+  const releaseIdFromQuery = useMemo(() => {
+    const raw = (searchParams.get('releaseId') ?? '').trim()
+    if (!raw) return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  }, [searchParams])
 
   const [loading, setLoading] = useState(true)
   const [deployMenuOpen, setDeployMenuOpen] = useState(false)
@@ -333,6 +379,8 @@ const ReleaseDetail: React.FC = () => {
   const [targetTags, setTargetTags] = useState<TargetTagDto[]>([])
   const [deploymentSteps, setDeploymentSteps] = useState<DeploymentStepDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
+  const [packageNotesLoading, setPackageNotesLoading] = useState(false)
+  const [packageNotesByLookupKey, setPackageNotesByLookupKey] = useState<Map<string, ExternalFeedPackageNotesItem>>(new Map())
   const [expandedHistoryRows, setExpandedHistoryRows] = useState<Record<string, boolean>>({})
 
   const encodedProjectName = encodeURIComponent(projectName ?? '')
@@ -354,19 +402,25 @@ const ReleaseDetail: React.FC = () => {
         setProject(foundProject)
         if (!foundProject) return
 
-        const [chanRes, lcRes, envRes, machineRes, tagRes, stepRes] = await Promise.all([
+        const [chanRes, lcRes, envRes, machineRes, tagRes, stepRes, releaseFromId] = await Promise.all([
           getChannels({ projectId: foundProject.id, pageSize: 1000 }).catch(() => null),
           getLifecycles({ pageSize: 100 }).catch(() => null),
           getEnvironments({ pageSize: 1000 }).catch(() => null),
           getMachines({ pageIndex: 1, pageSize: 1000, spaceId: foundProject.spaceId }).catch(() => null),
           getTargetTags().catch(() => null),
           getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageIndex: 1, pageSize: 1000 }).catch(() => null),
+          releaseIdFromQuery ? getRelease(releaseIdFromQuery).catch(() => null) : Promise.resolve(null),
         ])
 
         const channels = chanRes?.channels.filter((c) => c.projectId === foundProject.id) ?? []
         const decodedVersion = decodeURIComponent(version!)
 
-        const foundRelease = await findRelease(foundProject.id, channels, decodedVersion)
+        const foundRelease = (
+          releaseFromId
+          && releaseFromId.projectId === foundProject.id
+        )
+          ? releaseFromId
+          : await findRelease(foundProject.id, decodedVersion, channels)
         setRelease(foundRelease)
         setReleaseProgression(null)
 
@@ -405,7 +459,7 @@ const ReleaseDetail: React.FC = () => {
         setLoading(false)
       }
     })()
-  }, [projectName, version])
+  }, [projectName, releaseIdFromQuery, version])
 
   useEffect(() => {
     if (!deployMenuOpen) return
@@ -468,6 +522,41 @@ const ReleaseDetail: React.FC = () => {
     () => new Map(project ? [[String(project.deploymentProcessId), `${project.name} deployment process`]] : []),
     [project],
   )
+  const selectedPackageVersions = useMemo(() => {
+    const selectedPackages: ReleaseSelectedPackageDto[] = release?.selectedPackages ?? []
+    const byActionPackage = new Map<string, string>()
+    const byFeedPackage = new Map<string, string>()
+    const directRequests: Array<{ feedId: number; packageId: string; version: string }> = []
+    const directDedupe = new Set<string>()
+
+    selectedPackages.forEach((selectedPackage) => {
+      const selectedVersion = (selectedPackage.version ?? '').trim()
+      if (!selectedVersion) return
+
+      const actionName = (selectedPackage.actionName ?? '').trim()
+      const packageReferenceName = (selectedPackage.packageReferenceName ?? '').trim()
+      if (actionName || packageReferenceName) {
+        byActionPackage.set(buildSelectedPackageLookupKey(actionName, packageReferenceName), selectedVersion)
+      }
+
+      const selectedFeedId = Number(selectedPackage.feedId)
+      const selectedPackageId = (selectedPackage.packageId ?? '').trim()
+      if (!Number.isFinite(selectedFeedId) || selectedFeedId <= 0 || !selectedPackageId) return
+
+      byFeedPackage.set(buildFeedPackageLookupKey(selectedFeedId, selectedPackageId), selectedVersion)
+
+      const directLookupKey = buildPackageNoteLookupKey(selectedFeedId, selectedPackageId, selectedVersion)
+      if (directDedupe.has(directLookupKey)) return
+      directDedupe.add(directLookupKey)
+      directRequests.push({
+        feedId: selectedFeedId,
+        packageId: selectedPackageId,
+        version: selectedVersion,
+      })
+    })
+
+    return { byActionPackage, byFeedPackage, directRequests }
+  }, [release?.selectedPackages])
 
   const getSnapshotScopeLabel = (scope: VariableScopeDto): string => {
     const raw = (scope.scopeValue ?? '').trim()
@@ -497,24 +586,120 @@ const ReleaseDetail: React.FC = () => {
     return sortedReferences.map((pkg, index) => {
       const packageRef = pkg.packageReferenceName?.trim()
       const selectedVersion = (pkg.lastReleaseVersion ?? '').trim()
+      const normalizedPackageId = (pkg.packageId ?? '').trim()
+      const selectedReleaseVersion =
+        selectedPackageVersions.byActionPackage.get(
+          buildSelectedPackageLookupKey(pkg.actionName ?? '', pkg.packageReferenceName ?? ''),
+        )
+        ?? (
+          Number.isFinite(pkg.feedId) && pkg.feedId > 0 && normalizedPackageId
+            ? selectedPackageVersions.byFeedPackage.get(buildFeedPackageLookupKey(pkg.feedId, normalizedPackageId))
+            : undefined
+        )
+        ?? ''
       const displayName = packageRef
         ? `${pkg.actionName}:${packageRef}(${pkg.packageId})`
         : `${pkg.actionName}:${pkg.packageId}`
+      const noteLookupKey =
+        Number.isFinite(pkg.feedId)
+        && pkg.feedId > 0
+        && normalizedPackageId.length > 0
+        && selectedReleaseVersion.length > 0
+          ? buildPackageNoteLookupKey(pkg.feedId, normalizedPackageId, selectedReleaseVersion)
+          : ''
 
       return {
         key: `${pkg.actionName}-${pkg.packageReferenceName}-${pkg.packageId}-${index}`,
         title: `${pkg.packageId || 'Package'} from feed ${pkg.feedName || 'Unknown feed'}`,
         displayName,
-        version: selectedVersion || '-',
+        version: selectedReleaseVersion || '-',
         lastReleaseVersion: selectedVersion || '-',
+        resolvedVersion: selectedReleaseVersion,
+        feedId: pkg.feedId,
+        noteLookupKey,
         published: pkg.published ?? null,
         platform: pkg.platform ?? null,
-        packageId: pkg.packageId,
+        packageId: normalizedPackageId,
         feedName: pkg.feedName,
         packageReferenceName: pkg.packageReferenceName,
       }
     })
-  }, [packageReferences])
+  }, [packageReferences, selectedPackageVersions.byActionPackage, selectedPackageVersions.byFeedPackage])
+
+  const packageNoteRequests = useMemo(() => {
+    const dedupe = new Set<string>()
+    const requests: Array<{ feedId: number; packageId: string; version: string }> = []
+
+    selectedPackageVersions.directRequests.forEach((item) => {
+      const lookupKey = buildPackageNoteLookupKey(item.feedId, item.packageId, item.version)
+      if (dedupe.has(lookupKey)) return
+      dedupe.add(lookupKey)
+      requests.push(item)
+    })
+
+    releasePackages.forEach((pkg) => {
+      if (!pkg.noteLookupKey) return
+      if (dedupe.has(pkg.noteLookupKey)) return
+      dedupe.add(pkg.noteLookupKey)
+      requests.push({
+        feedId: pkg.feedId,
+        packageId: pkg.packageId,
+        version: pkg.resolvedVersion,
+      })
+    })
+
+    return requests
+  }, [releasePackages, selectedPackageVersions.directRequests])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (packageNoteRequests.length === 0) {
+      setPackageNotesByLookupKey(new Map())
+      setPackageNotesLoading(false)
+      return
+    }
+
+    setPackageNotesLoading(true)
+
+    getExternalFeedPackageNotes({
+      spaceId: project?.spaceId ?? release?.spaceId,
+      packages: packageNoteRequests,
+    })
+      .then((response) => {
+        if (cancelled) return
+
+        const nextMap = new Map<string, ExternalFeedPackageNotesItem>()
+        ;(response.packages ?? []).forEach((item) => {
+          const normalizedPackageId = (item.packageId ?? '').trim()
+          const normalizedVersion = (item.version ?? '').trim()
+          if (!Number.isFinite(item.feedId) || item.feedId <= 0 || !normalizedPackageId || !normalizedVersion) return
+          nextMap.set(
+            buildPackageNoteLookupKey(item.feedId, normalizedPackageId, normalizedVersion),
+            {
+              ...item,
+              packageId: normalizedPackageId,
+              version: normalizedVersion,
+            },
+          )
+        })
+
+        setPackageNotesByLookupKey(nextMap)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error('Failed to load package notes', error)
+        setPackageNotesByLookupKey(new Map())
+        message.warning('Failed to load package notes.')
+      })
+      .finally(() => {
+        if (!cancelled) setPackageNotesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [packageNoteRequests, project?.spaceId, release?.spaceId])
 
   const deploymentHistoryEntries = useMemo<DeploymentHistoryEntry[]>(() => {
     const entries: DeploymentHistoryEntry[] = []
@@ -840,16 +1025,6 @@ const ReleaseDetail: React.FC = () => {
     try {
       await updateReleaseVariables({ releaseId: release.id })
 
-      const refreshed = await getReleases({
-        pageIndex: 1,
-        pageSize: 200,
-        projectId: project.id,
-      }).catch(() => null)
-      const refreshedRelease = refreshed?.releases.find((r) => r.version === release.version) ?? null
-      if (refreshedRelease) {
-        setRelease(refreshedRelease)
-      }
-
       setSnapshotLoaded(false)
       message.success('Variable snapshot updated.')
 
@@ -1141,29 +1316,45 @@ const ReleaseDetail: React.FC = () => {
           ) : (
             <>
               <ul className="list-none m-0 p-0 divide-y divide-slate-200">
-                {releasePackages.map((pkg) => (
-                  <li key={pkg.key} className="px-5 py-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <PackageSuccessIcon />
-                        <div className="min-w-0 text-sm font-semibold text-slate-800 leading-6 break-words">
-                          <dfn title={pkg.title} className="not-italic">
-                            {pkg.displayName} version {pkg.version || '-'}
-                          </dfn>
+                {releasePackages.map((pkg) => {
+                  const packageNote = pkg.noteLookupKey ? packageNotesByLookupKey.get(pkg.noteLookupKey) : null
+                  const published = packageNote?.succeeded ? packageNote.published : pkg.published
+                  const showLoadingNotes = packageNotesLoading && Boolean(pkg.noteLookupKey) && !packageNote
+
+                  return (
+                    <li key={pkg.key} className="px-5 py-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-3">
+                          <PackageSuccessIcon />
+                          <div className="min-w-0 text-sm font-semibold text-slate-800 leading-6 break-words">
+                            <dfn title={pkg.title} className="not-italic">
+                              {pkg.displayName} version {pkg.version || '-'}
+                            </dfn>
+                          </div>
+                        </div>
+                        <div className="ml-10 mt-1 text-xs text-emerald-600">
+                          Package reference resolved
+                        </div>
+                        {showLoadingNotes ? (
+                          <div className="ml-10 mt-1 text-sm text-slate-500">Loading package notes...</div>
+                        ) : null}
+                        {packageNote?.succeeded && packageNote.notes ? (
+                          <div className="ml-10 mt-1 text-sm text-slate-600 whitespace-pre-wrap break-words">
+                            {packageNote.notes}
+                          </div>
+                        ) : null}
+                        {packageNote && !packageNote.succeeded && packageNote.failureReason ? (
+                          <div className="ml-10 mt-1 text-sm text-amber-600">
+                            {packageNote.failureReason}
+                          </div>
+                        ) : null}
+                        <div className="ml-10 mt-1 text-sm text-slate-600">
+                          Published: {formatDate(published) || '-'}
                         </div>
                       </div>
-                      <div className="ml-10 mt-1 text-xs text-emerald-600">
-                        Package reference resolved
-                      </div>
-                      <div className="ml-10 mt-1 text-sm text-slate-600">
-                        Published: {formatDate(pkg.published) || '-'}
-                      </div>
-                      <div className="ml-10 mt-1 text-sm text-slate-600">
-                        Platform: {pkg.platform || '-'}
-                      </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             </>
           )}
@@ -1339,7 +1530,7 @@ const ReleaseDetail: React.FC = () => {
                 const deploymentPath = entry.deploymentId != null
                   ? `${basePath}/releases/${encodeURIComponent(release.version)}/deployments/${entry.deploymentId}`
                   : null
-                const releasePath = `${basePath}/releases/${encodeURIComponent(release.version)}`
+                const releasePath = `${basePath}/releases/${encodeURIComponent(release.version)}?releaseId=${release.id}`
 
                 return (
                   <li key={entry.key} className={index === deploymentHistoryEntries.length - 1 ? '' : 'border-b border-slate-200'}>

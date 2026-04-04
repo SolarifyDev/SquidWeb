@@ -23,6 +23,7 @@ export interface GetProjectsRequest {
   pageIndex?: number
   pageSize?: number
   keyword?: string
+  spaceId?: number
 }
 
 export interface GetProjectsResponseData {
@@ -35,6 +36,7 @@ export function getProjects(params?: GetProjectsRequest) {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 50,
     ...(params?.keyword ? { keyword: params.keyword } : {}),
+    ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
   return get<GetProjectsResponseData>('/projects/list', { params: query })
@@ -48,6 +50,7 @@ export interface GetProjectSummariesRequest {
   projectGroupIds?: number[]
   projectIds?: number[]
   environmentIds?: number[]
+  spaceId?: number
 }
 
 export interface ProjectDashboardEnvironment {
