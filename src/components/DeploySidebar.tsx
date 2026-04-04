@@ -34,6 +34,11 @@ function buildMenu(spaceSlug: string): MenuItem[] {
     { type: 'link', label: 'Certificates', path: `/${spaceSlug}/library/certificates` },
     { type: 'link', label: 'External Feeds', path: `/${spaceSlug}/external/feeds` },
     { type: 'link', label: 'Lifecycles', path: `/${spaceSlug}/lifecycles` },
+
+    { type: 'divider' },
+
+    { type: 'group', label: 'Other' },
+    { type: 'link', label: 'Chat', path: `/${spaceSlug}/chat` },
   ];
 }
 
