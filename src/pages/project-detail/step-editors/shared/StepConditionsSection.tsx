@@ -25,6 +25,8 @@ interface StepConditionsSectionProps {
   requiredLockedReason?: React.ReactNode
   afterRunCondition?: React.ReactNode
   hideRootSection?: boolean
+  hidePackageRequirement?: boolean
+  hideDisabled?: boolean
 }
 
 const RUN_CONDITION_OPTIONS = [
@@ -82,6 +84,8 @@ export function StepConditionsSection({
   requiredLockedReason,
   afterRunCondition,
   hideRootSection = false,
+  hidePackageRequirement = false,
+  hideDisabled = false,
 }: StepConditionsSectionProps) {
   const [loading, setLoading] = useState(false)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
@@ -240,15 +244,17 @@ export function StepConditionsSection({
 
       {afterRunCondition}
 
-      <CollapsibleSection title="Package Requirement" subtitle="Configure package acquisition behavior for this step." defaultOpen={false}>
-        <Select
-          value={normalizeRequirement(value.packageRequirement)}
-          options={PACKAGE_REQUIREMENT_OPTIONS}
-          onChange={(next) => onChange({ ...value, packageRequirement: String(next) })}
-          size="small"
-          className="w-full"
-        />
-      </CollapsibleSection>
+      {!hidePackageRequirement ? (
+        <CollapsibleSection title="Package Requirement" subtitle="Configure package acquisition behavior for this step." defaultOpen={false}>
+          <Select
+            value={normalizeRequirement(value.packageRequirement)}
+            options={PACKAGE_REQUIREMENT_OPTIONS}
+            onChange={(next) => onChange({ ...value, packageRequirement: String(next) })}
+            size="small"
+            className="w-full"
+          />
+        </CollapsibleSection>
+      ) : null}
 
       <CollapsibleSection title="Required" subtitle="Required steps cannot be skipped when deploying a release." defaultOpen>
         {requiredLockedReason ? (
@@ -263,14 +269,16 @@ export function StepConditionsSection({
         </Checkbox>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Disabled" subtitle="Disabled steps are skipped during deployment." defaultOpen>
-        <Checkbox
-          checked={value.disabled}
-          onChange={(event) => onChange({ ...value, disabled: event.target.checked })}
-        >
-          <span className="text-sm">Disable this step</span>
-        </Checkbox>
-      </CollapsibleSection>
+      {!hideDisabled ? (
+        <CollapsibleSection title="Disabled" subtitle="Disabled steps are skipped during deployment." defaultOpen>
+          <Checkbox
+            checked={value.disabled}
+            onChange={(event) => onChange({ ...value, disabled: event.target.checked })}
+          >
+            <span className="text-sm">Disable this step</span>
+          </Checkbox>
+        </CollapsibleSection>
+      ) : null}
     </>
   )
 

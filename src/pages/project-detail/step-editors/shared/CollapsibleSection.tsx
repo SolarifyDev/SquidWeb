@@ -29,7 +29,7 @@ export function CollapsibleSection({ title, subtitle, defaultOpen = false, fullW
           width="20"
           height="20"
           fill="currentColor"
-          className={`text-slate-400 flex-shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
+          className={`ml-auto text-slate-400 flex-shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
         >
           <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
         </svg>

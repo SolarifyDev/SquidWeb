@@ -12,6 +12,7 @@ import {
   ClientCertificateCredentialsSummary,
   DeploymentAccountDto,
   GcpCredentialsSummary,
+  OpenClawGatewayCredentialsSummary,
   SshKeyPairCredentialsSummary,
   TokenCredentialsSummary,
   UsernamePasswordCredentialsSummary,
@@ -244,6 +245,13 @@ function isGcpCredentials(creds: DeploymentAccountDto['credentials']): creds is 
     && 'jsonKeyHasValue' in creds
 }
 
+function isOpenClawGatewayCredentials(creds: DeploymentAccountDto['credentials']): creds is OpenClawGatewayCredentialsSummary {
+  return !!creds
+    && typeof creds === 'object'
+    && 'gatewayTokenHasValue' in creds
+    && 'hooksTokenHasValue' in creds
+}
+
 function matchAccount(account: DeploymentAccountLike, accountSlug: string): boolean {
   const normalized = accountSlug.trim().toLowerCase()
   if (!normalized) return false
@@ -379,6 +387,7 @@ const AccountsDetailPage: React.FC = () => {
   const isSshKeyPairAccount = !!account && account.accountType === 2 && isSshKeyPairCredentials(account.credentials)
   const isClientCertificateAccount = !!account && account.accountType === 8 && isClientCertificateCredentials(account.credentials)
   const isGoogleCloudAccount = !!account && account.accountType === 10 && isGcpCredentials(account.credentials)
+  const isOpenClawGatewayAccount = !!account && account.accountType === 12 && isOpenClawGatewayCredentials(account.credentials)
   const hasTypedCredentialSummary = isTokenAccount
     || isUsernamePasswordAccount
     || isAwsAccount
@@ -387,6 +396,7 @@ const AccountsDetailPage: React.FC = () => {
     || isSshKeyPairAccount
     || isClientCertificateAccount
     || isGoogleCloudAccount
+    || isOpenClawGatewayAccount
   const tokenCredentials = isTokenAccount ? account?.credentials as TokenCredentialsSummary : null
   const usernamePasswordCredentials = isUsernamePasswordAccount ? account?.credentials as UsernamePasswordCredentialsSummary : null
   const awsCredentials = isAwsAccount ? account?.credentials as AwsCredentialsSummary : null
@@ -395,6 +405,7 @@ const AccountsDetailPage: React.FC = () => {
   const sshKeyPairCredentials = isSshKeyPairAccount ? account?.credentials as SshKeyPairCredentialsSummary : null
   const clientCertificateCredentials = isClientCertificateAccount ? account?.credentials as ClientCertificateCredentialsSummary : null
   const gcpCredentials = isGoogleCloudAccount ? account?.credentials as GcpCredentialsSummary : null
+  const openClawGatewayCredentials = isOpenClawGatewayAccount ? account?.credentials as OpenClawGatewayCredentialsSummary : null
 
   return (
     <div className="bg-white min-h-screen">
@@ -677,6 +688,33 @@ const AccountsDetailPage: React.FC = () => {
                 >
                   <div className="max-w-[600px] space-y-2">
                     <Input.Password value="" placeholder={gcpCredentials?.jsonKeyHasValue ? '********' : 'No key file set'} disabled />
+                  </div>
+                </DetailPanel>
+              )}
+
+              {isOpenClawGatewayAccount && (
+                <DetailPanel
+                  title="OpenClaw Gateway"
+                  subtitle={
+                    openClawGatewayCredentials?.gatewayTokenHasValue || openClawGatewayCredentials?.hooksTokenHasValue
+                      ? 'Gateway and hooks token summary available'
+                      : 'No OpenClaw tokens set'
+                  }
+                  subtitlePlaceholder={!openClawGatewayCredentials?.gatewayTokenHasValue && !openClawGatewayCredentials?.hooksTokenHasValue}
+                  isOpen={expanded.credentialSummary}
+                  onToggle={() => setExpanded((prev) => ({ ...prev, credentialSummary: !prev.credentialSummary }))}
+                >
+                  <div className="max-w-[600px] space-y-2">
+                    <Input.Password
+                      value=""
+                      placeholder={openClawGatewayCredentials?.gatewayTokenHasValue ? 'Gateway token is configured' : 'No gateway token set'}
+                      disabled
+                    />
+                    <Input.Password
+                      value=""
+                      placeholder={openClawGatewayCredentials?.hooksTokenHasValue ? 'Hooks token is configured' : 'No hooks token set'}
+                      disabled
+                    />
                   </div>
                 </DetailPanel>
               )}

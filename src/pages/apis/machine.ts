@@ -76,6 +76,11 @@ export interface UpdateMachineCommand {
   skipTlsVerification?: boolean | null
   providerType?: number | null
   providerConfig?: string | null
+  baseUrl?: string | null
+  defaultSessionKey?: string | null
+  healthCheckTool?: string | null
+  inlineGatewayToken?: string | null
+  inlineHooksToken?: string | null
   resourceReferences?: EndpointResourceReference[] | null
 }
 
@@ -197,6 +202,25 @@ export interface RegisterKubernetesAgentCommand {
 
 export function registerKubernetesAgent(command: RegisterKubernetesAgentCommand) {
   return post<RegisterMachineResponseData>('/machines/register/kubernetes-agent', command)
+}
+
+// --- Register OpenClaw ---
+
+export interface RegisterOpenClawCommand {
+  machineName: string
+  spaceId: number
+  roles: string[]
+  environmentIds: number[]
+  baseUrl: string
+  defaultSessionKey?: string
+  healthCheckTool?: string
+  inlineGatewayToken?: string
+  inlineHooksToken?: string
+  resourceReferences?: EndpointResourceReference[]
+}
+
+export function registerOpenClaw(command: RegisterOpenClawCommand) {
+  return post<RegisterMachineResponseData>('/machines/register/openclaw', command)
 }
 
 // --- Connection Status ---

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Button, Dropdown, Modal, Spin, Switch, Tooltip, message } from 'antd'
+import { Button, Dropdown, Input, Modal, Radio, Select, Spin, Switch, Tooltip, message } from 'antd'
 import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -15,7 +15,8 @@ import {
   updateMachine,
 } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
-import { getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
+import { DeploymentAccountType, getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
+import { getTargetTags } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -43,7 +44,14 @@ interface KubernetesAgentEndpoint {
   ChartRef?: string
 }
 
-type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint
+interface OpenClawEndpoint {
+  CommunicationStyle: string
+  BaseUrl?: string
+  ResourceReferences?: { Type: number; ResourceId: number }[]
+}
+
+type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint | OpenClawEndpoint
+type OpenClawAuthMode = 'account' | 'inline'
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -309,11 +317,47 @@ function communicationStyleLabel(style: string): string {
   const map: Record<string, string> = {
     KubernetesApi: 'Kubernetes API',
     KubernetesAgent: 'Kubernetes Agent',
+    OpenClaw: 'OpenClaw',
     TentaclePassive: 'Listening Tentacle',
     TentacleActive: 'Polling Tentacle',
     Ssh: 'SSH Connection',
   }
   return map[style] || style
+}
+
+function isOpenClawStyle(style: string | undefined | null): boolean {
+  return String(style ?? '').toLowerCase().includes('openclaw')
+}
+
+function readOpenClawEndpointBaseUrl(endpoint: MachineEndpoint | null): string {
+  if (!endpoint || !isOpenClawStyle((endpoint as any).CommunicationStyle)) return ''
+  const value = (endpoint as any).BaseUrl ?? (endpoint as any).baseUrl ?? ''
+  return typeof value === 'string' ? value : ''
+}
+
+function readAuthAccountId(endpoint: MachineEndpoint | null): number | null {
+  const refs = ((endpoint as any)?.ResourceReferences ?? (endpoint as any)?.resourceReferences) as Array<{ Type?: number; type?: number; ResourceId?: number; resourceId?: number }> | undefined
+  if (!Array.isArray(refs)) return null
+  const found = refs.find((ref) => (ref.Type ?? ref.type) === 1)
+  if (!found) return null
+  const id = Number(found.ResourceId ?? found.resourceId ?? 0)
+  return Number.isFinite(id) && id > 0 ? id : null
+}
+
+function normalizeStringArray(values: string[]): string[] {
+  return Array.from(new Set(values.map((v) => v.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+}
+
+function normalizeNumberArray(values: number[]): number[] {
+  return Array.from(new Set(values.filter((v) => Number.isFinite(v) && v > 0))).sort((a, b) => a - b)
+}
+
+function arraysEqual<T>(a: T[], b: T[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 type ConnectivityHealthState = 'Healthy' | 'Unhealthy' | 'Unavailable' | 'Disabled' | 'Unknown'
@@ -543,6 +587,14 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const [enabled, setEnabled] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [openClawEnvironments, setOpenClawEnvironments] = useState<number[]>([])
+  const [openClawTargetTags, setOpenClawTargetTags] = useState<string[]>([])
+  const [openClawBaseUrl, setOpenClawBaseUrl] = useState('')
+  const [openClawAuthMode, setOpenClawAuthMode] = useState<OpenClawAuthMode>('account')
+  const [openClawSelectedAccountId, setOpenClawSelectedAccountId] = useState<string | undefined>(undefined)
+  const [openClawInlineGatewayToken, setOpenClawInlineGatewayToken] = useState('')
+  const [openClawInlineHooksToken, setOpenClawInlineHooksToken] = useState('')
+  const [targetTagOptions, setTargetTagOptions] = useState<string[]>([])
 
   // Expanded cards
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
@@ -559,7 +611,7 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const expandAll = () => {
     setExpandedCards(new Set([
       'displayName', 'enabled', 'environments', 'targetTags',
-      'authentication', 'kubernetesDetails', 'containerOptions',
+      'authentication', 'kubernetesDetails', 'openClawDetails', 'containerOptions',
     ]))
   }
 
@@ -578,8 +630,9 @@ const DeploymentTargetDetailPage: React.FC = () => {
       getMachines({ pageSize: 1000, spaceId: space.id }),
       getEnvironments({ pageSize: 1000, spaceId: space.id }),
       getDeploymentAccounts({ pageSize: 1000, spaceId: space.id }),
+      getTargetTags(),
     ])
-      .then(([machinesData, envData, accountData]) => {
+      .then(([machinesData, envData, accountData, targetTagData]) => {
         if (!mounted) return
         const found = machinesData.machines.find((m) => m.id === machineId)
         if (!found) {
@@ -591,8 +644,24 @@ const DeploymentTargetDetailPage: React.FC = () => {
         setEnabled(!found.isDisabled)
         setEnvironments(envData.environments ?? [])
         setAccounts(accountData.deploymentAccounts ?? [])
+        setTargetTagOptions(
+          (targetTagData.targetTags ?? [])
+            .map((tag) => tag.name)
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b)),
+        )
         setAgentUpgradeData(null)
         setAgentUpgradeError(null)
+
+        const endpoint = parseEndpointJson(found.endpoint || '{}')
+        const authAccountId = readAuthAccountId(endpoint)
+        setOpenClawEnvironments(found.environmentIds ?? [])
+        setOpenClawTargetTags(found.roles ?? [])
+        setOpenClawBaseUrl(readOpenClawEndpointBaseUrl(endpoint))
+        setOpenClawAuthMode(authAccountId ? 'account' : 'inline')
+        setOpenClawSelectedAccountId(authAccountId ? String(authAccountId) : undefined)
+        setOpenClawInlineGatewayToken('')
+        setOpenClawInlineHooksToken('')
 
         // Fetch upgrade info only for KubernetesAgent targets
         try {
@@ -684,10 +753,64 @@ const DeploymentTargetDetailPage: React.FC = () => {
     try {
       const trimmedName = name.trim()
       const nextIsDisabled = !enabled
+      const endpoint = parseEndpointJson(machine.endpoint || '{}')
+      const openClawTarget = isOpenClawStyle((endpoint as any)?.CommunicationStyle)
       const payload = {
         machineId: machine.id,
         ...(trimmedName && trimmedName !== machine.name ? { name: trimmedName } : {}),
         ...(nextIsDisabled !== machine.isDisabled ? { isDisabled: nextIsDisabled } : {}),
+      }
+
+      if (openClawTarget) {
+        const normalizedRoles = normalizeStringArray(openClawTargetTags)
+        const normalizedEnvironments = normalizeNumberArray(openClawEnvironments)
+        const baseUrl = openClawBaseUrl.trim()
+        const existingRoles = normalizeStringArray(machine.roles ?? [])
+        const existingEnvironments = normalizeNumberArray(machine.environmentIds ?? [])
+        const existingBaseUrl = readOpenClawEndpointBaseUrl(endpoint).trim()
+        const existingAccountId = readAuthAccountId(endpoint)
+
+        if (!baseUrl) {
+          message.warning('Please enter the OpenClaw URL')
+          return
+        }
+        if (normalizedEnvironments.length === 0) {
+          message.warning('Please select at least one environment')
+          return
+        }
+        if (normalizedRoles.length === 0) {
+          message.warning('Please add at least one target tag')
+          return
+        }
+
+        if (!arraysEqual(existingRoles, normalizedRoles)) (payload as any).roles = normalizedRoles
+        if (!arraysEqual(existingEnvironments, normalizedEnvironments)) (payload as any).environmentIds = normalizedEnvironments
+        if (baseUrl !== existingBaseUrl) (payload as any).baseUrl = baseUrl
+
+        if (openClawAuthMode === 'account') {
+          const accountId = Number(openClawSelectedAccountId)
+          if (!Number.isFinite(accountId) || accountId <= 0) {
+            message.warning('Please select an OpenClaw account')
+            return
+          }
+          if (existingAccountId !== accountId) {
+            ; (payload as any).resourceReferences = [{ type: 1, resourceId: accountId }]
+          }
+        } else {
+          const inlineGatewayToken = openClawInlineGatewayToken.trim()
+          const inlineHooksToken = openClawInlineHooksToken.trim()
+          if (existingAccountId && !inlineGatewayToken) {
+            message.warning('Please provide an inline gateway token when switching from account mode')
+            return
+          }
+          if (!inlineGatewayToken && inlineHooksToken) {
+            message.warning('Inline gateway token is required when setting inline hooks token')
+            return
+          }
+          if (existingAccountId) (payload as any).resourceReferences = []
+          if (inlineGatewayToken) (payload as any).inlineGatewayToken = inlineGatewayToken
+          if (inlineHooksToken) (payload as any).inlineHooksToken = inlineHooksToken
+        }
       }
 
       if (Object.keys(payload).length === 1) {
@@ -699,6 +822,15 @@ const DeploymentTargetDetailPage: React.FC = () => {
       setMachine(updated)
       setName(updated.name)
       setEnabled(!updated.isDisabled)
+      const updatedEndpoint = parseEndpointJson(updated.endpoint || '{}')
+      const updatedAccountId = readAuthAccountId(updatedEndpoint)
+      setOpenClawEnvironments(updated.environmentIds ?? [])
+      setOpenClawTargetTags(updated.roles ?? [])
+      setOpenClawBaseUrl(readOpenClawEndpointBaseUrl(updatedEndpoint))
+      setOpenClawAuthMode(updatedAccountId ? 'account' : 'inline')
+      setOpenClawSelectedAccountId(updatedAccountId ? String(updatedAccountId) : undefined)
+      setOpenClawInlineGatewayToken('')
+      setOpenClawInlineHooksToken('')
       setDirty(false)
       message.success('Saved')
     } catch {
@@ -848,6 +980,24 @@ const DeploymentTargetDetailPage: React.FC = () => {
                 setName={(v) => { setName(v); setDirty(true) }}
                 enabled={enabled}
                 setEnabled={(v) => { setEnabled(v); setDirty(true) }}
+                isOpenClawTarget={isOpenClawStyle(ep?.CommunicationStyle)}
+                environments={environments}
+                accounts={accounts}
+                targetTagOptions={targetTagOptions}
+                openClawEnvironments={openClawEnvironments}
+                setOpenClawEnvironments={(v) => { setOpenClawEnvironments(v); setDirty(true) }}
+                openClawTargetTags={openClawTargetTags}
+                setOpenClawTargetTags={(v) => { setOpenClawTargetTags(v); setDirty(true) }}
+                openClawBaseUrl={openClawBaseUrl}
+                setOpenClawBaseUrl={(v) => { setOpenClawBaseUrl(v); setDirty(true) }}
+                openClawAuthMode={openClawAuthMode}
+                setOpenClawAuthMode={(v) => { setOpenClawAuthMode(v); setDirty(true) }}
+                openClawSelectedAccountId={openClawSelectedAccountId}
+                setOpenClawSelectedAccountId={(v) => { setOpenClawSelectedAccountId(v); setDirty(true) }}
+                openClawInlineGatewayToken={openClawInlineGatewayToken}
+                setOpenClawInlineGatewayToken={(v) => { setOpenClawInlineGatewayToken(v); setDirty(true) }}
+                openClawInlineHooksToken={openClawInlineHooksToken}
+                setOpenClawInlineHooksToken={(v) => { setOpenClawInlineHooksToken(v); setDirty(true) }}
                 envNames={envNames}
                 roles={roles}
                 ep={ep}
@@ -893,6 +1043,24 @@ function SettingsTab({
   setName,
   enabled,
   setEnabled,
+  isOpenClawTarget,
+  environments,
+  accounts,
+  targetTagOptions,
+  openClawEnvironments,
+  setOpenClawEnvironments,
+  openClawTargetTags,
+  setOpenClawTargetTags,
+  openClawBaseUrl,
+  setOpenClawBaseUrl,
+  openClawAuthMode,
+  setOpenClawAuthMode,
+  openClawSelectedAccountId,
+  setOpenClawSelectedAccountId,
+  openClawInlineGatewayToken,
+  setOpenClawInlineGatewayToken,
+  openClawInlineHooksToken,
+  setOpenClawInlineHooksToken,
   envNames,
   roles,
   ep,
@@ -913,6 +1081,24 @@ function SettingsTab({
   setName: (v: string) => void
   enabled: boolean
   setEnabled: (v: boolean) => void
+  isOpenClawTarget: boolean
+  environments: EnvironmentDto[]
+  accounts: DeploymentAccountDto[]
+  targetTagOptions: string[]
+  openClawEnvironments: number[]
+  setOpenClawEnvironments: (v: number[]) => void
+  openClawTargetTags: string[]
+  setOpenClawTargetTags: (v: string[]) => void
+  openClawBaseUrl: string
+  setOpenClawBaseUrl: (v: string) => void
+  openClawAuthMode: OpenClawAuthMode
+  setOpenClawAuthMode: (v: OpenClawAuthMode) => void
+  openClawSelectedAccountId?: string
+  setOpenClawSelectedAccountId: (v: string | undefined) => void
+  openClawInlineGatewayToken: string
+  setOpenClawInlineGatewayToken: (v: string) => void
+  openClawInlineHooksToken: string
+  setOpenClawInlineHooksToken: (v: string) => void
   envNames: string[]
   roles: string[]
   ep: MachineEndpoint | null
@@ -927,6 +1113,11 @@ function SettingsTab({
   navigate: (path: string) => void
 }) {
   const slug = slugify(name)
+  const environmentOptions = environments.map((env) => ({ value: env.id, label: env.name }))
+  const openClawAccountOptions = accounts
+    .filter((acc) => acc.accountType === DeploymentAccountType.OpenClawGateway)
+    .map((acc) => ({ value: String(acc.id), label: acc.name }))
+  const targetTagSelectOptions = targetTagOptions.map((tag) => ({ value: tag, label: tag }))
   const overflowItems: MenuProps['items'] = [
     {
       key: 'toggle-enabled',
@@ -980,6 +1171,10 @@ function SettingsTab({
       })
     }
   }
+
+  const openClawEnvironmentNames = openClawEnvironments
+    .map((id) => environments.find((env) => env.id === id)?.name ?? String(id))
+    .filter(Boolean)
 
   return (
     <div>
@@ -1064,21 +1259,38 @@ function SettingsTab({
       <ExpandableCard
         title="Environments"
         summary={
-          envNames.length > 0
-            ? envNames.map((env) => <Chip key={env} icon={<EnvChipIcon />} label={env} />)
+          (isOpenClawTarget ? openClawEnvironmentNames : envNames).length > 0
+            ? (isOpenClawTarget ? openClawEnvironmentNames : envNames).map((env) => <Chip key={env} icon={<EnvChipIcon />} label={env} />)
             : <span className="text-gray-400 italic">No environments</span>
         }
         expanded={expandedCards.has('environments')}
         onToggle={() => toggleCard('environments')}
       >
         <div className="pt-3">
-          <div className="flex flex-wrap gap-2">
-            {envNames.map((env) => (
-              <Chip key={env} icon={<EnvChipIcon />} label={env} />
-            ))}
-          </div>
-          {envNames.length === 0 && (
-            <span className="text-sm text-gray-400 italic">No environments assigned</span>
+          {isOpenClawTarget ? (
+            <div>
+              <Select
+                mode="multiple"
+                value={openClawEnvironments}
+                onChange={(values) => setOpenClawEnvironments(values.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0))}
+                options={environmentOptions}
+                className="w-full"
+                placeholder="Select environments"
+                optionFilterProp="label"
+              />
+              <p className="text-xs text-gray-500 mt-1 mb-0">Choose at least one environment for this OpenClaw target.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {envNames.map((env) => (
+                  <Chip key={env} icon={<EnvChipIcon />} label={env} />
+                ))}
+              </div>
+              {envNames.length === 0 && (
+                <span className="text-sm text-gray-400 italic">No environments assigned</span>
+              )}
+            </>
           )}
         </div>
       </ExpandableCard>
@@ -1087,21 +1299,38 @@ function SettingsTab({
       <ExpandableCard
         title="Target Tags"
         summary={
-          roles.length > 0
-            ? roles.map((tag) => <Chip key={tag} icon={<RoleChipIcon />} label={tag} />)
+          (isOpenClawTarget ? openClawTargetTags : roles).length > 0
+            ? (isOpenClawTarget ? openClawTargetTags : roles).map((tag) => <Chip key={tag} icon={<RoleChipIcon />} label={tag} />)
             : <span className="text-gray-400 italic">No target tags</span>
         }
         expanded={expandedCards.has('targetTags')}
         onToggle={() => toggleCard('targetTags')}
       >
         <div className="pt-3">
-          <div className="flex flex-wrap gap-2">
-            {roles.map((tag) => (
-              <Chip key={tag} icon={<RoleChipIcon />} label={tag} />
-            ))}
-          </div>
-          {roles.length === 0 && (
-            <span className="text-sm text-gray-400 italic">No target tags</span>
+          {isOpenClawTarget ? (
+            <div>
+              <Select
+                mode="tags"
+                value={openClawTargetTags}
+                onChange={(values) => setOpenClawTargetTags(normalizeStringArray(values))}
+                options={targetTagSelectOptions}
+                className="w-full"
+                placeholder="Add target tags"
+                tokenSeparators={[',']}
+              />
+              <p className="text-xs text-gray-500 mt-1 mb-0">At least one target tag is required.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {roles.map((tag) => (
+                  <Chip key={tag} icon={<RoleChipIcon />} label={tag} />
+                ))}
+              </div>
+              {roles.length === 0 && (
+                <span className="text-sm text-gray-400 italic">No target tags</span>
+              )}
+            </>
           )}
         </div>
       </ExpandableCard>
@@ -1112,23 +1341,106 @@ function SettingsTab({
       {/* Authentication */}
       <ExpandableCard
         title="Authentication"
-        summary={<span>{account?.name ?? 'No account'}</span>}
+        summary={<span>{isOpenClawTarget ? (openClawAuthMode === 'account' ? 'OpenClaw Account' : 'Inline Token') : (account?.name ?? 'No account')}</span>}
         expanded={expandedCards.has('authentication')}
         onToggle={() => toggleCard('authentication')}
       >
         <div className="pt-3">
-          <div className="text-sm text-gray-700">
-            {account ? (
-              <div>
-                <span className="font-medium">Account:</span> {account.name}
-                <span className="ml-2 text-gray-400">({account.slug})</span>
-              </div>
-            ) : (
-              <span className="text-gray-400 italic">No authentication account configured</span>
-            )}
-          </div>
+          {isOpenClawTarget ? (
+            <div className="space-y-3">
+              <Radio.Group
+                value={openClawAuthMode}
+                onChange={(event) => setOpenClawAuthMode(event.target.value as OpenClawAuthMode)}
+              >
+                <Radio value="account">OpenClaw Account</Radio>
+                <Radio value="inline">Inline Token</Radio>
+              </Radio.Group>
+
+              {openClawAuthMode === 'account' ? (
+                <div>
+                  <Select
+                    value={openClawSelectedAccountId}
+                    onChange={(value) => setOpenClawSelectedAccountId(value)}
+                    options={openClawAccountOptions}
+                    className="w-full"
+                    placeholder="Select OpenClaw account"
+                    optionFilterProp="label"
+                    allowClear
+                  />
+                  <p className="text-xs text-gray-500 mt-1 mb-0">Only OpenClaw Gateway accounts can be selected.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Gateway Token *</label>
+                    <Input.Password
+                      value={openClawInlineGatewayToken}
+                      onChange={(event) => setOpenClawInlineGatewayToken(event.target.value)}
+                      placeholder="Required when setting inline auth. Leave empty to keep existing token."
+                    />
+                    <p className="text-xs text-gray-500 mt-2 mb-0">
+                      Required. Used for <code>/tools/invoke</code> and <code>/v1/chat/completions</code>.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 mb-0">
+                      Get it: <code>openclaw config get gateway.auth.token</code>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Hooks Token (Optional)</label>
+                    <Input.Password
+                      value={openClawInlineHooksToken}
+                      onChange={(event) => setOpenClawInlineHooksToken(event.target.value)}
+                      placeholder="Leave empty to keep existing token"
+                    />
+                    <p className="text-xs text-gray-500 mt-2 mb-0">
+                      Required only for RunAgent and Wake actions.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 mb-0">
+                      OpenClaw uses a separate token for <code>/hooks/*</code> endpoints.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 mb-0">
+                      Get it: <code>openclaw config get hooks.token</code>
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 mb-0">
+                      Set it: <code>openclaw config set hooks.token &lt;value&gt;</code>
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-700">
+              {account ? (
+                <div>
+                  <span className="font-medium">Account:</span> {account.name}
+                  <span className="ml-2 text-gray-400">({account.slug})</span>
+                </div>
+              ) : (
+                <span className="text-gray-400 italic">No authentication account configured</span>
+              )}
+            </div>
+          )}
         </div>
       </ExpandableCard>
+
+      {isOpenClawTarget && (
+        <ExpandableCard
+          title="OpenClaw Details"
+          summary={openClawBaseUrl ? <span>{openClawBaseUrl}</span> : <span className="text-gray-400 italic">Not configured</span>}
+          expanded={expandedCards.has('openClawDetails')}
+          onToggle={() => toggleCard('openClawDetails')}
+        >
+          <div className="pt-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">OpenClaw URL</label>
+            <Input
+              value={openClawBaseUrl}
+              onChange={(event) => setOpenClawBaseUrl(event.target.value)}
+              placeholder="https://claw.example.com:18789"
+            />
+            <p className="text-xs text-gray-500 mt-1 mb-0">Use an absolute URL including port.</p>
+          </div>
+        </ExpandableCard>
+      )}
 
       {/* Kubernetes Details (only for Kubernetes endpoints) */}
       {ep?.CommunicationStyle === 'KubernetesApi' && (() => {

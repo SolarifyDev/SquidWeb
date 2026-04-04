@@ -12,6 +12,7 @@ import {
   generateKubernetesAgentInstallScript,
   getConnectionStatus,
   registerKubernetesApi,
+  registerOpenClaw,
   type GenerateKubernetesAgentInstallScriptData,
   type KubernetesAgentStorageType,
   type EndpointResourceReference,
@@ -20,6 +21,7 @@ import { getDeploymentAccounts } from 'pages/apis/deploymentAccount'
 
 const deploymentTypes = [
   { key: 'Kubernetes', label: 'Kubernetes' },
+  { key: 'OpenClaw', label: 'OpenClaw' },
   { key: 'Linux', label: 'Linux' },
   { key: 'Windows', label: 'Windows' },
   { key: 'Mac', label: 'Mac' },
@@ -44,6 +46,15 @@ const kubernetesOptions = [
   },
 ]
 
+const openClawOptions = [
+  {
+    key: 'gateway',
+    title: 'OpenClaw Gateway',
+    desc: 'Register an OpenClaw endpoint and choose authentication via account or inline tokens.',
+    recommended: true,
+  },
+]
+
 type KubernetesApiAuthType =
   | 'usernamepassword'
   | 'token'
@@ -54,6 +65,8 @@ type KubernetesApiAuthType =
   | 'googlecloud'
   | 'certificate'
   | 'podserviceaccount'
+
+type OpenClawAuthMode = 'account' | 'inline'
 
 function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
   if (!bash) return ''
@@ -257,7 +270,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const { space } = useSpace()
   const [selectedDeploymentType, setSelectedDeploymentType] = useState('Kubernetes')
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
-  const [agentFormView, setAgentFormView] = useState<'kubernetes-agent' | 'kubernetes-api' | null>(null)
+  const [agentFormView, setAgentFormView] = useState<'kubernetes-agent' | 'kubernetes-api' | 'openclaw' | null>(null)
   const [agentName, setAgentName] = useState('')
   const [agentEnvironments, setAgentEnvironments] = useState<string[]>([])
   const [agentTags, setAgentTags] = useState<string[]>([])
@@ -308,6 +321,17 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiSkipTlsVerification, setApiSkipTlsVerification] = useState(false)
   const [apiDefaultNamespace, setApiDefaultNamespace] = useState('')
   const [apiContainerOptions, setApiContainerOptions] = useState('')
+
+  const [openClawDisplayName, setOpenClawDisplayName] = useState('')
+  const [openClawEnvironments, setOpenClawEnvironments] = useState<number[]>([])
+  const [openClawTargetTags, setOpenClawTargetTags] = useState<string[]>([])
+  const [openClawBaseUrl, setOpenClawBaseUrl] = useState('')
+  const [openClawAuthMode, setOpenClawAuthMode] = useState<OpenClawAuthMode>('account')
+  const [openClawSelectedAccountId, setOpenClawSelectedAccountId] = useState<string | undefined>(undefined)
+  const [openClawInlineGatewayToken, setOpenClawInlineGatewayToken] = useState('')
+  const [openClawInlineHooksToken, setOpenClawInlineHooksToken] = useState('')
+  const [openClawSaving, setOpenClawSaving] = useState(false)
+  const [openClawTagSearchValue, setOpenClawTagSearchValue] = useState('')
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
   const [agentStep, setAgentStep] = useState<'form' | 'script' | 'connected'>('form')
@@ -326,6 +350,14 @@ const AddDeploymentTargetPage: React.FC = () => {
     containerOptions: true,
   })
 
+  const [openClawExpanded, setOpenClawExpanded] = useState<Record<string, boolean>>({
+    displayName: true,
+    environments: true,
+    targetTags: true,
+    authentication: true,
+    openClawDetails: true,
+  })
+
   const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 3).map(({ value, label }) => ({ value, label }))
   const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 1).map(({ value, label }) => ({ value, label }))
   const azureServicePrincipalAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 5).map(({ value, label }) => ({ value, label }))
@@ -333,6 +365,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const awsAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 6 || a.accountType === 7).map(({ value, label }) => ({ value, label }))
   const awsOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 11).map(({ value, label }) => ({ value, label }))
   const googleCloudAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 10).map(({ value, label }) => ({ value, label }))
+  const openClawAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 12).map(({ value, label }) => ({ value, label }))
   const clientCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
   const clusterCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
 
@@ -385,6 +418,17 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiDefaultNamespace('')
     setApiContainerOptions('')
     setApiSaving(false)
+
+    setOpenClawDisplayName('')
+    setOpenClawEnvironments([])
+    setOpenClawTargetTags([])
+    setOpenClawBaseUrl('')
+    setOpenClawAuthMode('account')
+    setOpenClawSelectedAccountId(undefined)
+    setOpenClawInlineGatewayToken('')
+    setOpenClawInlineHooksToken('')
+    setOpenClawSaving(false)
+    setOpenClawTagSearchValue('')
   }
 
   const normalizeTagValues = useCallback((values: string[]) => {
@@ -591,6 +635,17 @@ const AddDeploymentTargetPage: React.FC = () => {
     })
   }
 
+  const toggleOpenClawSection = (key: string) => {
+    setOpenClawExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const toggleAllOpenClawSections = () => {
+    setOpenClawExpanded((prev) => {
+      const shouldExpandAll = Object.values(prev).every((v) => v === false)
+      return Object.fromEntries(Object.keys(prev).map((k) => [k, shouldExpandAll])) as Record<string, boolean>
+    })
+  }
+
   const loadCertificates = useCallback(async () => {
     setLoadingCertificateOptions(true)
     try {
@@ -741,6 +796,64 @@ const AddDeploymentTargetPage: React.FC = () => {
     }
   }
 
+  const handleSaveOpenClaw = async () => {
+    if (!openClawDisplayName.trim()) { message.warning('Please enter a display name'); return }
+    if (openClawEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
+    if (openClawTargetTags.length === 0) { message.warning('Please add at least one target tag'); return }
+    if (!openClawBaseUrl.trim()) { message.warning('Please enter the OpenClaw URL'); return }
+
+    setOpenClawSaving(true)
+    try {
+      const requestPayload: {
+        machineName: string
+        spaceId: number
+        roles: string[]
+        environmentIds: number[]
+        baseUrl: string
+        inlineGatewayToken?: string
+        inlineHooksToken?: string
+        resourceReferences?: EndpointResourceReference[]
+      } = {
+        machineName: openClawDisplayName.trim(),
+        spaceId: space.id,
+        roles: openClawTargetTags,
+        environmentIds: openClawEnvironments,
+        baseUrl: openClawBaseUrl.trim(),
+      }
+
+      if (openClawAuthMode === 'account') {
+        const accountId = Number(openClawSelectedAccountId)
+        if (!Number.isFinite(accountId) || accountId <= 0) {
+          message.warning('Please select an OpenClaw account')
+          return
+        }
+        requestPayload.resourceReferences = [{
+          type: EndpointResourceType.AuthenticationAccount,
+          resourceId: accountId,
+        }]
+      } else {
+        const inlineGatewayToken = openClawInlineGatewayToken.trim()
+        const inlineHooksToken = openClawInlineHooksToken.trim()
+        if (!inlineGatewayToken) {
+          message.warning('Please provide an inline gateway token')
+          return
+        }
+        requestPayload.inlineGatewayToken = inlineGatewayToken
+        if (inlineHooksToken) requestPayload.inlineHooksToken = inlineHooksToken
+      }
+
+      await registerOpenClaw(requestPayload)
+
+      message.success('OpenClaw target registered successfully')
+      closeAddModal()
+      navigate(`/${space.slug}/deployment/targets`)
+    } catch {
+      message.error('Failed to register OpenClaw target')
+    } finally {
+      setOpenClawSaving(false)
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     setLoadingEnvironmentOptions(true)
@@ -831,6 +944,16 @@ const AddDeploymentTargetPage: React.FC = () => {
       setApiAwsAssumeRoleExternalId('')
     }
   }, [apiAuthType])
+
+  useEffect(() => {
+    if (openClawAuthMode === 'account') {
+      setOpenClawInlineGatewayToken('')
+      setOpenClawInlineHooksToken('')
+      return
+    }
+
+    setOpenClawSelectedAccountId(undefined)
+  }, [openClawAuthMode])
 
   useEffect(() => {
     if (apiClusterCertificate) {
@@ -942,6 +1065,60 @@ const AddDeploymentTargetPage: React.FC = () => {
                               onClick={() => {
                                 setHelpPanelVisible(true)
                                 setAgentFormView(option.key === 'agent' ? 'kubernetes-agent' : 'kubernetes-api')
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : selectedDeploymentType === 'OpenClaw' ? (
+                <div>
+                  <div className="mb-5 text-gray-700">
+                    Register an <strong>OpenClaw</strong> deployment target.
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {openClawOptions.map((option) => (
+                      <div
+                        key={option.key}
+                        className="relative border-2 rounded-lg p-6 overflow-hidden transition-all duration-200"
+                        style={{
+                          borderColor: hoveredCard === option.key ? '#16a34a' : '#e5e7eb',
+                          boxShadow: hoveredCard === option.key ? '0 4px 12px rgba(22,163,74,0.15)' : 'none',
+                        }}
+                        onMouseEnter={() => setHoveredCard(option.key)}
+                        onMouseLeave={() => setHoveredCard(null)}
+                      >
+                        <div className="flex justify-center mb-4">
+                          <div className="w-20 h-20 bg-white border border-emerald-100 rounded-lg flex items-center justify-center">
+                            <img src="/openclaw-icon.png" alt="OpenClaw" className="w-12 h-12 object-contain" />
+                          </div>
+                        </div>
+
+                        <h3 className="text-base font-semibold text-center mb-2">{option.title}</h3>
+                        <p className="text-sm text-gray-500 text-center mb-3">{option.desc}</p>
+
+                        {option.recommended && (
+                          <div className="flex justify-center">
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                              Recommended
+                            </span>
+                          </div>
+                        )}
+
+                        {hoveredCard === option.key && (
+                          <div
+                            className="absolute inset-0 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}
+                          >
+                            <Button
+                              className="shadow-md"
+                              onClick={() => {
+                                setAgentFormView('openclaw')
                               }}
                             >
                               Add
@@ -1257,6 +1434,182 @@ const AddDeploymentTargetPage: React.FC = () => {
                 />
               </div>
             ) : null}
+          </div>
+        ) : agentFormView === 'openclaw' ? (
+          <div className="max-h-[82vh] overflow-y-auto">
+            <div className="px-8 pt-7 pb-5 border-b border-gray-200 bg-white sticky top-0 z-10">
+              <h2 className="text-2xl font-semibold text-gray-900 m-0">Add OpenClaw Target</h2>
+            </div>
+
+            <div className="px-8 py-4">
+              <button
+                type="button"
+                onClick={toggleAllOpenClawSections}
+                className="text-xs font-semibold tracking-wide text-squid-blue hover:underline bg-transparent border-0 p-0 cursor-pointer"
+              >
+                {Object.values(openClawExpanded).every((v) => v === false) ? 'EXPAND ALL' : 'COLLAPSE ALL'}
+              </button>
+            </div>
+
+            <div className="px-8 pb-8 space-y-5 bg-white">
+              <ExpandableFormCard
+                title="Display Name"
+                subtitle="A short, memorable, unique name for this deployment target."
+                expanded={openClawExpanded.displayName}
+                onToggle={() => toggleOpenClawSection('displayName')}
+              >
+                <FormField
+                  label="Display name"
+                  value={openClawDisplayName}
+                  onChange={setOpenClawDisplayName}
+                />
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title="Environments"
+                subtitle="Choose at least one environment for the deployment target."
+                expanded={openClawExpanded.environments}
+                onToggle={() => toggleOpenClawSection('environments')}
+              >
+                <MultiSelectField
+                  label="Select environments"
+                  options={environmentOptions}
+                  loading={loadingEnvironmentOptions}
+                  value={openClawEnvironments}
+                  onChange={setOpenClawEnvironments}
+                />
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title={<span className="inline-flex items-center gap-1">Target Tags <InfoHint /></span>}
+                subtitle="Add at least one target tag to make this deployment target selectable by deployment and runbook processes."
+                expanded={openClawExpanded.targetTags}
+                onToggle={() => toggleOpenClawSection('targetTags')}
+              >
+                <MultiSelectField
+                  label="Target tags"
+                  options={targetTagOptions}
+                  loading={loadingTargetTagOptions}
+                  value={openClawTargetTags}
+                  onChange={(values) => { void handleTargetTagValuesChange(values, setOpenClawTargetTags) }}
+                  searchValue={openClawTagSearchValue}
+                  onSearch={setOpenClawTagSearchValue}
+                  onCreateFromSearch={(name) => { void handleCreateTargetTagFromSearch(name, setOpenClawTargetTags, () => setOpenClawTagSearchValue('')) }}
+                />
+                <NoteBlock>You are required to add at least one target tag.</NoteBlock>
+              </ExpandableFormCard>
+
+              <SectionHeading>Communication</SectionHeading>
+
+              <ExpandableFormCard
+                title="Authentication"
+                subtitle="Choose authentication via OpenClaw account or inline token."
+                expanded={openClawExpanded.authentication}
+                onToggle={() => toggleOpenClawSection('authentication')}
+              >
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Authentication mode</label>
+                  <Radio.Group
+                    value={openClawAuthMode}
+                    onChange={(event) => setOpenClawAuthMode(event.target.value as OpenClawAuthMode)}
+                  >
+                    <Radio value="account">OpenClaw Account</Radio>
+                    <Radio value="inline">Inline Token</Radio>
+                  </Radio.Group>
+                </div>
+
+                {openClawAuthMode === 'account' ? (
+                  <div className="mb-5">
+                    <div className="flex items-end gap-3">
+                      <div className="flex-1">
+                        <SelectField
+                          label="Select OpenClaw account"
+                          placeholder="Select an OpenClaw account"
+                          value={openClawSelectedAccountId}
+                          onChange={setOpenClawSelectedAccountId}
+                          options={openClawAccountOptions}
+                          loading={loadingDeploymentAccounts}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 pb-5">
+                        <Button
+                          icon={<ReloadOutlined />}
+                          aria-label="Refresh OpenClaw accounts"
+                          loading={loadingDeploymentAccounts}
+                          onClick={() => { void loadDeploymentAccounts() }}
+                        />
+                        <Button
+                          icon={<PlusOutlined />}
+                          aria-label="Add OpenClaw account"
+                          onClick={() => window.open(`/${space.slug}/infrastructure/accounts/create?accountType=12`, '_blank', 'noopener,noreferrer')}
+                        />
+                      </div>
+                    </div>
+                    <NoteBlock>Only OpenClaw Gateway accounts can be selected.</NoteBlock>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Gateway Token *</label>
+                      <Input.Password
+                        placeholder="dev-gw-token"
+                        value={openClawInlineGatewayToken}
+                        onChange={(event) => setOpenClawInlineGatewayToken(event.target.value)}
+                      />
+                      <p className="text-xs text-gray-500 mt-2 mb-0">
+                        Required. Used for <code>/tools/invoke</code> and <code>/v1/chat/completions</code>.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Get it: <code>openclaw config get gateway.auth.token</code>
+                      </p>
+                    </div>
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Inline Hooks Token (Optional)</label>
+                      <Input.Password
+                        placeholder="dev-hooks-token"
+                        value={openClawInlineHooksToken}
+                        onChange={(event) => setOpenClawInlineHooksToken(event.target.value)}
+                      />
+                      <p className="text-xs text-gray-500 mt-2 mb-0">
+                        Required only for RunAgent and Wake actions.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        OpenClaw uses a separate token for <code>/hooks/*</code> endpoints.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Get it: <code>openclaw config get hooks.token</code>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1 mb-0">
+                        Set it: <code>openclaw config set hooks.token &lt;value&gt;</code>
+                      </p>
+                    </div>
+                    <NoteBlock>Account tokens take precedence over inline tokens when both are provided.</NoteBlock>
+                  </>
+                )}
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title="OpenClaw Details"
+                subtitle="Enter endpoint settings for this OpenClaw target."
+                expanded={openClawExpanded.openClawDetails}
+                onToggle={() => toggleOpenClawSection('openClawDetails')}
+              >
+                <FormField
+                  label="OpenClaw URL"
+                  value={openClawBaseUrl}
+                  onChange={setOpenClawBaseUrl}
+                  placeholder="https://claw.example.com:18789"
+                  helper="Use an absolute URL including port."
+                />
+              </ExpandableFormCard>
+            </div>
+
+            <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-8 py-4 flex justify-end gap-3">
+              <Button size="large" onClick={closeAddModal}>Cancel</Button>
+              <Button size="large" type="primary" loading={openClawSaving} onClick={handleSaveOpenClaw} className="!bg-green-700 !border-green-700">
+                Save
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="max-h-[82vh] overflow-y-auto">

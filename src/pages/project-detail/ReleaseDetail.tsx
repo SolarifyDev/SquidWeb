@@ -2,11 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Spin, message } from 'antd'
 import {
-  CheckCircleFilled,
   CheckOutlined,
   CloseOutlined,
   DownOutlined,
-  FileZipOutlined,
   FilterOutlined,
   LoadingOutlined,
   SearchOutlined,
@@ -74,6 +72,34 @@ function formatDate(iso: string | null | undefined): string {
   })
 }
 
+function formatHistoryDateTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function deploymentCompletionVerb(state: string): string {
+  switch (state) {
+    case 'Success':
+      return 'succeeded'
+    case 'Failed':
+    case 'TimedOut':
+      return 'failed'
+    case 'Cancelled':
+    case 'Cancelling':
+      return 'cancelled'
+    default:
+      return 'completed'
+  }
+}
+
 function stateColor(state: string): string {
   switch (state) {
     case 'Success':    return '#00874d'
@@ -88,6 +114,19 @@ function stateColor(state: string): string {
 }
 
 type PhaseStatus = 'done' | 'current' | 'pending'
+
+type DeploymentHistoryEntryType = 'deployment-started' | 'deployment-completed' | 'release-created'
+
+interface DeploymentHistoryEntry {
+  key: string
+  occurredAt: string
+  actorName: string
+  type: DeploymentHistoryEntryType
+  deploymentId: number | null
+  environmentId: number | null
+  environmentName: string
+  state: string | null
+}
 
 function phaseStatusColor(status: PhaseStatus): string {
   switch (status) {
@@ -200,15 +239,15 @@ function formatTaskSummaryDate(iso: string | null | undefined): string {
 
 function renderTaskStatusIcon(state: string) {
   if (state === 'Success') {
-    return <CheckOutlined style={{ fontSize: 14 }} />
+    return <CheckOutlined />
   }
   if (state === 'Executing' || state === 'Pending' || state === 'Cancelling') {
-    return <LoadingOutlined style={{ fontSize: 14 }} />
+    return <LoadingOutlined />
   }
   if (state === 'Failed' || state === 'TimedOut' || state === 'Cancelled') {
-    return <CloseOutlined style={{ fontSize: 14 }} />
+    return <CloseOutlined />
   }
-  return <CheckOutlined style={{ fontSize: 14 }} />
+  return <CheckOutlined />
 }
 
 // ── Section heading (matches CollapsibleSection header style) ────────────────
@@ -218,6 +257,35 @@ function SectionHeading({ title }: { title: string }) {
     <div className="w-full flex items-center px-4 py-3 bg-slate-50 border border-slate-200 rounded-t-lg text-left">
       <span className="text-sm font-semibold text-slate-700">{title}</span>
     </div>
+  )
+}
+
+function PackageSuccessIcon() {
+  return (
+    <svg
+      viewBox="0 0 178 148"
+      aria-hidden="true"
+      role="img"
+      aria-label="Package successful"
+      className="w-7 h-auto flex-shrink-0"
+    >
+      <g id="package" transform="translate(1 1)">
+        <g id="success" transform="translate(95 80.333)">
+          <path
+            d="M59.158 47.515c5.763-9.884 5.763-22.131.015-31.99A29.743 29.743 0 0 0 48.01 4.35 31.141 31.141 0 0 0 32.02.012h-.052a31.519 31.519 0 0 0-15.909 4.314C1.07 13.096-3.988 32.426 4.784 47.415a30.356 30.356 0 0 0 11.185 11.27c9.867 5.752 22.114 5.753 31.973.006a29.725 29.725 0 0 0 11.216-11.176"
+            fill="#00874d"
+          />
+        </g>
+        <polygon
+          points="146.128 92.031 120.031 118.207 107.812 105.909 101.883 111.838 120.027 130.165 152.042 98.138"
+          fill="#FFFFFF"
+        />
+        <path
+          d="M36 0a26.51 26.51 0 0 0-9.75 2.25L2.47 13.83a.21.21 0 0 0 .09.41h56.98L72.516 0H36zm116.9 13.79L129.23 2.25A26.51 26.51 0 0 0 119.48 0H82.924L96.04 14.24h56.75a.239.239 0 0 0 .234-.246.242.242 0 0 0-.124-.204M97 21.11v38.11H58.24V21.11H0v112.94a3.44 3.44 0 0 0 3.44 3.44h96.519a36.022 36.022 0 0 1-5.12-6.886c-5.002-8.548-6.381-18.566-3.866-28.18 2.515-9.615 8.625-17.673 17.201-22.693a37.24 37.24 0 0 1 18.793-5.096c.082-.002.165 0 .248 0a36.638 36.638 0 0 1 18.659 5.109 35.289 35.289 0 0 1 9.316 7.693V21.11H97z"
+          fill="#2E3748"
+        />
+      </g>
+    </svg>
   )
 }
 
@@ -265,6 +333,7 @@ const ReleaseDetail: React.FC = () => {
   const [targetTags, setTargetTags] = useState<TargetTagDto[]>([])
   const [deploymentSteps, setDeploymentSteps] = useState<DeploymentStepDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
+  const [expandedHistoryRows, setExpandedHistoryRows] = useState<Record<string, boolean>>({})
 
   const encodedProjectName = encodeURIComponent(projectName ?? '')
   const basePath = `/${spaceId}/projects/${encodedProjectName}`
@@ -285,14 +354,13 @@ const ReleaseDetail: React.FC = () => {
         setProject(foundProject)
         if (!foundProject) return
 
-        const [chanRes, lcRes, envRes, machineRes, tagRes, stepRes, pkgRefRes] = await Promise.all([
+        const [chanRes, lcRes, envRes, machineRes, tagRes, stepRes] = await Promise.all([
           getChannels({ projectId: foundProject.id, pageSize: 1000 }).catch(() => null),
           getLifecycles({ pageSize: 100 }).catch(() => null),
           getEnvironments({ pageSize: 1000 }).catch(() => null),
           getMachines({ pageIndex: 1, pageSize: 1000, spaceId: foundProject.spaceId }).catch(() => null),
           getTargetTags().catch(() => null),
           getDeploymentSteps({ processId: foundProject.deploymentProcessId, pageIndex: 1, pageSize: 1000 }).catch(() => null),
-          getPackageReferences(foundProject.id).catch(() => null),
         ])
 
         const channels = chanRes?.channels.filter((c) => c.projectId === foundProject.id) ?? []
@@ -307,6 +375,11 @@ const ReleaseDetail: React.FC = () => {
         setMachines((machineRes?.machines ?? []).filter((machine) => machine.spaceId === foundProject.spaceId))
         setTargetTags((tagRes?.targetTags ?? []).filter((tag) => tag.spaceId === foundProject.spaceId))
         setDeploymentSteps(stepRes?.steps ?? [])
+
+        const pkgRefRes = await getPackageReferences(
+          foundProject.id,
+          foundRelease ? { channelId: foundRelease.channelId } : undefined,
+        ).catch(() => null)
         setPackageReferences(pkgRefRes?.packageReferences ?? [])
 
         if (foundRelease) {
@@ -348,6 +421,10 @@ const ReleaseDetail: React.FC = () => {
   useEffect(() => {
     if (!deployMenuOpen) setDeployFilterText('')
   }, [deployMenuOpen])
+
+  useEffect(() => {
+    setExpandedHistoryRows({})
+  }, [release?.id])
 
   const envMap = useMemo(
     () => new Map(environments.map((e) => [e.id, e])),
@@ -419,6 +496,7 @@ const ReleaseDetail: React.FC = () => {
 
     return sortedReferences.map((pkg, index) => {
       const packageRef = pkg.packageReferenceName?.trim()
+      const selectedVersion = (pkg.lastReleaseVersion ?? '').trim()
       const displayName = packageRef
         ? `${pkg.actionName}:${packageRef}(${pkg.packageId})`
         : `${pkg.actionName}:${pkg.packageId}`
@@ -427,15 +505,79 @@ const ReleaseDetail: React.FC = () => {
         key: `${pkg.actionName}-${pkg.packageReferenceName}-${pkg.packageId}-${index}`,
         title: `${pkg.packageId || 'Package'} from feed ${pkg.feedName || 'Unknown feed'}`,
         displayName,
-        version: release?.version || '',
-        published: release?.assembled || '',
+        version: selectedVersion || '-',
+        lastReleaseVersion: selectedVersion || '-',
+        published: pkg.published ?? null,
+        platform: pkg.platform ?? null,
         packageId: pkg.packageId,
         feedName: pkg.feedName,
         packageReferenceName: pkg.packageReferenceName,
-        isHealthy: Boolean(pkg.packageId && release?.version),
       }
     })
-  }, [packageReferences, release?.assembled, release?.version])
+  }, [packageReferences])
+
+  const deploymentHistoryEntries = useMemo<DeploymentHistoryEntry[]>(() => {
+    const entries: DeploymentHistoryEntry[] = []
+
+    if (releaseProgression?.phases) {
+      for (const phase of releaseProgression.phases) {
+        for (const environment of phase.environments ?? []) {
+          const deployment = environment.deployment
+          if (!deployment) continue
+
+          const environmentName = environment.environmentName || `Environment #${environment.environmentId}`
+          const deploymentId = Number.isFinite(deployment.deploymentId) ? deployment.deploymentId : null
+
+          if (deployment.created) {
+            entries.push({
+              key: `deployment-started-${deploymentId ?? 'na'}-${environment.environmentId}`,
+              occurredAt: deployment.created,
+              actorName: 'system',
+              type: 'deployment-started',
+              deploymentId,
+              environmentId: environment.environmentId,
+              environmentName,
+              state: deployment.state ?? null,
+            })
+          }
+
+          if (deployment.completedTime) {
+            entries.push({
+              key: `deployment-completed-${deploymentId ?? 'na'}-${environment.environmentId}`,
+              occurredAt: deployment.completedTime,
+              actorName: 'system',
+              type: 'deployment-completed',
+              deploymentId,
+              environmentId: environment.environmentId,
+              environmentName,
+              state: deployment.state ?? null,
+            })
+          }
+        }
+      }
+    }
+
+    if (release?.assembled) {
+      entries.push({
+        key: `release-created-${release.id}`,
+        occurredAt: release.assembled,
+        actorName: 'system',
+        type: 'release-created',
+        deploymentId: null,
+        environmentId: null,
+        environmentName: '',
+        state: null,
+      })
+    }
+
+    return entries.sort((a, b) => {
+      const aTs = Date.parse(a.occurredAt)
+      const bTs = Date.parse(b.occurredAt)
+      const safeATs = Number.isFinite(aTs) ? aTs : 0
+      const safeBTs = Number.isFinite(bTs) ? bTs : 0
+      return safeBTs - safeATs
+    })
+  }, [release?.assembled, release?.id, releaseProgression?.phases])
 
   const phaseRows = useMemo(() => {
     if (!releaseProgression) return []
@@ -763,7 +905,7 @@ const ReleaseDetail: React.FC = () => {
   const deployCreatePath = `${basePath}/releases/${encodeURIComponent(release.version)}/deployments/create`
 
   return (
-    <div className="rounded-xl border border-slate-200 overflow-visible flex flex-col min-h-full max-w-5xl mx-auto w-full">
+    <div className="rounded-xl border border-slate-200 overflow-visible flex flex-col min-h-full max-w-7xl mx-auto w-full">
       {/* ── Header ── */}
       <div className="relative z-40 px-6 pt-5 pb-4 border-b border-slate-200">
         <Link
@@ -939,9 +1081,11 @@ const ReleaseDetail: React.FC = () => {
                               className="inline-flex h-8 w-8 items-center justify-center rounded-[2px] text-white flex-shrink-0"
                               style={{ backgroundColor: stateColor(latestDeployment.state) }}
                             >
-                              {renderTaskStatusIcon(latestDeployment.state)}
+                              <span className="inline-flex items-center justify-center text-[14px] leading-none">
+                                {renderTaskStatusIcon(latestDeployment.state)}
+                              </span>
                             </span>
-                            <span className="min-w-0 flex flex-col">
+                            <span className="min-w-0 flex flex-col justify-center">
                               <span className="text-sm text-slate-700 leading-5 truncate">
                                 {`Deploy to ${envMap.get(latestDeployment.environmentId)?.name ?? phase.name}`}
                               </span>
@@ -996,39 +1140,26 @@ const ReleaseDetail: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="px-5 py-2 text-xs text-slate-500 bg-slate-50 border-b border-slate-200">
-                Package versions are currently shown using the release version. Per-package selected version details are not available yet.
-              </div>
               <ul className="list-none m-0 p-0 divide-y divide-slate-200">
                 {releasePackages.map((pkg) => (
                   <li key={pkg.key} className="px-5 py-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0 bg-slate-100 text-slate-600">
-                        <FileZipOutlined style={{ fontSize: 15 }} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-800 leading-6 break-words">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-3">
+                        <PackageSuccessIcon />
+                        <div className="min-w-0 text-sm font-semibold text-slate-800 leading-6 break-words">
                           <dfn title={pkg.title} className="not-italic">
                             {pkg.displayName} version {pkg.version || '-'}
                           </dfn>
                         </div>
-                        <div className="mt-1 inline-flex items-center gap-1.5 text-xs">
-                          <CheckCircleFilled
-                            style={{ fontSize: 13 }}
-                            className={pkg.isHealthy ? 'text-emerald-500' : 'text-amber-500'}
-                          />
-                          <span className={pkg.isHealthy ? 'text-emerald-700' : 'text-amber-700'}>
-                            {pkg.isHealthy ? 'Package reference resolved' : 'Package information incomplete'}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-sm text-slate-600">
-                          Published: {formatDate(pkg.published) || '-'}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500 space-y-0.5">
-                          <p className="m-0">Feed: {pkg.feedName || '—'}</p>
-                          <p className="m-0">Package: {pkg.packageId || '—'}</p>
-                          <p className="m-0">Reference: {pkg.packageReferenceName || '—'}</p>
-                        </div>
+                      </div>
+                      <div className="ml-10 mt-1 text-xs text-emerald-600">
+                        Package reference resolved
+                      </div>
+                      <div className="ml-10 mt-1 text-sm text-slate-600">
+                        Published: {formatDate(pkg.published) || '-'}
+                      </div>
+                      <div className="ml-10 mt-1 text-sm text-slate-600">
+                        Platform: {pkg.platform || '-'}
                       </div>
                     </div>
                   </li>
@@ -1193,6 +1324,114 @@ const ReleaseDetail: React.FC = () => {
               </div>
             </div>
           ) : null}
+        </div>
+
+        {/* ── Deployment History section ── */}
+        <SectionHeading title="Deployment history" />
+
+        <div className="border border-slate-200 border-t-0 rounded-b-lg bg-white mb-6">
+          {deploymentHistoryEntries.length === 0 ? (
+            <div className="px-5 py-5 text-sm text-slate-500">No deployment history available for this release.</div>
+          ) : (
+            <ul className="list-none m-0 p-0">
+              {deploymentHistoryEntries.map((entry, index) => {
+                const isExpanded = Boolean(expandedHistoryRows[entry.key])
+                const deploymentPath = entry.deploymentId != null
+                  ? `${basePath}/releases/${encodeURIComponent(release.version)}/deployments/${entry.deploymentId}`
+                  : null
+                const releasePath = `${basePath}/releases/${encodeURIComponent(release.version)}`
+
+                return (
+                  <li key={entry.key} className={index === deploymentHistoryEntries.length - 1 ? '' : 'border-b border-slate-200'}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isExpanded}
+                      className="grid cursor-pointer grid-cols-1 items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[47%_33%_16%_36px]"
+                      onClick={() => {
+                        setExpandedHistoryRows((previous) => ({
+                          ...previous,
+                          [entry.key]: !previous[entry.key],
+                        }))
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        setExpandedHistoryRows((previous) => ({
+                          ...previous,
+                          [entry.key]: !previous[entry.key],
+                        }))
+                      }}
+                    >
+                      <div className="min-w-0 text-sm text-slate-700 break-words">
+                        {entry.type === 'deployment-started' && deploymentPath ? (
+                          <>
+                            <Link to={deploymentPath} className="text-squid-blue hover:underline">Deploy to {entry.environmentName}</Link>
+                            <span> started for </span>
+                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
+                            <span> release </span>
+                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
+                            <span> to </span>
+                            <span className="text-squid-blue">{entry.environmentName}</span>
+                          </>
+                        ) : null}
+
+                        {entry.type === 'deployment-completed' && deploymentPath ? (
+                          <>
+                            <Link to={deploymentPath} className="text-squid-blue hover:underline">Deploy to {entry.environmentName}</Link>
+                            <span> {deploymentCompletionVerb(entry.state ?? '')} for </span>
+                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
+                            <span> release </span>
+                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
+                            <span> to </span>
+                            <span className="text-squid-blue">{entry.environmentName}</span>
+                          </>
+                        ) : null}
+
+                        {entry.type === 'release-created' ? (
+                          <>
+                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
+                            <span> release </span>
+                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
+                            <span> was created</span>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <div className="text-sm text-slate-500 whitespace-nowrap md:text-left">
+                        {formatHistoryDateTime(entry.occurredAt)}
+                      </div>
+
+                      <div className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
+                          {(entry.actorName || 's').charAt(0).toUpperCase()}
+                        </span>
+                        <span>{entry.actorName}</span>
+                      </div>
+
+                      <div className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500">
+                        <DownOutlined className={`transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                      </div>
+                    </div>
+
+                    {isExpanded ? (
+                      <div className="px-4 pb-3">
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          <p className="m-0">Event type: {entry.type}</p>
+                          {entry.state ? <p className="m-0 mt-1">Deployment state: {entry.state}</p> : null}
+                          {deploymentPath ? (
+                            <p className="m-0 mt-1">
+                              <Link to={deploymentPath} className="text-squid-blue hover:underline">View deployment details</Link>
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
       </div>
     </div>

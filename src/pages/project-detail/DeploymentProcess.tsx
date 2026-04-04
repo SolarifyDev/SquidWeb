@@ -22,6 +22,16 @@ import { ManualInterventionEditor } from './step-editors/manual/ManualInterventi
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
+import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
+import {
+  OpenClawInvokeToolEditor,
+  OpenClawChatCompletionEditor,
+  OpenClawRunAgentEditor,
+  OpenClawWakeEditor,
+  OpenClawWaitSessionEditor,
+  OpenClawAssertEditor,
+  OpenClawFetchResultEditor,
+} from './step-editors/openclaw/OpenClawActionEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
@@ -36,10 +46,19 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.KubernetesDeploySecret':     KubernetesSecretEditor,
   'Squid.KubernetesDeployRawYaml':    KubernetesRawYamlEditor,
   'Squid.HelmChartUpgrade':           HelmChartUpgradeEditor,
+  'Squid.KubernetesKustomize':        KustomizeEditor,
+  'Squid.Kubernetes.Kustomize':       KustomizeEditor,
   'Squid.Script':                     RunScriptEditor,
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,
   'Squid.HealthCheck':                HealthCheckEditor,
+  'Squid.OpenClaw.InvokeTool':        OpenClawInvokeToolEditor,
+  'Squid.OpenClaw.ChatCompletion':    OpenClawChatCompletionEditor,
+  'Squid.OpenClaw.RunAgent':          OpenClawRunAgentEditor,
+  'Squid.OpenClaw.Wake':              OpenClawWakeEditor,
+  'Squid.OpenClaw.WaitSession':       OpenClawWaitSessionEditor,
+  'Squid.OpenClaw.Assert':            OpenClawAssertEditor,
+  'Squid.OpenClaw.FetchResult':       OpenClawFetchResultEditor,
 }
 
 // ── API base for image URLs ────────────────────────────────────────────────────
@@ -67,6 +86,13 @@ function actionSummary(actionType: string): string {
     'Squid.AzureAppService': 'Deploy an Azure App Service',
     'Squid.AzurePowerShell': 'Run an Azure Script',
     'Squid.AwsRunScript': 'Run an AWS CLI Script',
+    'Squid.OpenClaw.InvokeTool': 'Invoke OpenClaw tool',
+    'Squid.OpenClaw.ChatCompletion': 'OpenClaw chat completion',
+    'Squid.OpenClaw.RunAgent': 'Run OpenClaw agent',
+    'Squid.OpenClaw.Wake': 'Wake OpenClaw session',
+    'Squid.OpenClaw.WaitSession': 'Wait for OpenClaw session',
+    'Squid.OpenClaw.Assert': 'Assert OpenClaw output',
+    'Squid.OpenClaw.FetchResult': 'Fetch OpenClaw result variables',
     'Squid.HealthCheck': 'Perform a health check and take action based on the result.',
   }
   return map[actionType] ?? actionType.replace(/^Squid\./, '')
@@ -106,6 +132,12 @@ function ScriptSvg() {
     <svg fill="currentColor" viewBox="0 0 20 20" width="28" height="28">
       <path d="M1 4.5V6C1 6.5625 1.4375 7 2 7H2.5H4V4.5C4 3.6875 3.3125 3 2.5 3C1.65625 3 1 3.6875 1 4.5ZM4.5 3C4.8125 3.4375 5 3.9375 5 4.5V14C5 15.125 5.875 16 7 16C8.09375 16 9 15.125 9 14V13.8438C9 12.8438 9.8125 12 10.8125 12H16V6C16 4.34375 14.6562 3 13 3H4.5ZM15.5 17C17.4062 17 19 15.4375 19 13.5C19 13.25 18.75 13 18.5 13H10.8125C10.375 13 10 13.375 10 13.8438V14C10 15.6562 8.65625 17 7 17H12.5H15.5Z" />
     </svg>
+  )
+}
+
+function OpenClawSvg() {
+  return (
+    <img src="/openclaw-icon.png" alt="OpenClaw" width="28" height="28" className="object-contain" />
   )
 }
 
@@ -229,6 +261,7 @@ const CATEGORY_GROUPS: CategoryGroup[] = [
     groupLabel: 'Development and Scripting',
     items: [
       { id: 'script', label: 'Script', icon: <ScriptSvg /> },
+      { id: 'openclaw', label: 'OpenClaw', icon: <OpenClawSvg /> },
       { id: 'package', label: 'Package', icon: <PackageSvg /> },
     ],
   },
@@ -365,6 +398,76 @@ const STEP_TEMPLATES: StepTemplate[] = [
     actionType: 'Squid.Script',
     bullets: ['Runs a PowerShell, Bash, C#, F#, or Python script.'],
     categoryIds: ['script'],
+  },
+  {
+    id: 'openclaw-invoke-tool',
+    title: 'Invoke OpenClaw Tool',
+    actionType: 'Squid.OpenClaw.InvokeTool',
+    bullets: [
+      'Call OpenClaw tools through gateway /tools/invoke.',
+      'Use tool name, args JSON, session key, and timeout.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-chat-completion',
+    title: 'OpenClaw Chat Completion',
+    actionType: 'Squid.OpenClaw.ChatCompletion',
+    bullets: [
+      'Use prompt/system prompt or full messages JSON to run chat completion.',
+      'Supports model override, agent/session routing, and timeout control.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-run-agent',
+    title: 'Run OpenClaw Agent',
+    actionType: 'Squid.OpenClaw.RunAgent',
+    bullets: [
+      'Send a message/command to isolated OpenClaw agent hooks.',
+      'Supports optional wake mode and channel delivery settings.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-wake',
+    title: 'Wake OpenClaw Session',
+    actionType: 'Squid.OpenClaw.Wake',
+    bullets: [
+      'Wake a session through OpenClaw hooks endpoint.',
+      'Supports wake text and wake mode control.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-wait-session',
+    title: 'Wait OpenClaw Session',
+    actionType: 'Squid.OpenClaw.WaitSession',
+    bullets: [
+      'Poll OpenClaw sessions_list until success/failure/timeout.',
+      'Configure regex patterns and polling interval.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-assert',
+    title: 'Assert OpenClaw Result',
+    actionType: 'Squid.OpenClaw.Assert',
+    bullets: [
+      'Assert data from OpenClaw result JSON with operators.',
+      'Fail the step when assertion does not pass.',
+    ],
+    categoryIds: ['openclaw'],
+  },
+  {
+    id: 'openclaw-fetch-result',
+    title: 'Fetch OpenClaw Result',
+    actionType: 'Squid.OpenClaw.FetchResult',
+    bullets: [
+      'Map JSON fields to output variables for next steps.',
+      'Configure mapping list using JSON array format.',
+    ],
+    categoryIds: ['openclaw'],
   },
   {
     id: 'azure-script',
@@ -966,6 +1069,7 @@ function ProcessOverview({
   lifecycleOptions,
   envMap,
   onAddStep,
+  onCreateRelease,
   onStepClick,
   onLifecycleChange,
 }: {
@@ -976,6 +1080,7 @@ function ProcessOverview({
   lifecycleOptions: LifecycleDto[]
   envMap: Record<number, string>
   onAddStep: () => void
+  onCreateRelease: () => void
   onStepClick: (step: DeploymentStepDto) => void
   onLifecycleChange: (lifecycleId: number) => Promise<void>
 }) {
@@ -1020,9 +1125,14 @@ function ProcessOverview({
       <div className="relative flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
         <h1 className="text-xl font-semibold text-slate-800 m-0">Process</h1>
         <div className="flex items-center gap-2">
-          <a href="#" title="Create Release" role="link" className={LINK_BTN}>
+          <button
+            type="button"
+            title="Create Release"
+            className={LINK_BTN}
+            onClick={onCreateRelease}
+          >
             Create Release
-          </a>
+          </button>
           <a
             href="#"
             title="Add Step"
@@ -1321,6 +1431,8 @@ const Process: React.FC = () => {
   const encodedProjectName = encodeURIComponent(projectName ?? '')
   const processBasePath = `/${spaceId}/projects/${encodedProjectName}/deployments/process`
   const processStepsPath = `${processBasePath}/steps`
+  const releaseCreatePath = `/${spaceId}/projects/${encodedProjectName}/releases/create`
+  const openCreateRelease = () => navigate(releaseCreatePath)
 
   useEffect(() => {
     if (!projectName) return
@@ -1828,6 +1940,7 @@ const Process: React.FC = () => {
         lifecycleOptions={lifecycleOptions}
         envMap={envMap}
         onAddStep={() => setMode('editor')}
+        onCreateRelease={openCreateRelease}
         onStepClick={(step) => executeEditorNavigation({ type: 'selectStep', stepId: step.id, switchToEditor: true })}
         onLifecycleChange={handleLifecycleChange}
       />
@@ -1866,9 +1979,14 @@ const Process: React.FC = () => {
         <div className="flex items-center justify-between px-6 py-3">
           <h1 className="text-xl font-semibold text-slate-800 m-0">Process Editor</h1>
           <div className="flex items-center gap-2">
-            <a href="#" title="Create Release" role="link" className={LINK_BTN}>
+            <button
+              type="button"
+              title="Create Release"
+              className={LINK_BTN}
+              onClick={openCreateRelease}
+            >
               Create Release
-            </a>
+            </button>
             <button
               title="Add Step"
               onClick={() => requestEditorNavigation({ type: 'showAddPanel' })}
