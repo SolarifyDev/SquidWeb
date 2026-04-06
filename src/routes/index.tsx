@@ -17,6 +17,8 @@ import Accounts from 'pages/accounts'
 import AccountsCreatePage from 'pages/accounts/create'
 import AccountsDetailPage from 'pages/accounts/detail'
 import InfrastructureOverviewPage from 'pages/infrastructure/overview'
+import OpenClawDirectChatPage from 'pages/chat'
+import ChatEntryPage from 'pages/chat/entry'
 import ProjectDetail from "pages/project-detail";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
@@ -62,6 +64,16 @@ const routes = [
             path: "projects",
             component: Project,
             name: "Project",
+          },
+          {
+            path: "chat",
+            component: ChatEntryPage,
+            name: "Chat",
+          },
+          {
+            path: "chat/openclaw",
+            component: OpenClawDirectChatPage,
+            name: "OpenClaw Chat",
           },
           {
             path: "library/variables",
