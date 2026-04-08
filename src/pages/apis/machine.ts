@@ -223,6 +223,22 @@ export function registerOpenClaw(command: RegisterOpenClawCommand) {
   return post<RegisterMachineResponseData>('/machines/register/openclaw', command)
 }
 
+export interface RegisterSshConnectionCommand {
+  machineName: string
+  spaceId: number
+  roles: string[]
+  environmentIds: number[]
+  host: string
+  port: number
+  fingerprint?: string
+  remoteWorkingDirectory?: string
+  resourceReferences: EndpointResourceReference[]
+}
+
+export function registerSshConnection(command: RegisterSshConnectionCommand) {
+  return post<RegisterMachineResponseData>('/machines/register/ssh', command)
+}
+
 // --- Connection Status ---
 
 export interface ConnectionStatusData {
