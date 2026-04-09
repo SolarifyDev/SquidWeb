@@ -319,6 +319,9 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiAwsServiceRoleArn, setApiAwsServiceRoleArn] = useState('')
   const [apiAwsEksClusterName, setApiAwsEksClusterName] = useState('')
   const [apiAwsRegion, setApiAwsRegion] = useState('')
+  const [apiAzureAksClusterName, setApiAzureAksClusterName] = useState('')
+  const [apiAzureAksResourceGroupName, setApiAzureAksResourceGroupName] = useState('')
+  const [apiAzureUseAdminCredentials, setApiAzureUseAdminCredentials] = useState(false)
   const [apiAwsAssumeRoleSessionDuration, setApiAwsAssumeRoleSessionDuration] = useState('')
   const [apiAwsAssumeRoleExternalId, setApiAwsAssumeRoleExternalId] = useState('')
   const [apiSaving, setApiSaving] = useState(false)
@@ -442,6 +445,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiAwsServiceRoleArn('')
     setApiAwsEksClusterName('')
     setApiAwsRegion('')
+    setApiAzureAksClusterName('')
+    setApiAzureAksResourceGroupName('')
+    setApiAzureUseAdminCredentials(false)
     setApiAwsAssumeRoleSessionDuration('')
     setApiAwsAssumeRoleExternalId('')
     setApiClusterUrl('')
@@ -723,8 +729,8 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (!apiDisplayName.trim()) { message.warning('Please enter a display name'); return }
     if (apiEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
     if (apiTargetTags.length === 0) { message.warning('Please add at least one target tag'); return }
-    if (!apiClusterUrl.trim()) { message.warning('Please enter the Kubernetes cluster URL'); return }
     if (!apiAuthType) { message.warning('Please select an authentication type'); return }
+    if (apiAuthType !== 'azureserviceprincipal' && !apiClusterUrl.trim()) { message.warning('Please enter the Kubernetes cluster URL'); return }
 
     setApiSaving(true)
     try {
@@ -773,6 +779,14 @@ const AddDeploymentTargetPage: React.FC = () => {
         message.warning('Please enter an AWS service role ARN')
         return
       }
+      if (apiAuthType === 'azureserviceprincipal' && !apiAzureAksClusterName.trim()) {
+        message.warning('Please enter an AKS cluster name')
+        return
+      }
+      if (apiAuthType === 'azureserviceprincipal' && !apiAzureAksResourceGroupName.trim()) {
+        message.warning('Please enter an AKS resource group name')
+        return
+      }
       if (apiAuthType === 'awsaccount' && !apiAwsEksClusterName.trim()) {
         message.warning('Please enter an EKS cluster name')
         return
@@ -787,7 +801,7 @@ const AddDeploymentTargetPage: React.FC = () => {
       }
 
       const clusterCertificateId = Number(apiClusterCertificate)
-      if (Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
+      if (apiAuthType !== 'azureserviceprincipal' && Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
         resourceReferences.push({
           type: EndpointResourceType.ClusterCertificate,
           resourceId: clusterCertificateId,
@@ -825,6 +839,14 @@ const AddDeploymentTargetPage: React.FC = () => {
           }
         }
         providerConfig = JSON.stringify(providerConfigPayload)
+      } else if (apiAuthType === 'azureserviceprincipal') {
+        providerType = 2 // AzureAks
+        const providerConfigPayload: Record<string, unknown> = {
+          clusterName: apiAzureAksClusterName.trim(),
+          resourceGroup: apiAzureAksResourceGroupName.trim(),
+          useAdminCredentials: apiAzureUseAdminCredentials,
+        }
+        providerConfig = JSON.stringify(providerConfigPayload)
       }
 
       await registerKubernetesApi({
@@ -832,9 +854,9 @@ const AddDeploymentTargetPage: React.FC = () => {
         spaceId: space.id,
         roles: apiTargetTags,
         environmentIds: apiEnvironments,
-        clusterUrl: apiClusterUrl.trim(),
+        clusterUrl: apiAuthType === 'azureserviceprincipal' ? '' : apiClusterUrl.trim(),
         namespace: apiDefaultNamespace.trim() || 'default',
-        skipTlsVerification: apiSkipTlsVerification,
+        skipTlsVerification: apiAuthType === 'azureserviceprincipal' ? false : apiSkipTlsVerification,
         providerType,
         providerConfig,
         resourceReferences,
@@ -1043,6 +1065,14 @@ const AddDeploymentTargetPage: React.FC = () => {
       setApiAwsRegion('')
       setApiAwsAssumeRoleSessionDuration('')
       setApiAwsAssumeRoleExternalId('')
+    }
+    if (apiAuthType !== 'azureserviceprincipal') {
+      setApiAzureAksClusterName('')
+      setApiAzureAksResourceGroupName('')
+      setApiAzureUseAdminCredentials(false)
+    }
+    if (apiAuthType === 'azureserviceprincipal') {
+      setApiClusterCertificate(undefined)
     }
   }, [apiAuthType])
 
@@ -2043,7 +2073,34 @@ const AddDeploymentTargetPage: React.FC = () => {
                       options={azureServicePrincipalAccountOptions}
                       loading={loadingDeploymentAccounts}
                     />
-                    <NoteBlock>Select a deployment account with Azure Service Principal credentials.</NoteBlock>
+                    <NoteBlock>Only Azure Service Principal Accounts may be selected.</NoteBlock>
+                    <div className="mt-4">
+                      <FormField
+                        label="AKS cluster name"
+                        value={apiAzureAksClusterName}
+                        onChange={setApiAzureAksClusterName}
+                      />
+                    </div>
+                    <FormField
+                      label="AKS resource group name"
+                      value={apiAzureAksResourceGroupName}
+                      onChange={setApiAzureAksResourceGroupName}
+                    />
+                    <div className="mb-5">
+                      <Checkbox
+                        checked={apiAzureUseAdminCredentials}
+                        onChange={(event) => setApiAzureUseAdminCredentials(event.target.checked)}
+                      >
+                        <span className="text-base text-gray-700">Login with administrator credentials.</span>
+                      </Checkbox>
+                      <NoteBlock>
+                        Enabling this option passes the <code>--admin</code> flag to <code>az aks get-credentials</code>. This is useful for AKS clusters with Azure Active Directory integration. See the{' '}
+                        <a href="https://oc.to/KubeTargets" target="_blank" rel="noopener noreferrer" className="text-squid-blue hover:underline">
+                          documentation
+                        </a>{' '}
+                        for more details.
+                      </NoteBlock>
+                    </div>
                   </>
                 )}
 
@@ -2203,54 +2260,58 @@ const AddDeploymentTargetPage: React.FC = () => {
 
               <ExpandableFormCard
                 title="Kubernetes Details"
-                subtitle="Enter the Kubernetes cluster details."
+                subtitle={apiAuthType === 'azureserviceprincipal' ? 'Set the default namespace for Kubernetes operations.' : 'Enter the Kubernetes cluster details.'}
                 expanded={apiExpanded.kubernetesDetails}
                 onToggle={() => toggleApiSection('kubernetesDetails')}
               >
-                <FormField
-                  label="Kubernetes cluster URL"
-                  value={apiClusterUrl}
-                  onChange={setApiClusterUrl}
-                />
-                <NoteBlock>
-                  Must be an absolute URL. e.g. <em>https://kubernetes.example.com</em>
-                </NoteBlock>
-
-                <div className="mt-4 mb-5">
-                  <div className="flex items-end gap-3">
-                    <div className="flex-1">
-                      <SelectField
-                        label="Select certificate"
-                        placeholder="Select certificate"
-                        value={apiClusterCertificate}
-                        onChange={setApiClusterCertificate}
-                        options={clusterCertificateOptions}
-                        loading={loadingCertificateOptions}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1 pb-5">
-                      <Button icon={<SearchOutlined />} aria-label="Search certificate" />
-                      <Button
-                        icon={<ReloadOutlined />}
-                        aria-label="Refresh certificates"
-                        loading={loadingCertificateOptions}
-                        onClick={() => { void loadCertificates() }}
-                      />
-                      <Button icon={<PlusOutlined />} aria-label="Add certificate" />
-                    </div>
-                  </div>
-                  <NoteBlock>The optional cluster certificate authority.</NoteBlock>
-                </div>
-
-                {!apiClusterCertificate && (
-                  <div className="mb-4">
-                    <Checkbox checked={apiSkipTlsVerification} disabled>
-                      <span className="text-base text-gray-700">Skip TLS verification</span>
-                    </Checkbox>
+                {apiAuthType !== 'azureserviceprincipal' && (
+                  <>
+                    <FormField
+                      label="Kubernetes cluster URL"
+                      value={apiClusterUrl}
+                      onChange={setApiClusterUrl}
+                    />
                     <NoteBlock>
-                      Automatically enabled when no cluster certificate is selected.
+                      Must be an absolute URL. e.g. <em>https://kubernetes.example.com</em>
                     </NoteBlock>
-                  </div>
+
+                    <div className="mt-4 mb-5">
+                      <div className="flex items-end gap-3">
+                        <div className="flex-1">
+                          <SelectField
+                            label="Select certificate"
+                            placeholder="Select certificate"
+                            value={apiClusterCertificate}
+                            onChange={setApiClusterCertificate}
+                            options={clusterCertificateOptions}
+                            loading={loadingCertificateOptions}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 pb-5">
+                          <Button icon={<SearchOutlined />} aria-label="Search certificate" />
+                          <Button
+                            icon={<ReloadOutlined />}
+                            aria-label="Refresh certificates"
+                            loading={loadingCertificateOptions}
+                            onClick={() => { void loadCertificates() }}
+                          />
+                          <Button icon={<PlusOutlined />} aria-label="Add certificate" />
+                        </div>
+                      </div>
+                      <NoteBlock>The optional cluster certificate authority.</NoteBlock>
+                    </div>
+
+                    {!apiClusterCertificate && (
+                      <div className="mb-4">
+                        <Checkbox checked={apiSkipTlsVerification} disabled>
+                          <span className="text-base text-gray-700">Skip TLS verification</span>
+                        </Checkbox>
+                        <NoteBlock>
+                          Automatically enabled when no cluster certificate is selected.
+                        </NoteBlock>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <FormField

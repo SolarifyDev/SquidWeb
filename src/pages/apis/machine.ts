@@ -157,7 +157,7 @@ export interface RegisterKubernetesApiCommand {
   spaceId: number
   roles: string[]
   environmentIds: number[]
-  clusterUrl: string
+  clusterUrl?: string
   namespace: string
   skipTlsVerification: boolean
   providerType?: number
