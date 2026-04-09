@@ -13,11 +13,12 @@ import {
   getConnectionStatus,
   registerKubernetesApi,
   registerOpenClaw,
+  registerSshConnection,
   type GenerateKubernetesAgentInstallScriptData,
   type KubernetesAgentStorageType,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
-import { getDeploymentAccounts } from 'pages/apis/deploymentAccount'
+import { DeploymentAccountType, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
 
 const deploymentTypes = [
   { key: 'Kubernetes', label: 'Kubernetes' },
@@ -51,6 +52,15 @@ const openClawOptions = [
     key: 'gateway',
     title: 'OpenClaw Gateway',
     desc: 'Register an OpenClaw endpoint and choose authentication via account or inline tokens.',
+    recommended: true,
+  },
+]
+
+const linuxOptions = [
+  {
+    key: 'ssh',
+    title: 'SSH Connection',
+    desc: 'Connect to this target via Secure Shell (SSH).',
     recommended: true,
   },
 ]
@@ -270,7 +280,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const { space } = useSpace()
   const [selectedDeploymentType, setSelectedDeploymentType] = useState('Kubernetes')
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
-  const [agentFormView, setAgentFormView] = useState<'kubernetes-agent' | 'kubernetes-api' | 'openclaw' | null>(null)
+  const [agentFormView, setAgentFormView] = useState<'kubernetes-agent' | 'kubernetes-api' | 'openclaw' | 'ssh' | null>(null)
   const [agentName, setAgentName] = useState('')
   const [agentEnvironments, setAgentEnvironments] = useState<string[]>([])
   const [agentTags, setAgentTags] = useState<string[]>([])
@@ -309,6 +319,9 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [apiAwsServiceRoleArn, setApiAwsServiceRoleArn] = useState('')
   const [apiAwsEksClusterName, setApiAwsEksClusterName] = useState('')
   const [apiAwsRegion, setApiAwsRegion] = useState('')
+  const [apiAzureAksClusterName, setApiAzureAksClusterName] = useState('')
+  const [apiAzureAksResourceGroupName, setApiAzureAksResourceGroupName] = useState('')
+  const [apiAzureUseAdminCredentials, setApiAzureUseAdminCredentials] = useState(false)
   const [apiAwsAssumeRoleSessionDuration, setApiAwsAssumeRoleSessionDuration] = useState('')
   const [apiAwsAssumeRoleExternalId, setApiAwsAssumeRoleExternalId] = useState('')
   const [apiSaving, setApiSaving] = useState(false)
@@ -332,6 +345,17 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [openClawInlineHooksToken, setOpenClawInlineHooksToken] = useState('')
   const [openClawSaving, setOpenClawSaving] = useState(false)
   const [openClawTagSearchValue, setOpenClawTagSearchValue] = useState('')
+
+  const [sshDisplayName, setSshDisplayName] = useState('')
+  const [sshEnvironments, setSshEnvironments] = useState<number[]>([])
+  const [sshTargetTags, setSshTargetTags] = useState<string[]>([])
+  const [sshHost, setSshHost] = useState('')
+  const [sshPortText, setSshPortText] = useState('22')
+  const [sshFingerprint, setSshFingerprint] = useState('')
+  const [sshRemoteWorkingDirectory, setSshRemoteWorkingDirectory] = useState('')
+  const [sshSelectedAccountId, setSshSelectedAccountId] = useState<string | undefined>(undefined)
+  const [sshSaving, setSshSaving] = useState(false)
+  const [sshTagSearchValue, setSshTagSearchValue] = useState('')
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
   const [agentStep, setAgentStep] = useState<'form' | 'script' | 'connected'>('form')
@@ -358,14 +382,25 @@ const AddDeploymentTargetPage: React.FC = () => {
     openClawDetails: true,
   })
 
-  const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 3).map(({ value, label }) => ({ value, label }))
-  const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 1).map(({ value, label }) => ({ value, label }))
-  const azureServicePrincipalAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 5).map(({ value, label }) => ({ value, label }))
-  const azureOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 9).map(({ value, label }) => ({ value, label }))
-  const awsAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 6 || a.accountType === 7).map(({ value, label }) => ({ value, label }))
-  const awsOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 11).map(({ value, label }) => ({ value, label }))
-  const googleCloudAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 10).map(({ value, label }) => ({ value, label }))
-  const openClawAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === 12).map(({ value, label }) => ({ value, label }))
+  const [sshExpanded, setSshExpanded] = useState<Record<string, boolean>>({
+    displayName: true,
+    environments: true,
+    targetTags: true,
+    authentication: true,
+    sshDetails: true,
+  })
+
+  const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.Token).map(({ value, label }) => ({ value, label }))
+  const usernamePasswordAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.UsernamePassword).map(({ value, label }) => ({ value, label }))
+  const azureServicePrincipalAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.AzureServicePrincipal).map(({ value, label }) => ({ value, label }))
+  const azureOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.AzureOidc).map(({ value, label }) => ({ value, label }))
+  const awsAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.AmazonWebServicesAccount || a.accountType === DeploymentAccountType.AmazonWebServicesRoleAccount).map(({ value, label }) => ({ value, label }))
+  const awsOidcAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.AmazonWebServicesOidcAccount).map(({ value, label }) => ({ value, label }))
+  const googleCloudAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.GoogleCloudAccount).map(({ value, label }) => ({ value, label }))
+  const openClawAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.OpenClawGateway).map(({ value, label }) => ({ value, label }))
+  const sshAccountOptions = deploymentAccountOptions
+    .filter((a) => a.accountType === DeploymentAccountType.SshKeyPair || a.accountType === DeploymentAccountType.UsernamePassword)
+    .map(({ value, label }) => ({ value, label }))
   const clientCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
   const clusterCertificateOptions = certificateOptions.map(({ value, label }) => ({ value, label }))
 
@@ -410,6 +445,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     setApiAwsServiceRoleArn('')
     setApiAwsEksClusterName('')
     setApiAwsRegion('')
+    setApiAzureAksClusterName('')
+    setApiAzureAksResourceGroupName('')
+    setApiAzureUseAdminCredentials(false)
     setApiAwsAssumeRoleSessionDuration('')
     setApiAwsAssumeRoleExternalId('')
     setApiClusterUrl('')
@@ -429,6 +467,17 @@ const AddDeploymentTargetPage: React.FC = () => {
     setOpenClawInlineHooksToken('')
     setOpenClawSaving(false)
     setOpenClawTagSearchValue('')
+
+    setSshDisplayName('')
+    setSshEnvironments([])
+    setSshTargetTags([])
+    setSshHost('')
+    setSshPortText('22')
+    setSshFingerprint('')
+    setSshRemoteWorkingDirectory('')
+    setSshSelectedAccountId(undefined)
+    setSshSaving(false)
+    setSshTagSearchValue('')
   }
 
   const normalizeTagValues = useCallback((values: string[]) => {
@@ -646,6 +695,17 @@ const AddDeploymentTargetPage: React.FC = () => {
     })
   }
 
+  const toggleSshSection = (key: string) => {
+    setSshExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const toggleAllSshSections = () => {
+    setSshExpanded((prev) => {
+      const shouldExpandAll = Object.values(prev).every((v) => v === false)
+      return Object.fromEntries(Object.keys(prev).map((k) => [k, shouldExpandAll])) as Record<string, boolean>
+    })
+  }
+
   const loadCertificates = useCallback(async () => {
     setLoadingCertificateOptions(true)
     try {
@@ -669,8 +729,8 @@ const AddDeploymentTargetPage: React.FC = () => {
     if (!apiDisplayName.trim()) { message.warning('Please enter a display name'); return }
     if (apiEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
     if (apiTargetTags.length === 0) { message.warning('Please add at least one target tag'); return }
-    if (!apiClusterUrl.trim()) { message.warning('Please enter the Kubernetes cluster URL'); return }
     if (!apiAuthType) { message.warning('Please select an authentication type'); return }
+    if (apiAuthType !== 'azureserviceprincipal' && !apiClusterUrl.trim()) { message.warning('Please enter the Kubernetes cluster URL'); return }
 
     setApiSaving(true)
     try {
@@ -719,6 +779,14 @@ const AddDeploymentTargetPage: React.FC = () => {
         message.warning('Please enter an AWS service role ARN')
         return
       }
+      if (apiAuthType === 'azureserviceprincipal' && !apiAzureAksClusterName.trim()) {
+        message.warning('Please enter an AKS cluster name')
+        return
+      }
+      if (apiAuthType === 'azureserviceprincipal' && !apiAzureAksResourceGroupName.trim()) {
+        message.warning('Please enter an AKS resource group name')
+        return
+      }
       if (apiAuthType === 'awsaccount' && !apiAwsEksClusterName.trim()) {
         message.warning('Please enter an EKS cluster name')
         return
@@ -733,7 +801,7 @@ const AddDeploymentTargetPage: React.FC = () => {
       }
 
       const clusterCertificateId = Number(apiClusterCertificate)
-      if (Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
+      if (apiAuthType !== 'azureserviceprincipal' && Number.isFinite(clusterCertificateId) && clusterCertificateId > 0) {
         resourceReferences.push({
           type: EndpointResourceType.ClusterCertificate,
           resourceId: clusterCertificateId,
@@ -771,6 +839,14 @@ const AddDeploymentTargetPage: React.FC = () => {
           }
         }
         providerConfig = JSON.stringify(providerConfigPayload)
+      } else if (apiAuthType === 'azureserviceprincipal') {
+        providerType = 2 // AzureAks
+        const providerConfigPayload: Record<string, unknown> = {
+          clusterName: apiAzureAksClusterName.trim(),
+          resourceGroup: apiAzureAksResourceGroupName.trim(),
+          useAdminCredentials: apiAzureUseAdminCredentials,
+        }
+        providerConfig = JSON.stringify(providerConfigPayload)
       }
 
       await registerKubernetesApi({
@@ -778,9 +854,9 @@ const AddDeploymentTargetPage: React.FC = () => {
         spaceId: space.id,
         roles: apiTargetTags,
         environmentIds: apiEnvironments,
-        clusterUrl: apiClusterUrl.trim(),
+        clusterUrl: apiAuthType === 'azureserviceprincipal' ? '' : apiClusterUrl.trim(),
         namespace: apiDefaultNamespace.trim() || 'default',
-        skipTlsVerification: apiSkipTlsVerification,
+        skipTlsVerification: apiAuthType === 'azureserviceprincipal' ? false : apiSkipTlsVerification,
         providerType,
         providerConfig,
         resourceReferences,
@@ -851,6 +927,53 @@ const AddDeploymentTargetPage: React.FC = () => {
       message.error('Failed to register OpenClaw target')
     } finally {
       setOpenClawSaving(false)
+    }
+  }
+
+  const handleSaveSshConnection = async () => {
+    if (!sshDisplayName.trim()) { message.warning('Please enter a display name'); return }
+    if (sshEnvironments.length === 0) { message.warning('Please select at least one environment'); return }
+    if (sshTargetTags.length === 0) { message.warning('Please add at least one target tag'); return }
+    if (!sshHost.trim()) { message.warning('Please enter the SSH host'); return }
+
+    const parsedPort = Number(sshPortText)
+    if (!Number.isFinite(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+      message.warning('Please enter a valid SSH port (1-65535)')
+      return
+    }
+
+    const accountId = Number(sshSelectedAccountId)
+    if (!Number.isFinite(accountId) || accountId <= 0) {
+      message.warning('Please select an SSH account')
+      return
+    }
+
+    setSshSaving(true)
+    try {
+      await registerSshConnection({
+        machineName: sshDisplayName.trim(),
+        spaceId: space.id,
+        roles: sshTargetTags,
+        environmentIds: sshEnvironments,
+        host: sshHost.trim(),
+        port: Math.floor(parsedPort),
+        fingerprint: sshFingerprint.trim(),
+        remoteWorkingDirectory: sshRemoteWorkingDirectory.trim(),
+        resourceReferences: [
+          {
+            type: EndpointResourceType.AuthenticationAccount,
+            resourceId: accountId,
+          },
+        ],
+      })
+
+      message.success('SSH target registered successfully')
+      closeAddModal()
+      navigate(`/${space.slug}/deployment/targets`)
+    } catch {
+      message.error('Failed to register SSH target')
+    } finally {
+      setSshSaving(false)
     }
   }
 
@@ -942,6 +1065,14 @@ const AddDeploymentTargetPage: React.FC = () => {
       setApiAwsRegion('')
       setApiAwsAssumeRoleSessionDuration('')
       setApiAwsAssumeRoleExternalId('')
+    }
+    if (apiAuthType !== 'azureserviceprincipal') {
+      setApiAzureAksClusterName('')
+      setApiAzureAksResourceGroupName('')
+      setApiAzureUseAdminCredentials(false)
+    }
+    if (apiAuthType === 'azureserviceprincipal') {
+      setApiClusterCertificate(undefined)
     }
   }, [apiAuthType])
 
@@ -1119,6 +1250,62 @@ const AddDeploymentTargetPage: React.FC = () => {
                               className="shadow-md"
                               onClick={() => {
                                 setAgentFormView('openclaw')
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : selectedDeploymentType === 'Linux' ? (
+                <div>
+                  <div className="mb-5 text-gray-700">
+                    Connect to Linux targets via <strong>SSH</strong>.
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {linuxOptions.map((option) => (
+                      <div
+                        key={option.key}
+                        className="relative border-2 rounded-lg p-6 overflow-hidden transition-all duration-200"
+                        style={{
+                          borderColor: hoveredCard === option.key ? '#16a34a' : '#e5e7eb',
+                          boxShadow: hoveredCard === option.key ? '0 4px 12px rgba(22,163,74,0.15)' : 'none',
+                        }}
+                        onMouseEnter={() => setHoveredCard(option.key)}
+                        onMouseLeave={() => setHoveredCard(null)}
+                      >
+                        <div className="flex justify-center mb-4">
+                          <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" width="44" height="44" fill="#0f172a" aria-hidden="true">
+                              <path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h16V7H4zm2.6 2.3 2.8 2.7-2.8 2.7 1.1 1.1 3.9-3.8-3.9-3.8-1.1 1.1zM12.5 15h5v-1.5h-5V15z" />
+                            </svg>
+                          </div>
+                        </div>
+
+                        <h3 className="text-base font-semibold text-center mb-2">{option.title}</h3>
+                        <p className="text-sm text-gray-500 text-center mb-3">{option.desc}</p>
+
+                        {option.recommended && (
+                          <div className="flex justify-center">
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                              Recommended
+                            </span>
+                          </div>
+                        )}
+
+                        {hoveredCard === option.key && (
+                          <div
+                            className="absolute inset-0 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}
+                          >
+                            <Button
+                              className="shadow-md"
+                              onClick={() => {
+                                setAgentFormView('ssh')
                               }}
                             >
                               Add
@@ -1611,6 +1798,153 @@ const AddDeploymentTargetPage: React.FC = () => {
               </Button>
             </div>
           </div>
+        ) : agentFormView === 'ssh' ? (
+          <div className="max-h-[82vh] overflow-y-auto">
+            <div className="px-8 pt-7 pb-5 border-b border-gray-200 bg-white sticky top-0 z-10">
+              <h2 className="text-2xl font-semibold text-gray-900 m-0">Add SSH Connection</h2>
+            </div>
+
+            <div className="px-8 py-4">
+              <button
+                type="button"
+                onClick={toggleAllSshSections}
+                className="text-xs font-semibold tracking-wide text-squid-blue hover:underline bg-transparent border-0 p-0 cursor-pointer"
+              >
+                {Object.values(sshExpanded).every((v) => v === false) ? 'EXPAND ALL' : 'COLLAPSE ALL'}
+              </button>
+            </div>
+
+            <div className="px-8 pb-8 space-y-5 bg-white">
+              <ExpandableFormCard
+                title="Display Name"
+                subtitle="A short, memorable, unique name for this deployment target."
+                expanded={sshExpanded.displayName}
+                onToggle={() => toggleSshSection('displayName')}
+              >
+                <FormField
+                  label="Display name"
+                  value={sshDisplayName}
+                  onChange={setSshDisplayName}
+                />
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title="Environments"
+                subtitle="Choose at least one environment for the deployment target."
+                expanded={sshExpanded.environments}
+                onToggle={() => toggleSshSection('environments')}
+              >
+                <MultiSelectField
+                  label="Select environments"
+                  options={environmentOptions}
+                  loading={loadingEnvironmentOptions}
+                  value={sshEnvironments}
+                  onChange={setSshEnvironments}
+                />
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title={<span className="inline-flex items-center gap-1">Target Tags <InfoHint /></span>}
+                subtitle="Add at least one target tag to make this deployment target selectable by deployment and runbook processes."
+                expanded={sshExpanded.targetTags}
+                onToggle={() => toggleSshSection('targetTags')}
+              >
+                <MultiSelectField
+                  label="Target tags"
+                  options={targetTagOptions}
+                  loading={loadingTargetTagOptions}
+                  value={sshTargetTags}
+                  onChange={(values) => { void handleTargetTagValuesChange(values, setSshTargetTags) }}
+                  searchValue={sshTagSearchValue}
+                  onSearch={setSshTagSearchValue}
+                  onCreateFromSearch={(name) => { void handleCreateTargetTagFromSearch(name, setSshTargetTags, () => setSshTagSearchValue('')) }}
+                />
+                <NoteBlock>You are required to add at least one target tag.</NoteBlock>
+              </ExpandableFormCard>
+
+              <SectionHeading>Communication</SectionHeading>
+
+              <ExpandableFormCard
+                title="Authentication"
+                subtitle="Choose an SSH account for this deployment target."
+                expanded={sshExpanded.authentication}
+                onToggle={() => toggleSshSection('authentication')}
+              >
+                <div className="mb-5">
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <SelectField
+                        label="Select SSH account"
+                        placeholder="Select an SSH account"
+                        value={sshSelectedAccountId}
+                        onChange={setSshSelectedAccountId}
+                        options={sshAccountOptions}
+                        loading={loadingDeploymentAccounts}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1 pb-5">
+                      <Button
+                        icon={<ReloadOutlined />}
+                        aria-label="Refresh SSH accounts"
+                        loading={loadingDeploymentAccounts}
+                        onClick={() => { void loadDeploymentAccounts() }}
+                      />
+                      <Button
+                        icon={<PlusOutlined />}
+                        aria-label="Add SSH account"
+                        onClick={() => window.open(`/${space.slug}/infrastructure/accounts/create?accountType=2`, '_blank', 'noopener,noreferrer')}
+                      />
+                    </div>
+                  </div>
+                  <NoteBlock>Only Username/Password and SSH Key Pair accounts can be selected.</NoteBlock>
+                </div>
+              </ExpandableFormCard>
+
+              <ExpandableFormCard
+                title="SSH Details"
+                subtitle="Configure host and endpoint details for this SSH target."
+                expanded={sshExpanded.sshDetails}
+                onToggle={() => toggleSshSection('sshDetails')}
+              >
+                <FormField
+                  label="Host"
+                  value={sshHost}
+                  onChange={setSshHost}
+                  placeholder="10.0.0.1 or server.example.com"
+                />
+
+                <FormField
+                  label="Port"
+                  value={sshPortText}
+                  onChange={setSshPortText}
+                  placeholder="22"
+                />
+
+                <FormField
+                  label="Fingerprint"
+                  value={sshFingerprint}
+                  onChange={setSshFingerprint}
+                  placeholder="SHA256:xxxx / MD5:xx:xx:xx"
+                  helper="Optional. Leave empty to skip host fingerprint validation (recommended only for testing)."
+                />
+
+                <FormField
+                  label="Remote Working Directory"
+                  value={sshRemoteWorkingDirectory}
+                  onChange={setSshRemoteWorkingDirectory}
+                  placeholder="/tmp"
+                  helper="Optional. Leave empty to use /tmp and append squid-{serverTaskId} automatically."
+                />
+              </ExpandableFormCard>
+            </div>
+
+            <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-8 py-4 flex justify-end gap-3">
+              <Button size="large" onClick={closeAddModal}>Cancel</Button>
+              <Button size="large" type="primary" loading={sshSaving} onClick={handleSaveSshConnection} className="!bg-green-700 !border-green-700">
+                Save
+              </Button>
+            </div>
+          </div>
         ) : (
           <div className="max-h-[82vh] overflow-y-auto">
             <div className="px-8 pt-7 pb-5 border-b border-gray-200 bg-white sticky top-0 z-10">
@@ -1739,7 +2073,34 @@ const AddDeploymentTargetPage: React.FC = () => {
                       options={azureServicePrincipalAccountOptions}
                       loading={loadingDeploymentAccounts}
                     />
-                    <NoteBlock>Select a deployment account with Azure Service Principal credentials.</NoteBlock>
+                    <NoteBlock>Only Azure Service Principal Accounts may be selected.</NoteBlock>
+                    <div className="mt-4">
+                      <FormField
+                        label="AKS cluster name"
+                        value={apiAzureAksClusterName}
+                        onChange={setApiAzureAksClusterName}
+                      />
+                    </div>
+                    <FormField
+                      label="AKS resource group name"
+                      value={apiAzureAksResourceGroupName}
+                      onChange={setApiAzureAksResourceGroupName}
+                    />
+                    <div className="mb-5">
+                      <Checkbox
+                        checked={apiAzureUseAdminCredentials}
+                        onChange={(event) => setApiAzureUseAdminCredentials(event.target.checked)}
+                      >
+                        <span className="text-base text-gray-700">Login with administrator credentials.</span>
+                      </Checkbox>
+                      <NoteBlock>
+                        Enabling this option passes the <code>--admin</code> flag to <code>az aks get-credentials</code>. This is useful for AKS clusters with Azure Active Directory integration. See the{' '}
+                        <a href="https://oc.to/KubeTargets" target="_blank" rel="noopener noreferrer" className="text-squid-blue hover:underline">
+                          documentation
+                        </a>{' '}
+                        for more details.
+                      </NoteBlock>
+                    </div>
                   </>
                 )}
 
@@ -1899,54 +2260,58 @@ const AddDeploymentTargetPage: React.FC = () => {
 
               <ExpandableFormCard
                 title="Kubernetes Details"
-                subtitle="Enter the Kubernetes cluster details."
+                subtitle={apiAuthType === 'azureserviceprincipal' ? 'Set the default namespace for Kubernetes operations.' : 'Enter the Kubernetes cluster details.'}
                 expanded={apiExpanded.kubernetesDetails}
                 onToggle={() => toggleApiSection('kubernetesDetails')}
               >
-                <FormField
-                  label="Kubernetes cluster URL"
-                  value={apiClusterUrl}
-                  onChange={setApiClusterUrl}
-                />
-                <NoteBlock>
-                  Must be an absolute URL. e.g. <em>https://kubernetes.example.com</em>
-                </NoteBlock>
-
-                <div className="mt-4 mb-5">
-                  <div className="flex items-end gap-3">
-                    <div className="flex-1">
-                      <SelectField
-                        label="Select certificate"
-                        placeholder="Select certificate"
-                        value={apiClusterCertificate}
-                        onChange={setApiClusterCertificate}
-                        options={clusterCertificateOptions}
-                        loading={loadingCertificateOptions}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1 pb-5">
-                      <Button icon={<SearchOutlined />} aria-label="Search certificate" />
-                      <Button
-                        icon={<ReloadOutlined />}
-                        aria-label="Refresh certificates"
-                        loading={loadingCertificateOptions}
-                        onClick={() => { void loadCertificates() }}
-                      />
-                      <Button icon={<PlusOutlined />} aria-label="Add certificate" />
-                    </div>
-                  </div>
-                  <NoteBlock>The optional cluster certificate authority.</NoteBlock>
-                </div>
-
-                {!apiClusterCertificate && (
-                  <div className="mb-4">
-                    <Checkbox checked={apiSkipTlsVerification} disabled>
-                      <span className="text-base text-gray-700">Skip TLS verification</span>
-                    </Checkbox>
+                {apiAuthType !== 'azureserviceprincipal' && (
+                  <>
+                    <FormField
+                      label="Kubernetes cluster URL"
+                      value={apiClusterUrl}
+                      onChange={setApiClusterUrl}
+                    />
                     <NoteBlock>
-                      Automatically enabled when no cluster certificate is selected.
+                      Must be an absolute URL. e.g. <em>https://kubernetes.example.com</em>
                     </NoteBlock>
-                  </div>
+
+                    <div className="mt-4 mb-5">
+                      <div className="flex items-end gap-3">
+                        <div className="flex-1">
+                          <SelectField
+                            label="Select certificate"
+                            placeholder="Select certificate"
+                            value={apiClusterCertificate}
+                            onChange={setApiClusterCertificate}
+                            options={clusterCertificateOptions}
+                            loading={loadingCertificateOptions}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 pb-5">
+                          <Button icon={<SearchOutlined />} aria-label="Search certificate" />
+                          <Button
+                            icon={<ReloadOutlined />}
+                            aria-label="Refresh certificates"
+                            loading={loadingCertificateOptions}
+                            onClick={() => { void loadCertificates() }}
+                          />
+                          <Button icon={<PlusOutlined />} aria-label="Add certificate" />
+                        </div>
+                      </div>
+                      <NoteBlock>The optional cluster certificate authority.</NoteBlock>
+                    </div>
+
+                    {!apiClusterCertificate && (
+                      <div className="mb-4">
+                        <Checkbox checked={apiSkipTlsVerification} disabled>
+                          <span className="text-base text-gray-700">Skip TLS verification</span>
+                        </Checkbox>
+                        <NoteBlock>
+                          Automatically enabled when no cluster certificate is selected.
+                        </NoteBlock>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <FormField
