@@ -239,6 +239,47 @@ export function registerSshConnection(command: RegisterSshConnectionCommand) {
   return post<RegisterMachineResponseData>('/machines/register/ssh', command)
 }
 
+export interface RegisterLinuxListeningCommand {
+  machineName: string
+  spaceId: number
+  roles: string
+  environments: string
+  machinePolicyId?: number | null
+  uri: string
+  thumbprint: string
+  agentVersion?: string
+}
+
+export function registerLinuxListening(command: RegisterLinuxListeningCommand) {
+  return post<RegisterMachineResponseData>('/machines/register/linux-listening', command)
+}
+
+export type LinuxTentacleCommunicationMode = 'Listening' | 'Polling'
+
+export interface GenerateLinuxTentacleInstallScriptCommand {
+  machineName: string
+  serverUrl: string
+  serverCommsUrl?: string
+  environments: string[]
+  tags: string[]
+  machinePolicyId?: number | null
+  spaceId?: number
+  communicationMode: LinuxTentacleCommunicationMode
+  listeningHostName?: string
+  listeningPort?: number
+}
+
+export interface GenerateLinuxTentacleInstallScriptData {
+  dockerRunScript: string
+  scriptInstallScript: string
+  dockerComposeScript: string
+  serverThumbprint?: string | null
+}
+
+export function generateLinuxTentacleInstallScript(command: GenerateLinuxTentacleInstallScriptCommand) {
+  return post<GenerateLinuxTentacleInstallScriptData>('/machines/generate-linux-tentacle-install-script', command)
+}
+
 // --- Connection Status ---
 
 export interface ConnectionStatusData {
