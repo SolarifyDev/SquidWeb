@@ -239,6 +239,72 @@ export function registerSshConnection(command: RegisterSshConnectionCommand) {
   return post<RegisterMachineResponseData>('/machines/register/ssh', command)
 }
 
+export interface RegisterTentacleListeningCommand {
+  machineName: string
+  spaceId: number
+  roles: string
+  environments: string
+  machinePolicyId?: number | null
+  uri: string
+  thumbprint: string
+  agentVersion?: string
+}
+
+export function registerTentacleListening(command: RegisterTentacleListeningCommand) {
+  return post<RegisterMachineResponseData>('/machines/register/tentacle-listening', command)
+}
+
+export interface RegisterTentaclePollingCommand {
+  machineName: string
+  spaceId: number
+  roles: string
+  environments: string
+  machinePolicyId?: number | null
+  thumbprint: string
+  subscriptionUri?: string
+  subscriptionId?: string
+  agentVersion?: string
+}
+
+export function registerTentaclePolling(command: RegisterTentaclePollingCommand) {
+  return post<RegisterMachineResponseData>('/machines/register/tentacle-polling', command)
+}
+
+export type TentacleCommunicationMode = 'Listening' | 'Polling'
+
+export interface GenerateTentacleInstallScriptCommand {
+  machineName: string
+  serverUrl: string
+  serverCommsUrl?: string
+  environments: string[]
+  tags: string[]
+  machinePolicyId?: number | null
+  spaceId?: number
+  operatingSystem?: 'Linux' | 'Windows' | 'macOS' | null
+  communicationMode: TentacleCommunicationMode
+  listeningHostName?: string
+  listeningPort?: number
+}
+
+export interface TentacleInstallScriptItem {
+  id: string
+  label: string
+  operatingSystem?: string | null
+  installationMethod?: string | null
+  scriptType?: string | null
+  content: string
+  isRecommended?: boolean
+}
+
+export interface GenerateTentacleInstallScriptData {
+  serverThumbprint?: string | null
+  scripts: TentacleInstallScriptItem[]
+}
+
+export function generateTentacleInstallScript(command: GenerateTentacleInstallScriptCommand) {
+  return post<GenerateTentacleInstallScriptData>('/machines/generate-tentacle-install-script', command)
+}
+
 // --- Connection Status ---
 
 export interface ConnectionStatusData {

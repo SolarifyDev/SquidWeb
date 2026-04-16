@@ -49,7 +49,9 @@ function communicationStyleLabel(style: string): string {
     KubernetesApi: 'Kubernetes API',
     KubernetesAgent: 'Kubernetes Agent',
     TentaclePassive: 'Listening Tentacle',
+    TentacleListening: 'Listening Tentacle',
     TentacleActive: 'Polling Tentacle',
+    TentaclePolling: 'Polling Tentacle',
     Ssh: 'SSH Connection',
   };
   return map[style] || style;

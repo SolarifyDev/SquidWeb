@@ -56,7 +56,9 @@ const targetTypeLabel: Record<string, string> = {
   KubernetesAgent: 'Kubernetes Agent',
   OpenClaw: 'OpenClaw',
   TentacleActive: 'Polling Tentacle',
+  TentaclePolling: 'Polling Tentacle',
   TentaclePassive: 'Listening Tentacle',
+  TentacleListening: 'Listening Tentacle',
   Ssh: 'SSH Connection',
 };
 
