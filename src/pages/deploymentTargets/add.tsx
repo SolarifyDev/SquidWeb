@@ -10,18 +10,19 @@ import { getMachinePolicies } from 'pages/apis/machinePolicy'
 import { getServerConfiguration } from 'pages/apis/serverConfiguration'
 import {
   EndpointResourceType,
-  generateLinuxTentacleInstallScript,
+  generateTentacleInstallScript,
   generateKubernetesAgentInstallScript,
   getMachines,
   getConnectionStatus,
   registerKubernetesApi,
-  registerLinuxListening,
+  registerTentacleListening,
   registerOpenClaw,
   registerSshConnection,
-  type GenerateLinuxTentacleInstallScriptData,
+  type GenerateTentacleInstallScriptData,
+  type TentacleInstallScriptItem,
   type GenerateKubernetesAgentInstallScriptData,
   type KubernetesAgentStorageType,
-  type LinuxTentacleCommunicationMode,
+  type TentacleCommunicationMode,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
 import { DeploymentAccountType, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
@@ -90,13 +91,40 @@ type KubernetesApiAuthType =
 
 type OpenClawAuthMode = 'account' | 'inline'
 type ListeningRegistrationMode = 'script' | 'manual'
-type ListeningScriptTab = 'docker' | 'script' | 'compose'
+type ListeningScriptTab = string
 type ListeningStep = 'mode' | 'form' | 'script' | 'verifying' | 'connected'
 
 function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
   if (!bash) return ''
   if (shell === 'powershell') return bash.replace(/ \\\n/g, ' `\n')
   return bash
+}
+
+function normalizeTentacleInstallScripts(data: GenerateTentacleInstallScriptData | null): TentacleInstallScriptItem[] {
+  if (!data || !Array.isArray(data.scripts)) return []
+  const normalized = data.scripts
+    .map((script, index) => ({ script, index }))
+    .filter(({ script }) => {
+      if (!script) return false
+      const id = String(script.id ?? '').trim()
+      const content = String(script.content ?? '').trim()
+      return id.length > 0 && content.length > 0
+    })
+    .sort((a, b) => {
+      const aRank = a.script.isRecommended ? 0 : 1
+      const bRank = b.script.isRecommended ? 0 : 1
+      if (aRank !== bRank) return aRank - bRank
+      return a.index - b.index
+    })
+
+  return normalized.map((item) => item.script)
+}
+
+function pickTentacleRecommendedScriptTab(data: GenerateTentacleInstallScriptData | null): ListeningScriptTab {
+  const scripts = normalizeTentacleInstallScripts(data)
+  if (scripts.length === 0) return ''
+  const recommended = scripts.find((script) => script.isRecommended)
+  return recommended?.id ?? scripts[0].id
 }
 
 const kubernetesAgentStorageTypeOptions: Array<{ value: KubernetesAgentStorageType; label: string }> = [
@@ -375,7 +403,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [listeningEnvironments, setListeningEnvironments] = useState<number[]>([])
   const [listeningTargetTags, setListeningTargetTags] = useState<string[]>([])
   const [listeningRegistrationMode, setListeningRegistrationMode] = useState<ListeningRegistrationMode>('script')
-  const [listeningCommunicationMode, setListeningCommunicationMode] = useState<LinuxTentacleCommunicationMode>('Listening')
+  const [listeningCommunicationMode, setListeningCommunicationMode] = useState<TentacleCommunicationMode>('Listening')
   const [listeningHostName, setListeningHostName] = useState('')
   const [listeningPortText, setListeningPortText] = useState('10933')
   const [listeningServerUrl, setListeningServerUrl] = useState('')
@@ -386,8 +414,8 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [listeningAgentVersion, setListeningAgentVersion] = useState('')
   const [listeningUseProxy, setListeningUseProxy] = useState(false)
   const [listeningGeneratingScript, setListeningGeneratingScript] = useState(false)
-  const [listeningGeneratedScripts, setListeningGeneratedScripts] = useState<GenerateLinuxTentacleInstallScriptData | null>(null)
-  const [listeningActiveScriptTab, setListeningActiveScriptTab] = useState<ListeningScriptTab>('docker')
+  const [listeningGeneratedScripts, setListeningGeneratedScripts] = useState<GenerateTentacleInstallScriptData | null>(null)
+  const [listeningActiveScriptTab, setListeningActiveScriptTab] = useState<ListeningScriptTab>('')
   const [listeningSaving, setListeningSaving] = useState(false)
   const [listeningTagSearchValue, setListeningTagSearchValue] = useState('')
   const [listeningServerThumbprint, setListeningServerThumbprint] = useState('')
@@ -466,6 +494,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     const parsed = Number(listeningMachinePolicyId)
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null
   }, [listeningMachinePolicyId])
+  const listeningScriptItems = useMemo(() => normalizeTentacleInstallScripts(listeningGeneratedScripts), [listeningGeneratedScripts])
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
@@ -564,7 +593,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     setListeningUseProxy(false)
     setListeningGeneratingScript(false)
     setListeningGeneratedScripts(null)
-    setListeningActiveScriptTab('docker')
+    setListeningActiveScriptTab('')
     setListeningSaving(false)
     setListeningTagSearchValue('')
     setListeningServerThumbprint('')
@@ -1135,7 +1164,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
     setListeningSaving(true)
     try {
-      await registerLinuxListening({
+      await registerTentacleListening({
         machineName: listeningDisplayName.trim(),
         spaceId: space.id,
         roles: listeningTargetTags.join(','),
@@ -1155,11 +1184,10 @@ const AddDeploymentTargetPage: React.FC = () => {
     }
   }
 
-  const getListeningScriptContent = useCallback((tab: ListeningScriptTab, scripts: GenerateLinuxTentacleInstallScriptData | null) => {
-    if (!scripts) return ''
-    if (tab === 'docker') return scripts.dockerRunScript ?? ''
-    if (tab === 'script') return scripts.scriptInstallScript ?? ''
-    return scripts.dockerComposeScript ?? ''
+  const getListeningScriptContent = useCallback((tab: ListeningScriptTab, scripts: GenerateTentacleInstallScriptData | null) => {
+    if (!scripts || !tab) return ''
+    const found = normalizeTentacleInstallScripts(scripts).find((script) => script.id === tab)
+    return found?.content ?? ''
   }, [])
 
   const handleCopyListeningScript = useCallback(async (tab: ListeningScriptTab) => {
@@ -1183,7 +1211,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     setListeningRegistrationMode(mode)
     if (mode === 'script') {
       setListeningGeneratedScripts(null)
-      setListeningActiveScriptTab('docker')
+      setListeningActiveScriptTab('')
     }
     setListeningStep('form')
     setListeningTimedOut(false)
@@ -1215,7 +1243,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
     setListeningGeneratingScript(true)
     try {
-      const generated = await generateLinuxTentacleInstallScript({
+      const generated = await generateTentacleInstallScript({
         machineName: listeningDisplayName.trim(),
         serverUrl: listeningServerUrl.trim(),
         serverCommsUrl: listeningCommunicationMode === 'Polling' ? listeningServerCommsUrl.trim() : undefined,
@@ -1223,13 +1251,14 @@ const AddDeploymentTargetPage: React.FC = () => {
         tags: listeningTargetTags,
         machinePolicyId: selectedListeningMachinePolicyId,
         spaceId: space.id,
+        operatingSystem: 'Linux',
         communicationMode: listeningCommunicationMode,
         listeningHostName: listeningCommunicationMode === 'Listening' ? listeningHostName.trim() : undefined,
         listeningPort: listeningCommunicationMode === 'Listening' ? listeningPort : undefined,
       })
 
       setListeningGeneratedScripts(generated)
-      setListeningActiveScriptTab('docker')
+      setListeningActiveScriptTab(pickTentacleRecommendedScriptTab(generated))
       const generatedThumbprint = String(generated.serverThumbprint ?? '').trim()
       if (generatedThumbprint) setListeningServerThumbprint(generatedThumbprint)
       setListeningStep('script')
@@ -1248,6 +1277,16 @@ const AddDeploymentTargetPage: React.FC = () => {
     }
     startListeningRegistrationPolling(listeningDisplayName)
   }, [listeningDisplayName, startListeningRegistrationPolling])
+
+  useEffect(() => {
+    if (listeningStep !== 'script') return
+    if (listeningScriptItems.length === 0) {
+      if (listeningActiveScriptTab) setListeningActiveScriptTab('')
+      return
+    }
+    if (listeningScriptItems.some((script) => script.id === listeningActiveScriptTab)) return
+    setListeningActiveScriptTab(pickTentacleRecommendedScriptTab(listeningGeneratedScripts))
+  }, [listeningActiveScriptTab, listeningGeneratedScripts, listeningScriptItems, listeningStep])
 
   useEffect(() => {
     let mounted = true
@@ -1457,6 +1496,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
   const nfsCsiDriverRequired = Boolean(scriptData && (scriptData.nfsCsiDriverRequired ?? scriptData.nfsCsiDriverScript))
   const agentInstallStepNumber = nfsCsiDriverRequired ? 2 : 1
+  const activeListeningScript = listeningScriptItems.find((script) => script.id === listeningActiveScriptTab) ?? null
 
   return (
     <div className="bg-white min-h-screen">
@@ -2202,34 +2242,45 @@ const AddDeploymentTargetPage: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      { key: 'docker' as ListeningScriptTab, label: 'Docker' },
-                      { key: 'script' as ListeningScriptTab, label: 'Script Install' },
-                      { key: 'compose' as ListeningScriptTab, label: 'Docker Compose' },
-                    ].map((tab) => (
+                    {listeningScriptItems.map((script) => (
                       <button
-                        key={tab.key}
+                        key={script.id}
                         type="button"
-                        onClick={() => setListeningActiveScriptTab(tab.key)}
+                        onClick={() => setListeningActiveScriptTab(script.id)}
                         className={[
-                          'px-3 py-1.5 rounded text-sm border transition-colors',
-                          listeningActiveScriptTab === tab.key
+                          'px-3 py-1.5 rounded text-sm border transition-colors inline-flex items-center gap-1.5',
+                          listeningActiveScriptTab === script.id
                             ? 'bg-squid-blue text-white border-squid-blue'
                             : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400',
                         ].join(' ')}
                       >
-                        {tab.label}
+                        <span>{script.label}</span>
+                        {script.isRecommended ? (
+                          <span className={listeningActiveScriptTab === script.id ? 'text-blue-100' : 'text-squid-blue'}>
+                            • Recommended
+                          </span>
+                        ) : null}
                       </button>
                     ))}
+                    {listeningScriptItems.length === 0 ? (
+                      <span className="text-sm text-gray-500">No install scripts returned.</span>
+                    ) : null}
                   </div>
 
                   <div className="border border-gray-200 rounded-md overflow-hidden">
                     <div className="flex justify-end border-b border-gray-200 px-2 py-1 bg-gray-50">
+                      {activeListeningScript ? (
+                        <div className="mr-auto px-2 text-xs text-gray-500 inline-flex items-center gap-3">
+                          <span>{activeListeningScript.operatingSystem || 'Unknown OS'}</span>
+                          <span>{activeListeningScript.scriptType || 'plain'}</span>
+                        </div>
+                      ) : null}
                       <Button
                         type="text"
                         size="small"
                         icon={<CopyOutlined />}
                         onClick={() => { void handleCopyListeningScript(listeningActiveScriptTab) }}
+                        disabled={!activeListeningScript}
                       >
                         Copy
                       </Button>
@@ -2262,6 +2313,7 @@ const AddDeploymentTargetPage: React.FC = () => {
                     size="large"
                     type="primary"
                     onClick={handleListeningScriptInstallNext}
+                    disabled={listeningScriptItems.length === 0}
                     className="!bg-green-700 !border-green-700"
                   >
                     Next
@@ -2425,7 +2477,7 @@ const AddDeploymentTargetPage: React.FC = () => {
                         <Radio.Group
                           className="flex flex-col gap-2"
                           value={listeningCommunicationMode}
-                          onChange={(event) => setListeningCommunicationMode(event.target.value as LinuxTentacleCommunicationMode)}
+                          onChange={(event) => setListeningCommunicationMode(event.target.value as TentacleCommunicationMode)}
                         >
                           <Radio className="!block" value="Listening">Listening</Radio>
                           <Radio className="!block" value="Polling">Polling</Radio>

@@ -22,6 +22,16 @@ export default defineConfig({
     tsconfigPaths(),
     htmlPlugin(htmlPluginOpt),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'https://localhost:7078',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+    },
+  },
   test: {
     globals: true,
     environment: "happy-dom",

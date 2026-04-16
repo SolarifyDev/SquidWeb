@@ -31,7 +31,23 @@ interface KubernetesAgentEndpoint {
   Namespace: string
 }
 
-type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint
+interface LinuxTentacleEndpoint {
+  CommunicationStyle: string
+  Uri?: string
+  uri?: string
+  HostName?: string
+  Hostname?: string
+  hostName?: string
+  host?: string
+}
+
+interface OpenClawEndpoint {
+  CommunicationStyle: string
+  BaseUrl?: string
+  baseUrl?: string
+}
+
+type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint | LinuxTentacleEndpoint | OpenClawEndpoint
 
 interface DeploymentTarget {
   id: number
@@ -61,16 +77,72 @@ function communicationStyleLabel(style: string): string {
     KubernetesApi: 'Kubernetes API',
     KubernetesAgent: 'Kubernetes Agent',
     TentaclePassive: 'Listening Tentacle',
+    TentacleListening: 'Listening Tentacle',
+    LinuxListening: 'Listening Tentacle',
+    LinuxTentacleListening: 'Listening Tentacle',
+    LinuxTentacle: 'Listening Tentacle',
     TentacleActive: 'Polling Tentacle',
+    TentaclePolling: 'Polling Tentacle',
+    LinuxPolling: 'Polling Tentacle',
+    LinuxTentaclePolling: 'Polling Tentacle',
     Ssh: 'SSH Connection',
   }
   return map[style] || style
 }
 
-function endpointSummary(ep: MachineEndpoint | null): string {
+function isLinuxListeningStyle(style: string): boolean {
+  const normalized = style.trim().toLowerCase()
+  return normalized === 'tentaclepassive' || normalized === 'tentaclelistening' || normalized === 'linuxlistening' || normalized === 'linuxtentaclelistening' || normalized === 'linuxtentacle'
+}
+
+function isPollingTentacleStyle(style: string): boolean {
+  const normalized = style.trim().toLowerCase()
+  return normalized === 'tentacleactive' || normalized === 'tentaclepolling' || normalized === 'linuxpolling' || normalized === 'linuxtentaclepolling'
+}
+
+function extractPollingSubscriptionIdFromUri(rawValue: string): string {
+  const value = rawValue.trim()
+  if (!value || !value.toLowerCase().startsWith('poll://')) return ''
+  return value.slice('poll://'.length).replace(/^\/+|\/+$/g, '')
+}
+
+function formatPollingSubscriptionUri(subscriptionId: string): string {
+  const value = subscriptionId.trim()
+  if (!value) return ''
+  return `poll://${value}/`
+}
+
+function readLinuxListeningHostname(ep: MachineEndpoint): string {
+  const endpoint = ep as LinuxTentacleEndpoint
+  const direct = (endpoint.HostName ?? endpoint.Hostname ?? endpoint.hostName ?? endpoint.host ?? '').trim()
+  if (direct) return direct
+
+  const uri = (endpoint.Uri ?? endpoint.uri ?? '').trim()
+  if (!uri) return ''
+
+  try {
+    return new URL(uri).hostname
+  } catch {
+    return ''
+  }
+}
+
+function endpointSummary(ep: MachineEndpoint | null, machine?: MachineDto): string {
   if (!ep) return ''
   if (ep.CommunicationStyle === 'KubernetesApi') return (ep as KubernetesApiEndpoint).ClusterUrl || ''
   if (ep.CommunicationStyle === 'KubernetesAgent') return (ep as KubernetesAgentEndpoint).Thumbprint || ''
+  if (isLinuxListeningStyle(ep.CommunicationStyle)) return readLinuxListeningHostname(ep)
+  if (isPollingTentacleStyle(ep.CommunicationStyle)) {
+    const machineUriId = extractPollingSubscriptionIdFromUri(machine?.uri ?? '')
+    if (machineUriId) return formatPollingSubscriptionUri(machineUriId)
+
+    const endpointAny = ep as any
+    const endpointUriId = extractPollingSubscriptionIdFromUri(String(endpointAny.Uri ?? endpointAny.uri ?? ''))
+    if (endpointUriId) return formatPollingSubscriptionUri(endpointUriId)
+
+    const subscriptionId = String(machine?.pollingSubscriptionId ?? endpointAny.SubscriptionId ?? endpointAny.subscriptionId ?? '').trim()
+    return formatPollingSubscriptionUri(subscriptionId)
+  }
   return ''
 }
 
@@ -206,7 +278,7 @@ function mapMachineToTarget(m: MachineDto, envLookup: Map<string, string>, targe
     id: m.id,
     name: m.name,
     communicationStyle: communicationStyleLabel(style),
-    summary: endpointSummary(ep),
+    summary: endpointSummary(ep, m),
     environmentNames: envNames,
     tags: rolesList,
     healthState: resolveMachineHealthState(m),
