@@ -27,9 +27,10 @@ RUN apk add --no-cache nodejs npm
 
 WORKDIR /usr/share/nginx/html
 
-# Ship only what's needed at runtime
+# Ship only what's needed at runtime.
+# Note: .env is gitignored and provided at runtime by the K8s ConfigMap
+# (mounted at /usr/share/nginx/html/.env via subPath), so it's not copied here.
 COPY --from=build /app/dist           /usr/share/nginx/html/dist
-COPY --from=build /app/.env           /usr/share/nginx/html/.env
 COPY --from=build /app/.env.example   /usr/share/nginx/html/.env.example
 COPY --from=build /app/package.json   /usr/share/nginx/html/package.json
 
