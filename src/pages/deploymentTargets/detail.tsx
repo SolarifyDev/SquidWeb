@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Button, Dropdown, Input, Modal, Radio, Select, Spin, Switch, Tooltip, message } from 'antd'
 import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -8,10 +8,14 @@ import {
   deleteMachines,
   generateKubernetesAgentUpgradeScript,
   GenerateKubernetesAgentUpgradeScriptData,
+  getMachineUpgradeInfo,
   getLatestKubernetesAgentVersion,
   getMachines,
+  MachineUpgradeStatus,
   MachineHealthCheckData,
   MachineDto,
+  UpgradeInfoResponseData,
+  upgradeMachine,
   updateMachine,
 } from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
@@ -327,6 +331,19 @@ function communicationStyleLabel(style: string): string {
   return map[style] || style
 }
 
+function isTentacleAgentStyle(style: string | undefined | null): boolean {
+  const normalized = String(style ?? '').trim().toLowerCase()
+  return normalized === 'tentaclepassive'
+    || normalized === 'tentaclelistening'
+    || normalized === 'tentacleactive'
+    || normalized === 'tentaclepolling'
+    || normalized === 'linuxlistening'
+    || normalized === 'linuxpolling'
+    || normalized === 'linuxtentaclelistening'
+    || normalized === 'linuxtentaclepolling'
+    || normalized === 'linuxtentacle'
+}
+
 function isOpenClawStyle(style: string | undefined | null): boolean {
   return String(style ?? '').toLowerCase().includes('openclaw')
 }
@@ -583,6 +600,10 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const [manualHealthCheckData, setManualHealthCheckData] = useState<MachineHealthCheckData | null>(null)
   const [healthCheckError, setHealthCheckError] = useState<string | null>(null)
   const [healthCheckLoading, setHealthCheckLoading] = useState(false)
+  const [tentacleUpgradeInfo, setTentacleUpgradeInfo] = useState<UpgradeInfoResponseData | null>(null)
+  const [tentacleUpgradeInfoLoading, setTentacleUpgradeInfoLoading] = useState(false)
+  const [tentacleUpgradeLoading, setTentacleUpgradeLoading] = useState(false)
+  const tentacleUpgradeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Editable state
   const [name, setName] = useState('')
@@ -616,6 +637,12 @@ const DeploymentTargetDetailPage: React.FC = () => {
       'authentication', 'kubernetesDetails', 'openClawDetails', 'containerOptions',
     ]))
   }
+
+  const clearTentacleUpgradeRefreshTimer = useCallback(() => {
+    if (!tentacleUpgradeRefreshTimerRef.current) return
+    clearTimeout(tentacleUpgradeRefreshTimerRef.current)
+    tentacleUpgradeRefreshTimerRef.current = null
+  }, [])
 
   useEffect(() => {
     const machineId = Number(targetId)
@@ -711,11 +738,55 @@ const DeploymentTargetDetailPage: React.FC = () => {
     return () => { mounted = false }
   }, [targetId, space.id])
 
+  const loadTentacleUpgradeInfo = useCallback(async (targetMachine: MachineDto | null) => {
+    if (!targetMachine) {
+      setTentacleUpgradeInfo(null)
+      setTentacleUpgradeInfoLoading(false)
+      return
+    }
+
+    const endpoint = parseEndpointJson(targetMachine.endpoint || '{}')
+    const communicationStyle = (endpoint as any)?.CommunicationStyle
+    if (!isTentacleAgentStyle(communicationStyle)) {
+      setTentacleUpgradeInfo(null)
+      setTentacleUpgradeInfoLoading(false)
+      return
+    }
+
+    setTentacleUpgradeInfoLoading(true)
+    try {
+      const info = await getMachineUpgradeInfo(targetMachine.id)
+      setTentacleUpgradeInfo(info)
+    } catch {
+      setTentacleUpgradeInfo(null)
+    } finally {
+      setTentacleUpgradeInfoLoading(false)
+    }
+  }, [])
+
+  const refreshMachineSnapshot = useCallback(async (machineId: number) => {
+    const machinesData = await getMachines({ pageSize: 1000, spaceId: space.id })
+    const found = machinesData.machines.find((m) => m.id === machineId) ?? null
+    if (found) setMachine(found)
+    return found
+  }, [space.id])
+
+  useEffect(() => {
+    void loadTentacleUpgradeInfo(machine)
+  }, [machine?.id, machine?.endpoint, loadTentacleUpgradeInfo])
+
   useEffect(() => {
     setManualHealthCheckData(null)
     setHealthCheckError(null)
     setHealthCheckLoading(false)
-  }, [machine?.id])
+    clearTentacleUpgradeRefreshTimer()
+  }, [clearTentacleUpgradeRefreshTimer, machine?.id])
+
+  useEffect(() => {
+    return () => {
+      clearTentacleUpgradeRefreshTimer()
+    }
+  }, [clearTentacleUpgradeRefreshTimer])
 
   const runMachineHealthCheck = useCallback(async () => {
     if (!machine) return
@@ -748,6 +819,67 @@ const DeploymentTargetDetailPage: React.FC = () => {
       setHealthCheckLoading(false)
     }
   }, [machine])
+
+  const handleUpgradeToLatest = useCallback(async () => {
+    if (!machine) return
+
+    setTentacleUpgradeLoading(true)
+    clearTentacleUpgradeRefreshTimer()
+    try {
+      const result = await upgradeMachine(machine.id, { targetVersion: null, allowDowngrade: false })
+
+      if (result.status === MachineUpgradeStatus.Upgraded) {
+        message.success(result.detail || `Upgraded to ${result.targetVersion}`)
+        await runMachineHealthCheck()
+        const refreshed = await refreshMachineSnapshot(machine.id)
+        await loadTentacleUpgradeInfo(refreshed ?? machine)
+        return
+      }
+
+      if (result.status === MachineUpgradeStatus.Initiated) {
+        message.info(result.detail || 'Upgrade initiated. Verifying in 30 seconds.')
+        tentacleUpgradeRefreshTimerRef.current = setTimeout(() => {
+          void (async () => {
+            await runMachineHealthCheck()
+            const refreshed = await refreshMachineSnapshot(machine.id)
+            await loadTentacleUpgradeInfo(refreshed ?? machine)
+          })()
+        }, 30_000)
+        return
+      }
+
+      if (result.status === MachineUpgradeStatus.AlreadyUpToDate) {
+        message.info(result.detail || 'Already up to date.')
+        const refreshed = await refreshMachineSnapshot(machine.id)
+        await loadTentacleUpgradeInfo(refreshed ?? machine)
+        return
+      }
+
+      if (result.status === MachineUpgradeStatus.NotSupported) {
+        message.warning(result.detail || 'This deployment target does not support direct agent upgrade.')
+        return
+      }
+
+      message.error(result.detail || 'Agent upgrade failed.')
+    } catch (error: any) {
+      const status = error?.response?.status
+      if (status === 403) {
+        message.error('Insufficient permissions to upgrade this machine.')
+        return
+      }
+      if (status === 404) {
+        message.error('Machine not found.')
+        return
+      }
+      if (status === 400) {
+        message.error(error?.response?.data?.msg || 'Invalid upgrade request.')
+        return
+      }
+      message.error('Upgrade request failed. Please retry.')
+    } finally {
+      setTentacleUpgradeLoading(false)
+    }
+  }, [clearTentacleUpgradeRefreshTimer, loadTentacleUpgradeInfo, machine, refreshMachineSnapshot, runMachineHealthCheck])
 
   const handleSave = async () => {
     if (!machine) return
@@ -1016,10 +1148,15 @@ const DeploymentTargetDetailPage: React.FC = () => {
             )}
             {activeTab === 'connectivity' && (
               <ConnectivityTab
+                machine={machine}
                 healthCheckData={effectiveHealthData}
                 healthState={connectivityState}
                 healthCheckLoading={healthCheckLoading}
+                tentacleUpgradeInfo={tentacleUpgradeInfo}
+                tentacleUpgradeInfoLoading={tentacleUpgradeInfoLoading}
+                tentacleUpgradeLoading={tentacleUpgradeLoading}
                 onCheckHealth={runMachineHealthCheck}
+                onUpgradeToLatest={handleUpgradeToLatest}
               />
             )}
             {activeTab === 'deployments' && (
@@ -1540,15 +1677,25 @@ function SettingsTab({
 // ── Connectivity Tab ──────────────────────────────────────────────────────────
 
 function ConnectivityTab({
+  machine,
   healthCheckData,
   healthState,
   healthCheckLoading,
+  tentacleUpgradeInfo,
+  tentacleUpgradeInfoLoading,
+  tentacleUpgradeLoading,
   onCheckHealth,
+  onUpgradeToLatest,
 }: {
+  machine: MachineDto
   healthCheckData: MachineHealthCheckData | null
   healthState: ConnectivityHealthState
   healthCheckLoading: boolean
+  tentacleUpgradeInfo: UpgradeInfoResponseData | null
+  tentacleUpgradeInfoLoading: boolean
+  tentacleUpgradeLoading: boolean
   onCheckHealth: () => void
+  onUpgradeToLatest: () => void
 }) {
   const mappedHealthStatus = getHealthStatusValue(healthCheckData) ?? healthState
   const mappedHealthDetail = getHealthDetailValue(healthCheckData)
@@ -1556,6 +1703,7 @@ function ConnectivityTab({
   const healthDetailText = mappedHealthDetail ?? (healthCheckData ? 'No health check detail available' : 'No health check has been run yet')
   const healthLastCheckedText = formatHealthLastCheckedRelative(mappedHealthLastChecked)
   const isFailureState = ['Unavailable', 'Unhealthy'].includes(String(mappedHealthStatus))
+  const currentVersion = tentacleUpgradeInfo?.currentVersion || machine.agentVersion || 'Unknown'
   const stateLabelClass = healthState === 'Healthy'
     ? 'text-emerald-700'
     : healthState === 'Unavailable'
@@ -1616,6 +1764,31 @@ function ConnectivityTab({
         )}
 
       </div>
+
+      {tentacleUpgradeInfoLoading ? (
+        <div className="mt-4 border border-gray-200 rounded-md bg-white p-6">
+          <div className="text-sm text-gray-500">Checking upgrade...</div>
+        </div>
+      ) : null}
+
+      {tentacleUpgradeInfo?.canUpgrade ? (
+        <div className="mt-4 border border-gray-200 rounded-md bg-white p-6">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm text-gray-500">Current Version</div>
+              <div className="text-lg font-mono text-gray-800 mt-1">{currentVersion}</div>
+            </div>
+            <Button
+              type="primary"
+              loading={tentacleUpgradeLoading}
+              onClick={onUpgradeToLatest}
+              className="!bg-green-700 hover:!bg-green-800 !border-green-700"
+            >
+              Upgrade to latest
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

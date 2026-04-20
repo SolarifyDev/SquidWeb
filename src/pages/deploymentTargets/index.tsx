@@ -2,7 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Checkbox, Collapse, Modal, Tabs, Spin, Input, Select, message } from 'antd'
 import { SearchOutlined, FilterOutlined, MoreOutlined, PlusOutlined, DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { getMachines, MachineDto } from 'pages/apis/machine'
+import {
+  getMachineUpgradeInfo,
+  getMachines,
+  MachineDto,
+  UpgradeInfoResponseData,
+} from 'pages/apis/machine'
 import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { createTargetTag, getTargetTags, TargetTagDto } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
@@ -52,7 +57,9 @@ type MachineEndpoint = KubernetesApiEndpoint | KubernetesAgentEndpoint | LinuxTe
 interface DeploymentTarget {
   id: number
   name: string
+  rawCommunicationStyle: string
   communicationStyle: string
+  agentVersion: string
   summary: string
   environmentNames: string[]
   tags: string[]
@@ -98,6 +105,10 @@ function isLinuxListeningStyle(style: string): boolean {
 function isPollingTentacleStyle(style: string): boolean {
   const normalized = style.trim().toLowerCase()
   return normalized === 'tentacleactive' || normalized === 'tentaclepolling' || normalized === 'linuxpolling' || normalized === 'linuxtentaclepolling'
+}
+
+function isTentacleAgentStyle(style: string): boolean {
+  return isLinuxListeningStyle(style) || isPollingTentacleStyle(style)
 }
 
 function extractPollingSubscriptionIdFromUri(rawValue: string): string {
@@ -277,7 +288,9 @@ function mapMachineToTarget(m: MachineDto, envLookup: Map<string, string>, targe
   return {
     id: m.id,
     name: m.name,
+    rawCommunicationStyle: style,
     communicationStyle: communicationStyleLabel(style),
+    agentVersion: String(m.agentVersion ?? ''),
     summary: endpointSummary(ep, m),
     environmentNames: envNames,
     tags: rolesList,
@@ -555,29 +568,39 @@ const DeploymentTargets: React.FC = () => {
   // API data
   const [deploymentData, setDeploymentData] = useState<DeploymentData>({ healthy: [], disabled: [] })
   const [loadingTargets, setLoadingTargets] = useState(false)
+  const [upgradeInfoByMachineId, setUpgradeInfoByMachineId] = useState<Record<number, UpgradeInfoResponseData>>({})
+  const [loadingUpgradeInfoIds, setLoadingUpgradeInfoIds] = useState<Set<number>>(new Set())
+  const [failedUpgradeInfoIds, setFailedUpgradeInfoIds] = useState<Set<number>>(new Set())
+
+  const loadDeploymentTargets = useCallback(async () => {
+    setLoadingTargets(true)
+    try {
+      const [machinesRes, envsRes, tagsRes] = await Promise.all([
+        getMachines({ pageSize: 1000, spaceId: space.id }),
+        getEnvironments({ pageSize: 1000, spaceId: space.id }),
+        getTargetTags(),
+      ])
+
+      const envLookup = buildEnvironmentLookup(envsRes.environments ?? [])
+      const targetTagLookup = buildTargetTagLookup(tagsRes.targetTags ?? [])
+      const healthy: DeploymentTarget[] = []
+      const disabled: DeploymentTarget[] = []
+      machinesRes.machines.forEach((m) => {
+        const target = mapMachineToTarget(m, envLookup, targetTagLookup)
+        if (m.isDisabled) disabled.push(target)
+        else healthy.push(target)
+      })
+      setDeploymentData({ healthy, disabled })
+    } catch {
+      // keep existing UI and silent-fail like current behavior
+    } finally {
+      setLoadingTargets(false)
+    }
+  }, [space.id])
 
   useEffect(() => {
-    setLoadingTargets(true)
-    Promise.all([
-      getMachines({ pageSize: 1000, spaceId: space.id }),
-      getEnvironments({ pageSize: 1000, spaceId: space.id }),
-      getTargetTags(),
-    ])
-      .then(([machinesRes, envsRes, tagsRes]) => {
-        const envLookup = buildEnvironmentLookup(envsRes.environments ?? [])
-        const targetTagLookup = buildTargetTagLookup(tagsRes.targetTags ?? [])
-        const healthy: DeploymentTarget[] = []
-        const disabled: DeploymentTarget[] = []
-        machinesRes.machines.forEach((m) => {
-          const target = mapMachineToTarget(m, envLookup, targetTagLookup)
-          if (m.isDisabled) disabled.push(target)
-          else healthy.push(target)
-        })
-        setDeploymentData({ healthy, disabled })
-      })
-      .catch(() => {})
-      .finally(() => setLoadingTargets(false))
-  }, [space.id])
+    void loadDeploymentTargets()
+  }, [loadDeploymentTargets])
 
   // UI state
   const [searchText, setSearchText] = useState('')
@@ -745,6 +768,66 @@ const DeploymentTargets: React.FC = () => {
     }
   }, [space.id])
 
+  useEffect(() => {
+    setUpgradeInfoByMachineId({})
+    setLoadingUpgradeInfoIds(new Set())
+    setFailedUpgradeInfoIds(new Set())
+  }, [space.id])
+
+  useEffect(() => {
+    const allTargets = [...deploymentData.healthy, ...deploymentData.disabled]
+    const candidateIds = allTargets
+      .filter((target) => target.healthState !== 'Disabled' && isTentacleAgentStyle(target.rawCommunicationStyle))
+      .map((target) => target.id)
+    const idsToProbe = candidateIds
+      .filter((id) => !upgradeInfoByMachineId[id])
+      .filter((id) => !loadingUpgradeInfoIds.has(id))
+      .filter((id) => !failedUpgradeInfoIds.has(id))
+
+    if (idsToProbe.length === 0) return
+
+    setLoadingUpgradeInfoIds((prev) => {
+      const next = new Set(prev)
+      idsToProbe.forEach((id) => next.add(id))
+      return next
+    })
+
+    void Promise.all(idsToProbe.map(async (machineId) => {
+      try {
+        const info = await getMachineUpgradeInfo(machineId)
+        return { machineId, info, failed: false as const }
+      } catch {
+        return { machineId, info: null, failed: true as const }
+      }
+    }))
+      .then((results) => {
+        const resolved = results.filter((item): item is { machineId: number; info: UpgradeInfoResponseData; failed: false } => item.failed === false && item.info != null)
+        if (resolved.length > 0) {
+          setUpgradeInfoByMachineId((prev) => {
+            const next = { ...prev }
+            resolved.forEach((item) => { next[item.machineId] = item.info })
+            return next
+          })
+        }
+
+        const failedIds = results.filter((item) => item.failed).map((item) => item.machineId)
+        if (failedIds.length > 0) {
+          setFailedUpgradeInfoIds((prev) => {
+            const next = new Set(prev)
+            failedIds.forEach((id) => next.add(id))
+            return next
+          })
+        }
+      })
+      .finally(() => {
+        setLoadingUpgradeInfoIds((prev) => {
+          const next = new Set(prev)
+          idsToProbe.forEach((id) => next.delete(id))
+          return next
+        })
+      })
+  }, [deploymentData, failedUpgradeInfoIds, loadingUpgradeInfoIds, upgradeInfoByMachineId])
+
   // Filter options
   const filterOptions = {
     environments: ['DEV', 'TEST', 'UAT', 'PRD', 'STAGE', 'QA'],
@@ -831,6 +914,9 @@ const DeploymentTargets: React.FC = () => {
 
   const renderMachineRow = (target: DeploymentTarget, isLast: boolean) => {
     const isDisabled = target.healthState === 'Disabled'
+    const isTentacleTarget = isTentacleAgentStyle(target.rawCommunicationStyle)
+    const upgradeInfo = upgradeInfoByMachineId[target.id]
+    const loadingUpgradeInfo = loadingUpgradeInfoIds.has(target.id)
     // collapsed = show summary ("N environments" + first 2 tags)
     // expanded = show all individual chips (default when total <= 4)
     const isSummary = expandedTargets.has(target.id)
@@ -865,7 +951,17 @@ const DeploymentTargets: React.FC = () => {
 
         {/* Col 2: Name / type / summary */}
         <div className="min-w-0">
-          <div className="font-semibold text-sm text-gray-900 leading-snug truncate">{target.name}</div>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="font-semibold text-sm text-gray-900 leading-snug truncate">{target.name}</div>
+            {isTentacleTarget && loadingUpgradeInfo ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 whitespace-nowrap">Checking upgrade...</span>
+            ) : null}
+            {isTentacleTarget && upgradeInfo?.canUpgrade ? (
+              <span title={upgradeInfo.reason} className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 whitespace-nowrap">
+                Uparade available
+              </span>
+            ) : null}
+          </div>
           <div className="text-xs text-gray-500 mt-0.5">{target.communicationStyle}</div>
           {target.summary && (
             <div className="text-xs text-gray-400 mt-0.5 truncate">{target.summary}</div>

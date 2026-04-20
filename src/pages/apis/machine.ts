@@ -305,6 +305,46 @@ export function generateTentacleInstallScript(command: GenerateTentacleInstallSc
   return post<GenerateTentacleInstallScriptData>('/machines/generate-tentacle-install-script', command)
 }
 
+// --- Tentacle Agent Upgrade ---
+
+export interface UpgradeInfoResponseData {
+  machineId: number
+  currentVersion: string
+  latestAvailableVersion: string
+  canUpgrade: boolean
+  reason: string
+}
+
+export enum MachineUpgradeStatus {
+  Upgraded = 0,
+  AlreadyUpToDate = 1,
+  NotSupported = 2,
+  Failed = 3,
+  Initiated = 4,
+}
+
+export interface UpgradeMachineCommand {
+  targetVersion?: string | null
+  allowDowngrade?: boolean
+}
+
+export interface UpgradeMachineResponseData {
+  machineId: number
+  machineName: string
+  currentVersion: string
+  targetVersion: string
+  status: MachineUpgradeStatus
+  detail: string
+}
+
+export function getMachineUpgradeInfo(machineId: number) {
+  return get<UpgradeInfoResponseData>(`/machines/${machineId}/upgrade-info`)
+}
+
+export function upgradeMachine(machineId: number, command: UpgradeMachineCommand = {}, timeoutMs = 5 * 60 * 1000) {
+  return post<UpgradeMachineResponseData>(`/machines/${machineId}/upgrade`, command, { timeout: timeoutMs })
+}
+
 // --- Connection Status ---
 
 export interface ConnectionStatusData {
