@@ -8,9 +8,11 @@ import {
   deleteMachines,
   generateKubernetesAgentUpgradeScript,
   GenerateKubernetesAgentUpgradeScriptData,
+  getMachineUpgradeEvents,
   getMachineUpgradeInfo,
   getLatestKubernetesAgentVersion,
   getMachines,
+  MachineUpgradeEventItem,
   MachineUpgradeStatus,
   MachineHealthCheckData,
   MachineDto,
@@ -381,6 +383,17 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
 
 type ConnectivityHealthState = 'Healthy' | 'Unhealthy' | 'Unavailable' | 'Disabled' | 'Unknown'
 
+const UPGRADE_EVENTS_POLL_INTERVAL_MS = 3_000
+const UPGRADE_EVENTS_STALL_TIMEOUT_MS = 90_000
+const UPGRADE_EVENTS_TERMINAL_KINDS = new Set([
+  'success',
+  'method-exhausted',
+  'restart-fail',
+  'healthz-fail',
+  'rollback-ok',
+  'rollback-fail',
+])
+
 function getHealthStatusValue(healthData: MachineHealthCheckData | null): string | null {
   if (!healthData) return null
   const candidates: unknown[] = [
@@ -604,6 +617,17 @@ const DeploymentTargetDetailPage: React.FC = () => {
   const [tentacleUpgradeInfoLoading, setTentacleUpgradeInfoLoading] = useState(false)
   const [tentacleUpgradeLoading, setTentacleUpgradeLoading] = useState(false)
   const tentacleUpgradeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [upgradeEvents, setUpgradeEvents] = useState<MachineUpgradeEventItem[]>([])
+  const [upgradeEventsLoading, setUpgradeEventsLoading] = useState(false)
+  const [upgradeEventsError, setUpgradeEventsError] = useState<string | null>(null)
+  const [upgradeEventsStalled, setUpgradeEventsStalled] = useState(false)
+  const [upgradeEventsActive, setUpgradeEventsActive] = useState(false)
+  const [upgradeEventsLegacyFallback, setUpgradeEventsLegacyFallback] = useState(false)
+  const [upgradeEventsTargetVersion, setUpgradeEventsTargetVersion] = useState<string | null>(null)
+  const [upgradeEventsLastPolledAt, setUpgradeEventsLastPolledAt] = useState<string | null>(null)
+  const [upgradeEventsPollCount, setUpgradeEventsPollCount] = useState(0)
+  const upgradeEventsAbortRef = useRef<AbortController | null>(null)
+  const upgradeEventsTargetVersionRef = useRef<string | null>(null)
 
   // Editable state
   const [name, setName] = useState('')
@@ -642,6 +666,13 @@ const DeploymentTargetDetailPage: React.FC = () => {
     if (!tentacleUpgradeRefreshTimerRef.current) return
     clearTimeout(tentacleUpgradeRefreshTimerRef.current)
     tentacleUpgradeRefreshTimerRef.current = null
+  }, [])
+
+  const stopUpgradeEventsStreaming = useCallback(() => {
+    if (!upgradeEventsAbortRef.current) return
+    upgradeEventsAbortRef.current.abort()
+    upgradeEventsAbortRef.current = null
+    setUpgradeEventsActive(false)
   }, [])
 
   useEffect(() => {
@@ -771,6 +802,128 @@ const DeploymentTargetDetailPage: React.FC = () => {
     return found
   }, [space.id])
 
+  const startUpgradeEventsStreaming = useCallback((machineId: number, targetVersion?: string | null) => {
+    stopUpgradeEventsStreaming()
+
+    const controller = new AbortController()
+    upgradeEventsAbortRef.current = controller
+
+    setUpgradeEvents([])
+    setUpgradeEventsLoading(true)
+    setUpgradeEventsError(null)
+    setUpgradeEventsStalled(false)
+    setUpgradeEventsLegacyFallback(false)
+    setUpgradeEventsTargetVersion(targetVersion ?? null)
+    upgradeEventsTargetVersionRef.current = targetVersion ?? null
+    setUpgradeEventsLastPolledAt(null)
+    setUpgradeEventsPollCount(0)
+    setUpgradeEventsActive(true)
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    const stream = async () => {
+      let lastChangeAt = Date.now()
+      let lastEventCount = 0
+      let firstPoll = true
+      const streamStartedAt = Date.now()
+      const fallbackMaxDurationMs = 5 * 60 * 1000
+      let legacyFallbackActive = false
+      let nextLegacyCheckAt = 0
+
+      while (!controller.signal.aborted) {
+        try {
+          const data = await getMachineUpgradeEvents(machineId)
+          const events = data.events ?? []
+          setUpgradeEventsLastPolledAt(new Date().toISOString())
+          setUpgradeEventsPollCount((prev) => prev + 1)
+
+          if (events.length !== lastEventCount) {
+            lastEventCount = events.length
+            lastChangeAt = Date.now()
+            setUpgradeEvents(events)
+            setUpgradeEventsStalled(false)
+            setUpgradeEventsError(null)
+          }
+
+          if (firstPoll) {
+            firstPoll = false
+            if (events.length === 0) {
+              setUpgradeEventsLegacyFallback(true)
+              legacyFallbackActive = true
+            }
+          }
+
+          if (events.length > 0 && legacyFallbackActive) {
+            setUpgradeEventsLegacyFallback(false)
+            legacyFallbackActive = false
+          }
+
+          setUpgradeEventsLoading(false)
+          const lastKind = events[events.length - 1]?.kind
+          if (lastKind && UPGRADE_EVENTS_TERMINAL_KINDS.has(lastKind)) {
+            await sleep(UPGRADE_EVENTS_POLL_INTERVAL_MS)
+            if (controller.signal.aborted) return
+
+            try {
+              const finalData = await getMachineUpgradeEvents(machineId)
+              setUpgradeEvents(finalData.events ?? events)
+            } catch {
+              // keep latest known events
+            }
+
+            setUpgradeEventsActive(false)
+            return
+          }
+
+          const expectedTargetVersion = upgradeEventsTargetVersionRef.current
+          if (legacyFallbackActive && expectedTargetVersion) {
+            if (Date.now() >= nextLegacyCheckAt) {
+              nextLegacyCheckAt = Date.now() + 5_000
+              try {
+                const info = await getMachineUpgradeInfo(machineId)
+                if (String(info.currentVersion ?? '') === String(expectedTargetVersion)) {
+                  setUpgradeEventsLegacyFallback(false)
+                  setUpgradeEventsStalled(false)
+                  setUpgradeEventsError(null)
+                  setUpgradeEventsActive(false)
+                  return
+                }
+              } catch {
+                // keep polling as best effort
+              }
+            }
+
+            if (Date.now() - streamStartedAt > fallbackMaxDurationMs) {
+              setUpgradeEventsStalled(true)
+              setUpgradeEventsError('Upgrade dispatched — checking outcome timed out')
+              setUpgradeEventsActive(false)
+              return
+            }
+          }
+
+          if (!legacyFallbackActive && Date.now() - lastChangeAt > UPGRADE_EVENTS_STALL_TIMEOUT_MS) {
+            setUpgradeEventsStalled(true)
+            setUpgradeEventsError('Upgrade event stream stalled — check server logs')
+            setUpgradeEventsActive(false)
+            return
+          }
+
+          await sleep(UPGRADE_EVENTS_POLL_INTERVAL_MS)
+        } catch (error: any) {
+          if (controller.signal.aborted) return
+          const status = error?.response?.status
+          setUpgradeEventsLoading(false)
+          setUpgradeEventsStalled(false)
+          setUpgradeEventsActive(false)
+          setUpgradeEventsError(status ? `Failed to fetch upgrade events (${status})` : 'Failed to fetch upgrade events')
+          return
+        }
+      }
+    }
+
+    void stream()
+  }, [stopUpgradeEventsStreaming])
+
   useEffect(() => {
     void loadTentacleUpgradeInfo(machine)
   }, [machine?.id, machine?.endpoint, loadTentacleUpgradeInfo])
@@ -780,13 +933,24 @@ const DeploymentTargetDetailPage: React.FC = () => {
     setHealthCheckError(null)
     setHealthCheckLoading(false)
     clearTentacleUpgradeRefreshTimer()
-  }, [clearTentacleUpgradeRefreshTimer, machine?.id])
+    stopUpgradeEventsStreaming()
+    setUpgradeEvents([])
+    setUpgradeEventsLoading(false)
+    setUpgradeEventsError(null)
+    setUpgradeEventsStalled(false)
+    setUpgradeEventsLegacyFallback(false)
+    setUpgradeEventsTargetVersion(null)
+    upgradeEventsTargetVersionRef.current = null
+    setUpgradeEventsLastPolledAt(null)
+    setUpgradeEventsPollCount(0)
+  }, [clearTentacleUpgradeRefreshTimer, machine?.id, stopUpgradeEventsStreaming])
 
   useEffect(() => {
     return () => {
       clearTentacleUpgradeRefreshTimer()
+      stopUpgradeEventsStreaming()
     }
-  }, [clearTentacleUpgradeRefreshTimer])
+  }, [clearTentacleUpgradeRefreshTimer, stopUpgradeEventsStreaming])
 
   const runMachineHealthCheck = useCallback(async () => {
     if (!machine) return
@@ -825,8 +989,12 @@ const DeploymentTargetDetailPage: React.FC = () => {
 
     setTentacleUpgradeLoading(true)
     clearTentacleUpgradeRefreshTimer()
+    startUpgradeEventsStreaming(machine.id, null)
+    navigate(`/${space.slug}/deployment/targets/${machine.id}/events`, { replace: true })
     try {
       const result = await upgradeMachine(machine.id, { targetVersion: null, allowDowngrade: false })
+      setUpgradeEventsTargetVersion(result.targetVersion || null)
+      upgradeEventsTargetVersionRef.current = result.targetVersion || null
 
       if (result.status === MachineUpgradeStatus.Upgraded) {
         message.success(result.detail || `Upgraded to ${result.targetVersion}`)
@@ -850,6 +1018,7 @@ const DeploymentTargetDetailPage: React.FC = () => {
 
       if (result.status === MachineUpgradeStatus.AlreadyUpToDate) {
         message.info(result.detail || 'Already up to date.')
+        stopUpgradeEventsStreaming()
         const refreshed = await refreshMachineSnapshot(machine.id)
         await loadTentacleUpgradeInfo(refreshed ?? machine)
         return
@@ -857,29 +1026,38 @@ const DeploymentTargetDetailPage: React.FC = () => {
 
       if (result.status === MachineUpgradeStatus.NotSupported) {
         message.warning(result.detail || 'This deployment target does not support direct agent upgrade.')
+        stopUpgradeEventsStreaming()
         return
       }
 
       message.error(result.detail || 'Agent upgrade failed.')
     } catch (error: any) {
       const status = error?.response?.status
+      if (status === 409) {
+        message.warning('Another operator is already upgrading this machine. Refreshing progress...')
+        return
+      }
       if (status === 403) {
+        stopUpgradeEventsStreaming()
         message.error('Insufficient permissions to upgrade this machine.')
         return
       }
       if (status === 404) {
+        stopUpgradeEventsStreaming()
         message.error('Machine not found.')
         return
       }
       if (status === 400) {
+        stopUpgradeEventsStreaming()
         message.error(error?.response?.data?.msg || 'Invalid upgrade request.')
         return
       }
+      stopUpgradeEventsStreaming()
       message.error('Upgrade request failed. Please retry.')
     } finally {
       setTentacleUpgradeLoading(false)
     }
-  }, [clearTentacleUpgradeRefreshTimer, loadTentacleUpgradeInfo, machine, refreshMachineSnapshot, runMachineHealthCheck])
+  }, [clearTentacleUpgradeRefreshTimer, loadTentacleUpgradeInfo, machine, navigate, refreshMachineSnapshot, runMachineHealthCheck, space.slug, startUpgradeEventsStreaming, stopUpgradeEventsStreaming])
 
   const handleSave = async () => {
     if (!machine) return
@@ -1163,7 +1341,19 @@ const DeploymentTargetDetailPage: React.FC = () => {
               <PlaceholderTab title="Deployments" />
             )}
             {activeTab === 'events' && (
-              <PlaceholderTab title="Events" />
+              <UpgradeEventsTab
+                machineName={machine.name}
+                events={upgradeEvents}
+                loading={upgradeEventsLoading}
+                active={upgradeEventsActive}
+                stalled={upgradeEventsStalled}
+                error={upgradeEventsError}
+                legacyFallback={upgradeEventsLegacyFallback}
+                targetVersion={upgradeEventsTargetVersion}
+                pollIntervalMs={UPGRADE_EVENTS_POLL_INTERVAL_MS}
+                lastPolledAt={upgradeEventsLastPolledAt}
+                pollCount={upgradeEventsPollCount}
+              />
             )}
           </div>
         </div>
@@ -1789,6 +1979,149 @@ function ConnectivityTab({
           </div>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+// ── Upgrade Events Tab ────────────────────────────────────────────────────────
+
+function formatUpgradeEventTime(timestamp: string): string {
+  const ts = Date.parse(timestamp)
+  if (Number.isNaN(ts)) return timestamp
+  return new Date(ts).toLocaleTimeString([], { hour12: false })
+}
+
+function getUpgradeEventVisual(kind: string): { icon: string; textClass: string } {
+  if (kind === 'success') return { icon: '🎉', textClass: 'text-emerald-700' }
+  if (kind === 'baseline-was-fail') return { icon: 'ℹ️', textClass: 'text-blue-700' }
+  if (kind.endsWith('-fail') || kind === 'method-exhausted' || kind === 'rollback-fail') {
+    return { icon: '❌', textClass: 'text-rose-700' }
+  }
+  if (kind === 'rollback-start') return { icon: '⏪', textClass: 'text-rose-700' }
+  if (kind === 'rollback-ok') return { icon: '↩️', textClass: 'text-amber-700' }
+  if (kind === 'scope-exec') return { icon: '🔌', textClass: 'text-gray-700' }
+  if (kind === 'swapped') return { icon: '🔄', textClass: 'text-gray-700' }
+  if (kind === 'restart-start') return { icon: '⚡', textClass: 'text-gray-700' }
+  if (kind === 'method-selected') return { icon: '📦', textClass: 'text-gray-700' }
+  if (kind === 'disk-precheck-pass') return { icon: '💾', textClass: 'text-gray-700' }
+  if (kind === 'baseline') return { icon: '📋', textClass: 'text-gray-700' }
+  if (kind === 'start') return { icon: '🚀', textClass: 'text-gray-700' }
+  if (kind === 'healthz-pass') return { icon: '✅', textClass: 'text-gray-700' }
+  return { icon: '•', textClass: 'text-gray-700' }
+}
+
+function UpgradeEventsTab({
+  machineName,
+  events,
+  loading,
+  active,
+  stalled,
+  error,
+  legacyFallback,
+  targetVersion,
+  pollIntervalMs,
+  lastPolledAt,
+  pollCount,
+}: {
+  machineName: string
+  events: MachineUpgradeEventItem[]
+  loading: boolean
+  active: boolean
+  stalled: boolean
+  error: string | null
+  legacyFallback: boolean
+  targetVersion: string | null
+  pollIntervalMs: number
+  lastPolledAt: string | null
+  pollCount: number
+}) {
+  const lastKind = events[events.length - 1]?.kind ?? ''
+  const terminal = lastKind ? UPGRADE_EVENTS_TERMINAL_KINDS.has(lastKind) : false
+  const hasScopeExec = events.some((e) => e.kind === 'scope-exec')
+  const hasPhaseB = events.some((e) => String(e.phase).toUpperCase() === 'B')
+  const showRestartGap = active && hasScopeExec && !hasPhaseB && !terminal
+  const restartInProgress = active && lastKind === 'restart-start' && !events.some((e) => e.kind === 'healthz-pass')
+  const lastPolledText = lastPolledAt ? formatUpgradeEventTime(lastPolledAt) : '--:--:--'
+  const pollSeconds = Math.round(pollIntervalMs / 1000)
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900 m-0">Events</h1>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {active ? (
+            <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-blue-100 text-blue-700">
+              Streaming
+            </span>
+          ) : null}
+          {(active || pollCount > 0) ? (
+            <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-gray-100 text-gray-700">
+              Refresh every {pollSeconds}s · Last poll {lastPolledText} · #{pollCount}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border border-gray-200 rounded-md bg-white p-6">
+        {loading ? (
+          <div className="text-sm text-gray-500">Loading upgrade events...</div>
+        ) : null}
+
+        {!loading && events.length === 0 ? (
+          <div className="text-sm text-gray-500">
+            No live upgrade events yet.
+          </div>
+        ) : null}
+
+        {!loading && events.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-sm text-gray-700 mb-3">
+              Upgrading machine <strong>{machineName}</strong>{targetVersion ? ` to ${targetVersion}` : ''}.
+            </div>
+            {events.map((event, index) => {
+              const visual = getUpgradeEventVisual(event.kind)
+              return (
+                <div key={`${event.timestamp}-${event.kind}-${index}`} className="flex items-start gap-3">
+                  <span className="w-5 text-center leading-5">{visual.icon}</span>
+                  <span className="text-xs text-gray-500 w-16 shrink-0">{formatUpgradeEventTime(event.timestamp)}</span>
+                  <span className="text-xs text-gray-500 w-8 shrink-0">[{event.phase}]</span>
+                  <span className={`text-sm ${visual.textClass}`}>{event.message}</span>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+
+        {showRestartGap ? (
+          <div className="mt-4 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+            ⏳ Service restarting (Halibut connection re-establishes after restart)…
+          </div>
+        ) : null}
+
+        {restartInProgress ? (
+          <div className="mt-3 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+            正在重啟 Tentacle，預計 30-60 秒...
+          </div>
+        ) : null}
+
+        {legacyFallback ? (
+          <div className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Legacy fallback mode: no live events yet, checking upgrade outcome by version.
+          </div>
+        ) : null}
+
+        {stalled ? (
+          <div className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Upgrade event stream stalled.
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

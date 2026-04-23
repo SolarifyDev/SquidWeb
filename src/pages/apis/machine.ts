@@ -364,6 +364,22 @@ export interface MachineHealthCheckData {
   [key: string]: unknown
 }
 
+export interface MachineUpgradeEventItem {
+  timestamp: string
+  phase: string
+  kind: string
+  message: string
+}
+
+export interface MachineUpgradeEventsData {
+  machineId: number
+  events: MachineUpgradeEventItem[]
+}
+
+export function getMachineUpgradeEvents(machineId: number) {
+  return get<MachineUpgradeEventsData>(`/machines/${machineId}/upgrade-events`)
+}
+
 function shouldTryNextHealthRoute(error: unknown): boolean {
   const status = (error as any)?.response?.status ?? (error as any)?.status
   return status === 400 || status === 404 || status === 405 || status === 415 || status === 422
