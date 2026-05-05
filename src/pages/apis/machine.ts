@@ -271,6 +271,7 @@ export function registerTentaclePolling(command: RegisterTentaclePollingCommand)
 }
 
 export type TentacleCommunicationMode = 'Listening' | 'Polling'
+export type TentacleOperatingSystem = 'Linux' | 'Windows' | 'macOS'
 
 export interface GenerateTentacleInstallScriptCommand {
   machineName: string
@@ -280,7 +281,7 @@ export interface GenerateTentacleInstallScriptCommand {
   tags: string[]
   machinePolicyId?: number | null
   spaceId?: number
-  operatingSystem?: 'Linux' | 'Windows' | 'macOS' | null
+  operatingSystem?: TentacleOperatingSystem | null
   communicationMode: TentacleCommunicationMode
   listeningHostName?: string
   listeningPort?: number
@@ -296,13 +297,131 @@ export interface TentacleInstallScriptItem {
   isRecommended?: boolean
 }
 
+export interface TentacleDownloadItem {
+  operatingSystem: string
+  architecture: string
+  libcVariant?: string | null
+  rid: string
+  downloadUrl: string
+  sha256Url: string
+  fileName: string
+  label: string
+  isRecommended?: boolean
+}
+
+export interface TentacleCommsProbeInfo {
+  reachable: boolean
+  skipped: boolean
+  observedThumbprint?: string | null
+  thumbprintMatches?: boolean | null
+  detail?: string | null
+}
+
 export interface GenerateTentacleInstallScriptData {
   serverThumbprint?: string | null
   scripts: TentacleInstallScriptItem[]
+  downloads?: TentacleDownloadItem[]
+  commsUrlProbe?: TentacleCommsProbeInfo | null
 }
 
-export function generateTentacleInstallScript(command: GenerateTentacleInstallScriptCommand) {
-  return post<GenerateTentacleInstallScriptData>('/machines/generate-tentacle-install-script', command)
+export interface TentacleDownloadsResponseData {
+  latestVersion?: string | null
+  downloads: TentacleDownloadItem[]
+}
+
+export interface GetTentacleDownloadsRequest {
+  // Property names match BE GetTentacleDownloadsRequest (case-insensitive bind).
+  // Using `os` here would NOT bind to OperatingSystem on .NET model binder.
+  operatingSystem?: TentacleOperatingSystem
+  version?: string
+}
+
+function normalizeTentacleInstallScriptItem(payload: unknown): TentacleInstallScriptItem | null {
+  if (!payload || typeof payload !== 'object') return null
+  const source = payload as Record<string, unknown>
+  const id = String(source.id ?? source.Id ?? '').trim()
+  const content = String(source.content ?? source.Content ?? '').trim()
+  if (!id || !content) return null
+  return {
+    id,
+    label: String(source.label ?? source.Label ?? id),
+    operatingSystem: String(source.operatingSystem ?? source.OperatingSystem ?? '').trim() || null,
+    installationMethod: String(source.installationMethod ?? source.InstallationMethod ?? '').trim() || null,
+    scriptType: String(source.scriptType ?? source.ScriptType ?? '').trim() || null,
+    content,
+    isRecommended: Boolean(source.isRecommended ?? source.IsRecommended ?? false),
+  }
+}
+
+function normalizeTentacleDownloadItem(payload: unknown): TentacleDownloadItem | null {
+  if (!payload || typeof payload !== 'object') return null
+  const source = payload as Record<string, unknown>
+  const downloadUrl = String(source.downloadUrl ?? source.DownloadUrl ?? '').trim()
+  if (!downloadUrl) return null
+  const operatingSystem = String(source.operatingSystem ?? source.OperatingSystem ?? '').trim()
+  const architecture = String(source.architecture ?? source.Architecture ?? '').trim()
+  const rid = String(source.rid ?? source.Rid ?? '').trim()
+  const sha256Url = String(source.sha256Url ?? source.Sha256Url ?? '').trim()
+  return {
+    operatingSystem,
+    architecture,
+    libcVariant: String(source.libcVariant ?? source.LibcVariant ?? '').trim() || null,
+    rid,
+    downloadUrl,
+    sha256Url,
+    fileName: String(source.fileName ?? source.FileName ?? '').trim() || downloadUrl.split('/').pop() || 'download',
+    label: String(source.label ?? source.Label ?? '').trim() || [operatingSystem, architecture].filter(Boolean).join(' '),
+    isRecommended: Boolean(source.isRecommended ?? source.IsRecommended ?? false),
+  }
+}
+
+function normalizeTentacleCommsProbeInfo(payload: unknown): TentacleCommsProbeInfo | null {
+  if (!payload || typeof payload !== 'object') return null
+  const source = payload as Record<string, unknown>
+  return {
+    reachable: Boolean(source.reachable ?? source.Reachable ?? false),
+    skipped: Boolean(source.skipped ?? source.Skipped ?? false),
+    observedThumbprint: String(source.observedThumbprint ?? source.ObservedThumbprint ?? '').trim() || null,
+    thumbprintMatches: typeof (source.thumbprintMatches ?? source.ThumbprintMatches) === 'boolean'
+      ? Boolean(source.thumbprintMatches ?? source.ThumbprintMatches)
+      : null,
+    detail: String(source.detail ?? source.Detail ?? '').trim() || null,
+  }
+}
+
+function normalizeGenerateTentacleInstallScriptData(payload: unknown): GenerateTentacleInstallScriptData {
+  if (!payload || typeof payload !== 'object') return { serverThumbprint: null, scripts: [], downloads: [], commsUrlProbe: null }
+  const source = payload as Record<string, unknown>
+  const rawScripts = Array.isArray(source.scripts) ? source.scripts : (Array.isArray(source.Scripts) ? source.Scripts : [])
+  const rawDownloads = Array.isArray(source.downloads) ? source.downloads : (Array.isArray(source.Downloads) ? source.Downloads : [])
+  const scripts = rawScripts.map(normalizeTentacleInstallScriptItem).filter((item): item is TentacleInstallScriptItem => !!item)
+  const downloads = rawDownloads.map(normalizeTentacleDownloadItem).filter((item): item is TentacleDownloadItem => !!item)
+  return {
+    serverThumbprint: String(source.serverThumbprint ?? source.ServerThumbprint ?? '').trim() || null,
+    scripts,
+    downloads,
+    commsUrlProbe: normalizeTentacleCommsProbeInfo(source.commsUrlProbe ?? source.CommsUrlProbe),
+  }
+}
+
+function normalizeTentacleDownloadsResponseData(payload: unknown): TentacleDownloadsResponseData {
+  if (!payload || typeof payload !== 'object') return { latestVersion: null, downloads: [] }
+  const source = payload as Record<string, unknown>
+  const rawDownloads = Array.isArray(source.downloads) ? source.downloads : (Array.isArray(source.Downloads) ? source.Downloads : [])
+  return {
+    latestVersion: String(source.latestVersion ?? source.LatestVersion ?? '').trim() || null,
+    downloads: rawDownloads.map(normalizeTentacleDownloadItem).filter((item): item is TentacleDownloadItem => !!item),
+  }
+}
+
+export async function generateTentacleInstallScript(command: GenerateTentacleInstallScriptCommand) {
+  const data = await post<unknown>('/machines/generate-tentacle-install-script', command)
+  return normalizeGenerateTentacleInstallScriptData(data)
+}
+
+export async function getTentacleDownloads(params?: GetTentacleDownloadsRequest) {
+  const data = await get<unknown>('/machines/tentacle-downloads', { params })
+  return normalizeTentacleDownloadsResponseData(data)
 }
 
 // --- Tentacle Agent Upgrade ---
