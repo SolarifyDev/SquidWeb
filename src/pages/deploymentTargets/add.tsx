@@ -510,6 +510,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     proxy: true,
     installHelp: false,
     serverUrls: true,
+    setupMethod: true,
   })
 
   const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.Token).map(({ value, label }) => ({ value, label }))
@@ -1437,13 +1438,18 @@ const AddDeploymentTargetPage: React.FC = () => {
     void loadCertificates()
   }, [loadCertificates])
 
-  // Auto-derive registration mode from the communication mode the user picks:
-  //   Listening → 'manual'  (operator gives Tentacle URL + thumbprint, server registers directly — Octopus-style)
-  //   Polling   → 'script'  (server cannot register a Polling agent without the agent itself running register CLI)
-  // Lets the form skip the legacy "Mode picker" step entirely while preserving every existing
-  // field/behavior in both branches.
+  // Polling MUST use script (agent has to phone home with server URL + api key).
+  // Listening's registrationMode is left alone here — the sub-toggle inside the
+  // Listening branch is the user's choice between:
+  //   'script' (default) — Squid generates an install one-liner that auto-registers the agent.
+  //                        Equivalent UX to Octopus's "default" Listening (no thumbprint needed
+  //                        upfront — the agent provides it during register).
+  //   'manual' (override) — operator already has a running Tentacle and pastes the thumbprint
+  //                         directly. Equivalent to Octopus's "Enter details manually" form.
   useEffect(() => {
-    setListeningRegistrationMode(listeningCommunicationMode === 'Polling' ? 'script' : 'manual')
+    if (listeningCommunicationMode === 'Polling') {
+      setListeningRegistrationMode('script')
+    }
   }, [listeningCommunicationMode])
 
   useEffect(() => {
@@ -1777,11 +1783,12 @@ const AddDeploymentTargetPage: React.FC = () => {
                                 }
                                 if (option.key === 'listening-tentacle') {
                                   setTentacleOperatingSystem('Linux')
-                                  // Default to Listening (manual register) — Octopus-style
-                                  // operator path. Polling switches the form via the
-                                  // Communication Mode toggle inside the form itself.
+                                  // Default sub-mode for Listening is script (Octopus-equivalent
+                                  // UX — no thumbprint needed upfront; the generated install
+                                  // one-liner auto-registers the agent). Operators with a running
+                                  // Tentacle flip the sub-toggle to "manual" to paste thumbprint.
                                   setListeningCommunicationMode('Listening')
-                                  setListeningRegistrationMode('manual')
+                                  setListeningRegistrationMode('script')
                                   setListeningStep('form')
                                   setAgentFormView('listening-tentacle')
                                   return
@@ -1836,11 +1843,12 @@ const AddDeploymentTargetPage: React.FC = () => {
                               onClick={() => {
                                 if (option.key === 'windows-tentacle') {
                                   setTentacleOperatingSystem('Windows')
-                                  // Default to Listening (manual register) — Octopus-style
-                                  // operator path. Polling switches the form via the
-                                  // Communication Mode toggle inside the form itself.
+                                  // Default sub-mode for Listening is script (Octopus-equivalent
+                                  // UX — no thumbprint needed upfront; the generated install
+                                  // one-liner auto-registers the agent). Operators with a running
+                                  // Tentacle flip the sub-toggle to "manual" to paste thumbprint.
                                   setListeningCommunicationMode('Listening')
-                                  setListeningRegistrationMode('manual')
+                                  setListeningRegistrationMode('script')
                                   setListeningStep('form')
                                   setAgentFormView('listening-tentacle')
                                   return
@@ -2758,114 +2766,128 @@ const AddDeploymentTargetPage: React.FC = () => {
                     </ExpandableFormCard>
                   ) : (
                     <>
+                      {/* Sub-toggle inside Listening: 'script' = Squid generates an install one-liner
+                          that auto-registers (default; no thumbprint needed upfront — the agent supplies
+                          its own thumbprint when the script runs the `register` call). 'manual' =
+                          operator already has a running Tentacle and pastes the thumbprint by hand
+                          (Octopus's "Enter details manually" equivalent). */}
                       <ExpandableFormCard
-                        title="Tentacle URL"
-                        subtitle="The network address at which the Tentacle can be reached."
-                        expanded={listeningExpanded.tentacleUrl}
-                        onToggle={() => toggleListeningSection('tentacleUrl')}
+                        title="Setup method"
+                        subtitle="Pick how this Tentacle should be set up."
+                        expanded={listeningExpanded.setupMethod}
+                        onToggle={() => toggleListeningSection('setupMethod')}
                       >
-                        <FormField
-                          label="Tentacle URL"
-                          value={listeningTentacleUrl}
-                          onChange={setListeningTentacleUrl}
-                          placeholder="https://10.0.0.5:10933/"
-                          helper="The hostname/IP and port the Tentacle is listening on (default port 10933)."
-                        />
-                        <FormField
-                          label="Agent Version"
-                          value={listeningAgentVersion}
-                          onChange={setListeningAgentVersion}
-                          placeholder="1.0.0"
-                          helper="Optional. Leave empty to let the server infer the current version."
-                        />
-                      </ExpandableFormCard>
-
-                      <ExpandableFormCard
-                        title="Thumbprint"
-                        subtitle="The X509 certificate thumbprint that securely identifies the Tentacle."
-                        expanded={listeningExpanded.thumbprint}
-                        onToggle={() => toggleListeningSection('thumbprint')}
-                      >
-                        <FormField
-                          label="Thumbprint"
-                          value={listeningThumbprint}
-                          onChange={setListeningThumbprint}
-                          helper="Run `squid-tentacle show-thumbprint` on the target machine to get this value."
-                        />
-                        <NoteBlock>
-                          You can confirm the validity of the thumbprint by opening the Tentacle administration tool on the discovered Tentacle.
-                        </NoteBlock>
-                      </ExpandableFormCard>
-
-                      <ExpandableFormCard
-                        title="Proxy"
-                        subtitle="Select whether to use a proxy to connect to this Tentacle."
-                        expanded={listeningExpanded.proxy}
-                        onToggle={() => toggleListeningSection('proxy')}
-                      >
-                        <div className="mb-5">
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Connection method</label>
+                        <div className="mb-2">
                           <Radio.Group
                             className="flex flex-col gap-2"
-                            value={listeningUseProxy ? 'proxy' : 'direct'}
-                            onChange={(event) => setListeningUseProxy(event.target.value === 'proxy')}
+                            value={listeningRegistrationMode}
+                            onChange={(event) => setListeningRegistrationMode(event.target.value as ListeningRegistrationMode)}
                           >
-                            <Radio className="!block" value="direct">Connect to this Tentacle directly (default)</Radio>
-                            <Radio className="!block" value="proxy">Connect to this Tentacle through a proxy server</Radio>
+                            <Radio className="!block" value="script">Install + register for me — generate a one-liner I run on the target. No thumbprint needed.</Radio>
+                            <Radio className="!block" value="manual">Enter details manually — I already have a running Tentacle and its thumbprint.</Radio>
                           </Radio.Group>
                         </div>
                       </ExpandableFormCard>
 
-                      <ExpandableFormCard
-                        title="Need help installing the Tentacle?"
-                        subtitle="If you don't have a running Tentacle yet, follow these steps first."
-                        expanded={listeningExpanded.installHelp}
-                        onToggle={() => toggleListeningSection('installHelp')}
-                      >
-                        <NoteBlock>
-                          Listening mode requires a running Tentacle on the target. Install it once on the
-                          machine, then return here and fill in the Tentacle URL + Thumbprint above.
-                        </NoteBlock>
+                      {listeningRegistrationMode === 'script' ? (
+                        <>
+                          <ExpandableFormCard
+                            title="Server URL"
+                            subtitle="The Squid Server URL the agent will register against."
+                            expanded={listeningExpanded.serverUrls}
+                            onToggle={() => toggleListeningSection('serverUrls')}
+                          >
+                            <FormField
+                              label="Squid Server URL"
+                              value={listeningServerUrl}
+                              onChange={setListeningServerUrl}
+                              placeholder="https://squid.example.com:7078"
+                              helper="Usually auto-filled from server configuration."
+                            />
+                          </ExpandableFormCard>
 
-                        <div className="mt-3 space-y-3">
-                          <div>
-                            <div className="text-sm font-medium text-gray-800 mb-1">1. Install the Tentacle on the target</div>
-                            <pre className="bg-gray-900 text-gray-100 text-xs p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed m-0 rounded">
-{tentacleOperatingSystem === 'Windows'
-  ? 'iwr -UseBasicParsing https://raw.githubusercontent.com/SolarifyDev/Squid/main/deploy/scripts/install-tentacle.ps1 -OutFile $env:TEMP\\install-tentacle.ps1\n& $env:TEMP\\install-tentacle.ps1'
-  : 'curl -fsSL https://raw.githubusercontent.com/SolarifyDev/Squid/main/deploy/scripts/install-tentacle.sh | sudo bash'}
-                            </pre>
-                            <div className="text-xs text-gray-500 mt-1">
-                              Or download the binary manually from
-                              {' '}
-                              <a
-                                href="https://github.com/SolarifyDev/Squid/releases/latest"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-squid-blue hover:underline"
+                          <ExpandableFormCard
+                            title="Tentacle Listening Address"
+                            subtitle="Where the Tentacle will listen on the target machine."
+                            expanded={listeningExpanded.tentacleUrl}
+                            onToggle={() => toggleListeningSection('tentacleUrl')}
+                          >
+                            <FormField
+                              label="Hostname / IP"
+                              value={listeningHostName}
+                              onChange={setListeningHostName}
+                              placeholder="192.168.1.100"
+                              helper="The address other machines will use to reach the Tentacle."
+                            />
+                            <FormField
+                              label="Port"
+                              value={listeningPortText}
+                              onChange={setListeningPortText}
+                              placeholder="10933"
+                            />
+                          </ExpandableFormCard>
+                        </>
+                      ) : (
+                        <>
+                          <ExpandableFormCard
+                            title="Tentacle URL"
+                            subtitle="The network address at which the Tentacle can be reached."
+                            expanded={listeningExpanded.tentacleUrl}
+                            onToggle={() => toggleListeningSection('tentacleUrl')}
+                          >
+                            <FormField
+                              label="Tentacle URL"
+                              value={listeningTentacleUrl}
+                              onChange={setListeningTentacleUrl}
+                              placeholder="https://10.0.0.5:10933/"
+                              helper="The hostname/IP and port the Tentacle is listening on (default port 10933)."
+                            />
+                            <FormField
+                              label="Agent Version"
+                              value={listeningAgentVersion}
+                              onChange={setListeningAgentVersion}
+                              placeholder="1.0.0"
+                              helper="Optional. Leave empty to let the server infer the current version."
+                            />
+                          </ExpandableFormCard>
+
+                          <ExpandableFormCard
+                            title="Thumbprint"
+                            subtitle="The X509 certificate thumbprint that securely identifies the Tentacle."
+                            expanded={listeningExpanded.thumbprint}
+                            onToggle={() => toggleListeningSection('thumbprint')}
+                          >
+                            <FormField
+                              label="Thumbprint"
+                              value={listeningThumbprint}
+                              onChange={setListeningThumbprint}
+                              helper="Run `squid-tentacle show-thumbprint` on the target machine to get this value."
+                            />
+                            <NoteBlock>
+                              You can confirm the validity of the thumbprint by opening the Tentacle administration tool on the discovered Tentacle.
+                            </NoteBlock>
+                          </ExpandableFormCard>
+
+                          <ExpandableFormCard
+                            title="Proxy"
+                            subtitle="Select whether to use a proxy to connect to this Tentacle."
+                            expanded={listeningExpanded.proxy}
+                            onToggle={() => toggleListeningSection('proxy')}
+                          >
+                            <div className="mb-5">
+                              <label className="block text-sm font-medium text-gray-700 mb-1.5">Connection method</label>
+                              <Radio.Group
+                                className="flex flex-col gap-2"
+                                value={listeningUseProxy ? 'proxy' : 'direct'}
+                                onChange={(event) => setListeningUseProxy(event.target.value === 'proxy')}
                               >
-                                GitHub Releases
-                              </a>.
+                                <Radio className="!block" value="direct">Connect to this Tentacle directly (default)</Radio>
+                                <Radio className="!block" value="proxy">Connect to this Tentacle through a proxy server</Radio>
+                              </Radio.Group>
                             </div>
-                          </div>
-
-                          <div>
-                            <div className="text-sm font-medium text-gray-800 mb-1">2. Get the Tentacle's thumbprint</div>
-                            <pre className="bg-gray-900 text-gray-100 text-xs p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed m-0 rounded">
-{tentacleOperatingSystem === 'Windows'
-  ? "& 'C:\\Program Files\\Squid Tentacle\\squid-tentacle.exe' show-thumbprint"
-  : 'sudo squid-tentacle show-thumbprint'}
-                            </pre>
-                          </div>
-
-                          <div>
-                            <div className="text-sm font-medium text-gray-800 mb-1">3. Paste the thumbprint above and Save</div>
-                            <div className="text-xs text-gray-500">
-                              Use the Tentacle's <span className="font-mono">{`https://<host>:10933/`}</span>{' '}URL and the thumbprint from step 2.
-                            </div>
-                          </div>
-                        </div>
-                      </ExpandableFormCard>
+                          </ExpandableFormCard>
+                        </>
+                      )}
                     </>
                   )}
 
