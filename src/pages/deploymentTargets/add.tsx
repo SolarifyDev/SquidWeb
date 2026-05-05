@@ -20,9 +20,12 @@ import {
   registerSshConnection,
   type GenerateTentacleInstallScriptData,
   type TentacleInstallScriptItem,
+  type TentacleDownloadItem,
+  type TentacleCommsProbeInfo,
   type GenerateKubernetesAgentInstallScriptData,
   type KubernetesAgentStorageType,
   type TentacleCommunicationMode,
+  type TentacleOperatingSystem,
   type EndpointResourceReference,
 } from 'pages/apis/machine'
 import { DeploymentAccountType, getDeploymentAccounts } from 'pages/apis/deploymentAccount'
@@ -78,6 +81,15 @@ const linuxOptions = [
   },
 ]
 
+const windowsOptions = [
+  {
+    key: 'windows-tentacle',
+    title: 'Windows Tentacle',
+    desc: 'Install and register a Windows Tentacle to perform tasks from the Squid Server.',
+    recommended: false,
+  },
+]
+
 type KubernetesApiAuthType =
   | 'usernamepassword'
   | 'token'
@@ -92,6 +104,7 @@ type KubernetesApiAuthType =
 type OpenClawAuthMode = 'account' | 'inline'
 type ListeningRegistrationMode = 'script' | 'manual'
 type ListeningScriptTab = string
+type ListeningInstallView = 'script' | 'download'
 type ListeningStep = 'mode' | 'form' | 'script' | 'verifying' | 'connected'
 
 function toShellScript(bash: string | null | undefined, shell: 'bash' | 'powershell'): string {
@@ -125,6 +138,29 @@ function pickTentacleRecommendedScriptTab(data: GenerateTentacleInstallScriptDat
   if (scripts.length === 0) return ''
   const recommended = scripts.find((script) => script.isRecommended)
   return recommended?.id ?? scripts[0].id
+}
+
+function normalizeTentacleDownloads(data: GenerateTentacleInstallScriptData | null): TentacleDownloadItem[] {
+  if (!data || !Array.isArray(data.downloads)) return []
+  const normalized = data.downloads
+    .map((download, index) => ({ download, index }))
+    .filter(({ download }) => {
+      if (!download) return false
+      const url = String(download.downloadUrl ?? '').trim()
+      return url.length > 0
+    })
+    .sort((a, b) => {
+      const aRank = a.download.isRecommended ? 0 : 1
+      const bRank = b.download.isRecommended ? 0 : 1
+      if (aRank !== bRank) return aRank - bRank
+      return a.index - b.index
+    })
+  return normalized.map((item) => item.download)
+}
+
+function readTentacleCommsProbe(data: GenerateTentacleInstallScriptData | null): TentacleCommsProbeInfo | null {
+  if (!data || !data.commsUrlProbe) return null
+  return data.commsUrlProbe
 }
 
 const kubernetesAgentStorageTypeOptions: Array<{ value: KubernetesAgentStorageType; label: string }> = [
@@ -399,6 +435,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [sshSelectedAccountId, setSshSelectedAccountId] = useState<string | undefined>(undefined)
   const [sshSaving, setSshSaving] = useState(false)
   const [sshTagSearchValue, setSshTagSearchValue] = useState('')
+  const [tentacleOperatingSystem, setTentacleOperatingSystem] = useState<TentacleOperatingSystem>('Linux')
   const [listeningDisplayName, setListeningDisplayName] = useState('')
   const [listeningEnvironments, setListeningEnvironments] = useState<number[]>([])
   const [listeningTargetTags, setListeningTargetTags] = useState<string[]>([])
@@ -416,12 +453,13 @@ const AddDeploymentTargetPage: React.FC = () => {
   const [listeningGeneratingScript, setListeningGeneratingScript] = useState(false)
   const [listeningGeneratedScripts, setListeningGeneratedScripts] = useState<GenerateTentacleInstallScriptData | null>(null)
   const [listeningActiveScriptTab, setListeningActiveScriptTab] = useState<ListeningScriptTab>('')
+  const [listeningInstallView, setListeningInstallView] = useState<ListeningInstallView>('script')
   const [listeningSaving, setListeningSaving] = useState(false)
   const [listeningTagSearchValue, setListeningTagSearchValue] = useState('')
   const [listeningServerThumbprint, setListeningServerThumbprint] = useState('')
   const [machinePolicyOptions, setMachinePolicyOptions] = useState<{ value: string; label: string; isDefault?: boolean }[]>([])
   const [loadingMachinePolicies, setLoadingMachinePolicies] = useState(false)
-  const [listeningStep, setListeningStep] = useState<ListeningStep>('mode')
+  const [listeningStep, setListeningStep] = useState<ListeningStep>('form')
   const [listeningTimedOut, setListeningTimedOut] = useState(false)
   // --- Kubernetes Agent wizard ---
   const [scriptShell, setScriptShell] = useState<'bash' | 'powershell'>('bash')
@@ -470,6 +508,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     serverThumbprint: true,
     tentacleUrl: true,
     proxy: true,
+    installHelp: false,
+    serverUrls: true,
+    setupMethod: true,
   })
 
   const tokenAccountOptions = deploymentAccountOptions.filter((a) => a.accountType === DeploymentAccountType.Token).map(({ value, label }) => ({ value, label }))
@@ -495,6 +536,9 @@ const AddDeploymentTargetPage: React.FC = () => {
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null
   }, [listeningMachinePolicyId])
   const listeningScriptItems = useMemo(() => normalizeTentacleInstallScripts(listeningGeneratedScripts), [listeningGeneratedScripts])
+  const listeningDownloadItems = useMemo(() => normalizeTentacleDownloads(listeningGeneratedScripts), [listeningGeneratedScripts])
+  const listeningCommsProbe = useMemo(() => readTentacleCommsProbe(listeningGeneratedScripts), [listeningGeneratedScripts])
+  const tentacleLabel = tentacleOperatingSystem === 'Windows' ? 'Windows Tentacle' : 'Linux Tentacle'
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
@@ -577,6 +621,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     setSshSaving(false)
     setSshTagSearchValue('')
 
+    setTentacleOperatingSystem('Linux')
     setListeningDisplayName('')
     setListeningEnvironments([])
     setListeningTargetTags([])
@@ -594,10 +639,11 @@ const AddDeploymentTargetPage: React.FC = () => {
     setListeningGeneratingScript(false)
     setListeningGeneratedScripts(null)
     setListeningActiveScriptTab('')
+    setListeningInstallView('script')
     setListeningSaving(false)
     setListeningTagSearchValue('')
     setListeningServerThumbprint('')
-    setListeningStep('mode')
+    setListeningStep('form')
     setListeningTimedOut(false)
   }
 
@@ -1174,11 +1220,11 @@ const AddDeploymentTargetPage: React.FC = () => {
         thumbprint: listeningThumbprint.trim(),
         agentVersion: listeningAgentVersion.trim() || undefined,
       })
-      message.success('Linux Tentacle target registered successfully')
+      message.success(`${tentacleLabel} target registered successfully`)
       closeAddModal()
       navigate(`/${space.slug}/deployment/targets`)
     } catch {
-      message.error('Failed to register Linux Tentacle target')
+      message.error(`Failed to register ${tentacleLabel} target`)
     } finally {
       setListeningSaving(false)
     }
@@ -1190,8 +1236,8 @@ const AddDeploymentTargetPage: React.FC = () => {
     return found?.content ?? ''
   }, [])
 
-  const handleCopyListeningScript = useCallback(async (tab: ListeningScriptTab) => {
-    const scriptContent = getListeningScriptContent(tab, listeningGeneratedScripts).trim()
+  const handleCopyListeningScript = useCallback(async (tab: ListeningScriptTab, override?: string) => {
+    const scriptContent = (override ?? getListeningScriptContent(tab, listeningGeneratedScripts)).trim()
     if (!scriptContent) {
       message.warning('No script content to copy')
       return
@@ -1209,6 +1255,7 @@ const AddDeploymentTargetPage: React.FC = () => {
   const handleSelectListeningMode = useCallback((mode: ListeningRegistrationMode) => {
     stopListeningPolling()
     setListeningRegistrationMode(mode)
+    setListeningInstallView('script')
     if (mode === 'script') {
       setListeningGeneratedScripts(null)
       setListeningActiveScriptTab('')
@@ -1251,7 +1298,7 @@ const AddDeploymentTargetPage: React.FC = () => {
         tags: listeningTargetTags,
         machinePolicyId: selectedListeningMachinePolicyId,
         spaceId: space.id,
-        operatingSystem: 'Linux',
+        operatingSystem: tentacleOperatingSystem,
         communicationMode: listeningCommunicationMode,
         listeningHostName: listeningCommunicationMode === 'Listening' ? listeningHostName.trim() : undefined,
         listeningPort: listeningCommunicationMode === 'Listening' ? listeningPort : undefined,
@@ -1259,11 +1306,12 @@ const AddDeploymentTargetPage: React.FC = () => {
 
       setListeningGeneratedScripts(generated)
       setListeningActiveScriptTab(pickTentacleRecommendedScriptTab(generated))
+      setListeningInstallView('script')
       const generatedThumbprint = String(generated.serverThumbprint ?? '').trim()
       if (generatedThumbprint) setListeningServerThumbprint(generatedThumbprint)
       setListeningStep('script')
     } catch (error) {
-      console.error('Failed to generate Linux Tentacle install script', error)
+      console.error(`Failed to generate ${tentacleLabel} install script`, error)
       message.error('Failed to generate install script')
     } finally {
       setListeningGeneratingScript(false)
@@ -1390,6 +1438,20 @@ const AddDeploymentTargetPage: React.FC = () => {
     void loadCertificates()
   }, [loadCertificates])
 
+  // Polling MUST use script (agent has to phone home with server URL + api key).
+  // Listening's registrationMode is left alone here — the sub-toggle inside the
+  // Listening branch is the user's choice between:
+  //   'script' (default) — Squid generates an install one-liner that auto-registers the agent.
+  //                        Equivalent UX to Octopus's "default" Listening (no thumbprint needed
+  //                        upfront — the agent provides it during register).
+  //   'manual' (override) — operator already has a running Tentacle and pastes the thumbprint
+  //                         directly. Equivalent to Octopus's "Enter details manually" form.
+  useEffect(() => {
+    if (listeningCommunicationMode === 'Polling') {
+      setListeningRegistrationMode('script')
+    }
+  }, [listeningCommunicationMode])
+
   useEffect(() => {
     setApiSelectedAccountId(undefined)
     setApiSelectedClientCertificateId(undefined)
@@ -1468,6 +1530,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     setListeningGeneratedScripts(null)
   }, [
     listeningRegistrationMode,
+    tentacleOperatingSystem,
     listeningDisplayName,
     listeningEnvironments,
     listeningTargetTags,
@@ -1497,6 +1560,20 @@ const AddDeploymentTargetPage: React.FC = () => {
   const nfsCsiDriverRequired = Boolean(scriptData && (scriptData.nfsCsiDriverRequired ?? scriptData.nfsCsiDriverScript))
   const agentInstallStepNumber = nfsCsiDriverRequired ? 2 : 1
   const activeListeningScript = listeningScriptItems.find((script) => script.id === listeningActiveScriptTab) ?? null
+  const recommendedListeningDownload = listeningDownloadItems.find((download) => download.isRecommended) ?? listeningDownloadItems[0] ?? null
+  // Show the [Run script | Download manually] toggle for any OS that has both surfaces.
+  // F.3 BE response now returns Linux downloads too (linux-x64 / linux-arm64 / linux-musl-x64 / linux-musl-arm64),
+  // so Linux users can also pick between the one-liner script and a manual-install path.
+  const showTentacleInstallSwitcher = listeningScriptItems.length > 0 && listeningDownloadItems.length > 0
+  // Register-only snippet for the "Download manually" path: starts at Step 2 of the
+  // generated script (everything after the install/download portion). The download
+  // tab user has already obtained the binary by other means, so they only need
+  // register + service install. Falls back to full content if the marker is absent.
+  const listeningRegisterSnippet = useMemo(() => {
+    const fullScript = activeListeningScript?.content ?? ''
+    const markerIdx = fullScript.indexOf('# Step 2:')
+    return markerIdx >= 0 ? fullScript.slice(markerIdx) : fullScript
+  }, [activeListeningScript])
 
   return (
     <div className="bg-white min-h-screen">
@@ -1705,7 +1782,74 @@ const AddDeploymentTargetPage: React.FC = () => {
                                   return
                                 }
                                 if (option.key === 'listening-tentacle') {
-                                  setListeningStep('mode')
+                                  setTentacleOperatingSystem('Linux')
+                                  // Default sub-mode for Listening is script (Octopus-equivalent
+                                  // UX — no thumbprint needed upfront; the generated install
+                                  // one-liner auto-registers the agent). Operators with a running
+                                  // Tentacle flip the sub-toggle to "manual" to paste thumbprint.
+                                  setListeningCommunicationMode('Listening')
+                                  setListeningRegistrationMode('script')
+                                  setListeningStep('form')
+                                  setAgentFormView('listening-tentacle')
+                                  return
+                                }
+                                message.info(`${option.title} will be available soon.`)
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : selectedDeploymentType === 'Windows' ? (
+                <div>
+                  <div className="mb-5 text-gray-700">
+                    Connect to Windows targets via <strong>Tentacle</strong>.
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {windowsOptions.map((option) => (
+                      <div
+                        key={option.key}
+                        className="relative border-2 rounded-lg p-4 overflow-hidden transition-all duration-200"
+                        style={{
+                          borderColor: hoveredCard === option.key ? '#16a34a' : '#e5e7eb',
+                          boxShadow: hoveredCard === option.key ? '0 4px 12px rgba(22,163,74,0.15)' : 'none',
+                        }}
+                        onMouseEnter={() => setHoveredCard(option.key)}
+                        onMouseLeave={() => setHoveredCard(null)}
+                      >
+                        <div className="flex justify-center mb-3">
+                          <div className="w-16 h-16 bg-blue-50 rounded-lg flex items-center justify-center">
+                            <svg viewBox="0 0 24 24" width="34" height="34" fill="#1e3a8a" aria-hidden="true">
+                              <path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h15A1.5 1.5 0 0 1 21 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-15Zm3.6 3.4v8.2h2.2V12.7h3.2v3.4h2.2v-8.2h-2.2v2.9H8.8V7.9H6.6Zm9 0v8.2h2.1V7.9h-2.1Z" />
+                            </svg>
+                          </div>
+                        </div>
+
+                        <h3 className="text-sm font-semibold text-center mb-1.5">{option.title}</h3>
+                        <p className="text-xs text-gray-500 text-center mb-2.5">{option.desc}</p>
+
+                        {hoveredCard === option.key && (
+                          <div
+                            className="absolute inset-0 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(0,0,0,0.05)' }}
+                          >
+                            <Button
+                              className="shadow-md"
+                              onClick={() => {
+                                if (option.key === 'windows-tentacle') {
+                                  setTentacleOperatingSystem('Windows')
+                                  // Default sub-mode for Listening is script (Octopus-equivalent
+                                  // UX — no thumbprint needed upfront; the generated install
+                                  // one-liner auto-registers the agent). Operators with a running
+                                  // Tentacle flip the sub-toggle to "manual" to paste thumbprint.
+                                  setListeningCommunicationMode('Listening')
+                                  setListeningRegistrationMode('script')
+                                  setListeningStep('form')
                                   setAgentFormView('listening-tentacle')
                                   return
                                 }
@@ -2205,7 +2349,7 @@ const AddDeploymentTargetPage: React.FC = () => {
         ) : agentFormView === 'listening-tentacle' ? (
           <div className="max-h-[82vh] overflow-y-auto">
             <div className="px-8 pt-7 pb-5 border-b border-gray-200 bg-white sticky top-0 z-10">
-              <h2 className="text-2xl font-semibold text-gray-900 m-0">Add Linux Tentacle</h2>
+              <h2 className="text-2xl font-semibold text-gray-900 m-0">Add {tentacleLabel}</h2>
             </div>
 
             {listeningStep === 'mode' ? (
@@ -2237,58 +2381,167 @@ const AddDeploymentTargetPage: React.FC = () => {
               <>
                 <div className="px-8 py-7 bg-white space-y-5">
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 m-0">Install Linux Tentacle</h3>
+                    <h3 className="text-xl font-semibold text-gray-900 m-0">Install {tentacleLabel}</h3>
                     <p className="text-sm text-gray-500 mt-2 mb-0">Run the script on your target machine, then continue to verify registration.</p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {listeningScriptItems.map((script) => (
+                  {showTentacleInstallSwitcher ? (
+                    <div className="flex flex-wrap gap-2">
                       <button
-                        key={script.id}
                         type="button"
-                        onClick={() => setListeningActiveScriptTab(script.id)}
+                        onClick={() => setListeningInstallView('script')}
                         className={[
                           'px-3 py-1.5 rounded text-sm border transition-colors inline-flex items-center gap-1.5',
-                          listeningActiveScriptTab === script.id
+                          listeningInstallView === 'script'
                             ? 'bg-squid-blue text-white border-squid-blue'
                             : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400',
                         ].join(' ')}
                       >
-                        <span>{script.label}</span>
-                        {script.isRecommended ? (
-                          <span className={listeningActiveScriptTab === script.id ? 'text-blue-100' : 'text-squid-blue'}>
-                            • Recommended
-                          </span>
-                        ) : null}
+                        <span>PowerShell</span>
                       </button>
-                    ))}
-                    {listeningScriptItems.length === 0 ? (
-                      <span className="text-sm text-gray-500">No install scripts returned.</span>
-                    ) : null}
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => setListeningInstallView('download')}
+                        className={[
+                          'px-3 py-1.5 rounded text-sm border transition-colors inline-flex items-center gap-1.5',
+                          listeningInstallView === 'download'
+                            ? 'bg-squid-blue text-white border-squid-blue'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400',
+                        ].join(' ')}
+                      >
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  ) : null}
 
-                  <div className="border border-gray-200 rounded-md overflow-hidden">
-                    <div className="flex justify-end border-b border-gray-200 px-2 py-1 bg-gray-50">
-                      {activeListeningScript ? (
-                        <div className="mr-auto px-2 text-xs text-gray-500 inline-flex items-center gap-3">
-                          <span>{activeListeningScript.operatingSystem || 'Unknown OS'}</span>
-                          <span>{activeListeningScript.scriptType || 'plain'}</span>
+                  {!showTentacleInstallSwitcher || listeningInstallView === 'script' ? (
+                    <>
+                      {!showTentacleInstallSwitcher ? (
+                        <div className="flex flex-wrap gap-2">
+                          {listeningScriptItems.map((script) => (
+                            <button
+                              key={script.id}
+                              type="button"
+                              onClick={() => setListeningActiveScriptTab(script.id)}
+                              className={[
+                                'px-3 py-1.5 rounded text-sm border transition-colors inline-flex items-center gap-1.5',
+                                listeningActiveScriptTab === script.id
+                                  ? 'bg-squid-blue text-white border-squid-blue'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400',
+                              ].join(' ')}
+                            >
+                              <span>{script.label}</span>
+                              {script.isRecommended ? (
+                                <span className={listeningActiveScriptTab === script.id ? 'text-blue-100' : 'text-squid-blue'}>
+                                  • Recommended
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+                          {listeningScriptItems.length === 0 ? (
+                            <span className="text-sm text-gray-500">No install scripts returned.</span>
+                          ) : null}
                         </div>
                       ) : null}
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={() => { void handleCopyListeningScript(listeningActiveScriptTab) }}
-                        disabled={!activeListeningScript}
-                      >
-                        Copy
-                      </Button>
+
+                      <div className="border border-gray-200 rounded-md overflow-hidden">
+                        <div className="flex justify-end border-b border-gray-200 px-2 py-1 bg-gray-50">
+                          {activeListeningScript ? (
+                            <div className="mr-auto px-2 text-xs text-gray-500 inline-flex items-center gap-3">
+                              <span>{activeListeningScript.operatingSystem || 'Unknown OS'}</span>
+                              <span>{activeListeningScript.scriptType || 'plain'}</span>
+                            </div>
+                          ) : null}
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={() => { void handleCopyListeningScript(listeningActiveScriptTab) }}
+                            disabled={!activeListeningScript}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                        <pre className="bg-gray-900 text-gray-100 text-sm p-4 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed m-0">
+                          {getListeningScriptContent(listeningActiveScriptTab, listeningGeneratedScripts)}
+                        </pre>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {listeningDownloadItems.length > 0 && (!showTentacleInstallSwitcher || listeningInstallView === 'download') ? (
+                    <div className="border border-gray-200 rounded-md bg-white px-4 py-3">
+                      <div className="text-sm font-medium text-gray-800">
+                        {showTentacleInstallSwitcher ? 'Step 1: Download the installer' : 'Or download manually'}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1 mb-3">Choose a package matching your target architecture.</div>
+                      <div className="space-y-2">
+                        {listeningDownloadItems.map((download) => (
+                          <div key={download.downloadUrl} className="rounded-md border border-gray-200 px-3 py-2 bg-gray-50">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">{download.label || download.fileName}</span>
+                              {download.isRecommended ? (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Recommended</span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500 font-mono break-all">{download.fileName}</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <a
+                                href={download.downloadUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-2.5 py-1.5 rounded border border-squid-blue text-squid-blue text-xs hover:bg-squid-blue hover:text-white transition-colors"
+                              >
+                                Download
+                              </a>
+                              {download.sha256Url ? (
+                                <a
+                                  href={download.sha256Url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center px-2.5 py-1.5 rounded border border-gray-300 text-gray-700 text-xs hover:border-gray-400 transition-colors"
+                                >
+                                  SHA256
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {recommendedListeningDownload ? (
+                        <div className="mt-3 text-xs text-gray-500">
+                          Default selection: <span className="font-medium text-gray-700">{recommendedListeningDownload.label || recommendedListeningDownload.fileName}</span>
+                        </div>
+                      ) : null}
                     </div>
-                    <pre className="bg-gray-900 text-gray-100 text-sm p-4 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed m-0">
-                      {getListeningScriptContent(listeningActiveScriptTab, listeningGeneratedScripts)}
-                    </pre>
-                  </div>
+                  ) : null}
+
+                  {showTentacleInstallSwitcher && listeningInstallView === 'download' && listeningRegisterSnippet ? (
+                    <div className="border border-gray-200 rounded-md overflow-hidden">
+                      <div className="flex justify-between items-center border-b border-gray-200 px-2 py-1 bg-gray-50">
+                        <div className="px-2 text-sm font-medium text-gray-800">Step 2: After installation, run this command on the target</div>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={() => { void handleCopyListeningScript(listeningActiveScriptTab, listeningRegisterSnippet) }}
+                          disabled={!listeningRegisterSnippet}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                      <pre className="bg-gray-900 text-gray-100 text-sm p-4 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed m-0">
+                        {listeningRegisterSnippet}
+                      </pre>
+                    </div>
+                  ) : null}
+
+                  {listeningCommsProbe && !listeningCommsProbe.skipped && !listeningCommsProbe.reachable ? (
+                    <div className="border border-orange-200 rounded-md bg-orange-50 px-4 py-3">
+                      <div className="text-sm font-medium text-orange-800">CommsUrl probe warning</div>
+                      <div className="mt-1 text-sm text-orange-700">{listeningCommsProbe.detail || 'Unable to reach server communications endpoint. Please check network and certificate settings.'}</div>
+                    </div>
+                  ) : null}
 
                   <div className="border border-gray-200 rounded-md bg-gray-50 px-4 py-3">
                     <div className="text-sm text-gray-700">Server thumbprint</div>
@@ -2313,7 +2566,9 @@ const AddDeploymentTargetPage: React.FC = () => {
                     size="large"
                     type="primary"
                     onClick={handleListeningScriptInstallNext}
-                    disabled={listeningScriptItems.length === 0}
+                    disabled={tentacleOperatingSystem === 'Windows'
+                      ? (listeningScriptItems.length === 0 && listeningDownloadItems.length === 0)
+                      : listeningScriptItems.length === 0}
                     className="!bg-green-700 !border-green-700"
                   >
                     Next
@@ -2326,12 +2581,12 @@ const AddDeploymentTargetPage: React.FC = () => {
                   {listeningTimedOut ? (
                     <div className="flex items-center gap-3 p-4 bg-orange-50 rounded-md">
                       <ExclamationCircleOutlined className="text-orange-500 text-lg" />
-                      <span className="text-sm text-orange-700">Connection timed out. Please check whether the Linux Tentacle is running, then retry.</span>
+                      <span className="text-sm text-orange-700">Connection timed out. Please check whether the {tentacleLabel} is running, then retry.</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-md">
                       <LoadingOutlined className="text-squid-blue text-lg" />
-                      <span className="text-sm text-gray-700">Waiting for Linux Tentacle to register...</span>
+                      <span className="text-sm text-gray-700">Waiting for {tentacleLabel} to register...</span>
                     </div>
                   )}
                 </div>
@@ -2365,7 +2620,7 @@ const AddDeploymentTargetPage: React.FC = () => {
                 <div className="px-8 py-10 bg-white">
                   <div className="flex items-center gap-3 p-4 bg-green-50 rounded-md mb-5">
                     <CheckCircleFilled className="text-green-600 text-lg" />
-                    <span className="text-sm text-green-700">Linux Tentacle registered successfully.</span>
+                    <span className="text-sm text-green-700">{tentacleLabel} registered successfully.</span>
                   </div>
                   <p className="text-sm text-gray-600 m-0">The deployment target now appears in your machine list.</p>
                 </div>
@@ -2465,25 +2720,35 @@ const AddDeploymentTargetPage: React.FC = () => {
 
                   <SectionHeading>Communication</SectionHeading>
 
-                  {listeningRegistrationMode === 'script' ? (
-                    <ExpandableFormCard
-                      title="Communication Mode"
-                      subtitle="Choose how the Linux Tentacle will communicate with Squid Server."
-                      expanded={listeningExpanded.communicationMode}
-                      onToggle={() => toggleListeningSection('communicationMode')}
-                    >
-                      <div className="mb-5">
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">Mode</label>
-                        <Radio.Group
-                          className="flex flex-col gap-2"
-                          value={listeningCommunicationMode}
-                          onChange={(event) => setListeningCommunicationMode(event.target.value as TentacleCommunicationMode)}
-                        >
-                          <Radio className="!block" value="Listening">Listening</Radio>
-                          <Radio className="!block" value="Polling">Polling</Radio>
-                        </Radio.Group>
-                      </div>
+                  {/* Communication Mode toggle — always visible, drives the rest of the form.
+                      Listening: server-initiated connect, register by Tentacle URL + thumbprint (Octopus-style).
+                      Polling: agent-initiated connect, register via generated install script. */}
+                  <ExpandableFormCard
+                    title="Communication Mode"
+                    subtitle={`Choose how the ${tentacleLabel} will communicate with Squid Server.`}
+                    expanded={listeningExpanded.communicationMode}
+                    onToggle={() => toggleListeningSection('communicationMode')}
+                  >
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Mode</label>
+                      <Radio.Group
+                        className="flex flex-col gap-2"
+                        value={listeningCommunicationMode}
+                        onChange={(event) => setListeningCommunicationMode(event.target.value as TentacleCommunicationMode)}
+                      >
+                        <Radio className="!block" value="Listening">Listening — server connects to a Tentacle you have already installed.</Radio>
+                        <Radio className="!block" value="Polling">Polling — generate an install script for a new Tentacle to call back.</Radio>
+                      </Radio.Group>
+                    </div>
+                  </ExpandableFormCard>
 
+                  {listeningCommunicationMode === 'Polling' ? (
+                    <ExpandableFormCard
+                      title="Server URLs"
+                      subtitle="The URLs the Tentacle will phone home to."
+                      expanded={listeningExpanded.serverUrls}
+                      onToggle={() => toggleListeningSection('serverUrls')}
+                    >
                       <FormField
                         label="Squid Server URL"
                         value={listeningServerUrl}
@@ -2491,89 +2756,138 @@ const AddDeploymentTargetPage: React.FC = () => {
                         placeholder="https://squid.example.com:7078"
                         helper="Usually auto-filled from server configuration."
                       />
-
-                      {listeningCommunicationMode === 'Polling' ? (
-                        <FormField
-                          label="Squid Server Communications URL"
-                          value={listeningServerCommsUrl}
-                          onChange={setListeningServerCommsUrl}
-                          placeholder="https://squid.example.com:10943"
-                          helper="Required for polling mode."
-                        />
-                      ) : (
-                        <>
-                          <FormField
-                            label="Hostname / IP"
-                            value={listeningHostName}
-                            onChange={setListeningHostName}
-                            placeholder="192.168.1.100"
-                          />
-                          <FormField
-                            label="Port"
-                            value={listeningPortText}
-                            onChange={setListeningPortText}
-                            placeholder="10933"
-                          />
-                        </>
-                      )}
+                      <FormField
+                        label="Squid Server Communications URL"
+                        value={listeningServerCommsUrl}
+                        onChange={setListeningServerCommsUrl}
+                        placeholder="https://squid.example.com:10943"
+                        helper="Required for polling mode."
+                      />
                     </ExpandableFormCard>
                   ) : (
                     <>
+                      {/* Sub-toggle inside Listening: 'script' = Squid generates an install one-liner
+                          that auto-registers (default; no thumbprint needed upfront — the agent supplies
+                          its own thumbprint when the script runs the `register` call). 'manual' =
+                          operator already has a running Tentacle and pastes the thumbprint by hand
+                          (Octopus's "Enter details manually" equivalent). */}
                       <ExpandableFormCard
-                        title="Thumbprint"
-                        subtitle="The X509 certificate thumbprint that securely identifies the Tentacle."
-                        expanded={listeningExpanded.thumbprint}
-                        onToggle={() => toggleListeningSection('thumbprint')}
+                        title="Setup method"
+                        subtitle="Pick how this Tentacle should be set up."
+                        expanded={listeningExpanded.setupMethod}
+                        onToggle={() => toggleListeningSection('setupMethod')}
                       >
-                        <FormField
-                          label="Thumbprint"
-                          value={listeningThumbprint}
-                          onChange={setListeningThumbprint}
-                        />
-                        <NoteBlock>
-                          You can confirm the validity of the thumbprint by opening the Tentacle administration tool on the discovered Tentacle.
-                        </NoteBlock>
-                      </ExpandableFormCard>
-
-                      <ExpandableFormCard
-                        title="Tentacle URL"
-                        subtitle="The network address at which the Tentacle can be reached."
-                        expanded={listeningExpanded.tentacleUrl}
-                        onToggle={() => toggleListeningSection('tentacleUrl')}
-                      >
-                        <FormField
-                          label="Tentacle URL"
-                          value={listeningTentacleUrl}
-                          onChange={setListeningTentacleUrl}
-                          placeholder="https://example:10933"
-                        />
-                        <FormField
-                          label="Agent Version"
-                          value={listeningAgentVersion}
-                          onChange={setListeningAgentVersion}
-                          placeholder="1.0.0"
-                          helper="Optional. Leave empty to let the server infer the current version."
-                        />
-                      </ExpandableFormCard>
-
-                      <ExpandableFormCard
-                        title="Proxy"
-                        subtitle="Select whether to use a proxy to connect to this Tentacle."
-                        expanded={listeningExpanded.proxy}
-                        onToggle={() => toggleListeningSection('proxy')}
-                      >
-                        <div className="mb-5">
-                          <label className="block text-sm font-medium text-gray-700 mb-1.5">Connection method</label>
+                        <div className="mb-2">
                           <Radio.Group
                             className="flex flex-col gap-2"
-                            value={listeningUseProxy ? 'proxy' : 'direct'}
-                            onChange={(event) => setListeningUseProxy(event.target.value === 'proxy')}
+                            value={listeningRegistrationMode}
+                            onChange={(event) => setListeningRegistrationMode(event.target.value as ListeningRegistrationMode)}
                           >
-                            <Radio className="!block" value="direct">Connect to this Tentacle directly (default)</Radio>
-                            <Radio className="!block" value="proxy">Connect to this Tentacle through a proxy server</Radio>
+                            <Radio className="!block" value="script">Install + register for me — generate a one-liner I run on the target. No thumbprint needed.</Radio>
+                            <Radio className="!block" value="manual">Enter details manually — I already have a running Tentacle and its thumbprint.</Radio>
                           </Radio.Group>
                         </div>
                       </ExpandableFormCard>
+
+                      {listeningRegistrationMode === 'script' ? (
+                        <>
+                          <ExpandableFormCard
+                            title="Server URL"
+                            subtitle="The Squid Server URL the agent will register against."
+                            expanded={listeningExpanded.serverUrls}
+                            onToggle={() => toggleListeningSection('serverUrls')}
+                          >
+                            <FormField
+                              label="Squid Server URL"
+                              value={listeningServerUrl}
+                              onChange={setListeningServerUrl}
+                              placeholder="https://squid.example.com:7078"
+                              helper="Usually auto-filled from server configuration."
+                            />
+                          </ExpandableFormCard>
+
+                          <ExpandableFormCard
+                            title="Tentacle Listening Address"
+                            subtitle="Where the Tentacle will listen on the target machine."
+                            expanded={listeningExpanded.tentacleUrl}
+                            onToggle={() => toggleListeningSection('tentacleUrl')}
+                          >
+                            <FormField
+                              label="Hostname / IP"
+                              value={listeningHostName}
+                              onChange={setListeningHostName}
+                              placeholder="192.168.1.100"
+                              helper="The address other machines will use to reach the Tentacle."
+                            />
+                            <FormField
+                              label="Port"
+                              value={listeningPortText}
+                              onChange={setListeningPortText}
+                              placeholder="10933"
+                            />
+                          </ExpandableFormCard>
+                        </>
+                      ) : (
+                        <>
+                          <ExpandableFormCard
+                            title="Tentacle URL"
+                            subtitle="The network address at which the Tentacle can be reached."
+                            expanded={listeningExpanded.tentacleUrl}
+                            onToggle={() => toggleListeningSection('tentacleUrl')}
+                          >
+                            <FormField
+                              label="Tentacle URL"
+                              value={listeningTentacleUrl}
+                              onChange={setListeningTentacleUrl}
+                              placeholder="https://10.0.0.5:10933/"
+                              helper="The hostname/IP and port the Tentacle is listening on (default port 10933)."
+                            />
+                            <FormField
+                              label="Agent Version"
+                              value={listeningAgentVersion}
+                              onChange={setListeningAgentVersion}
+                              placeholder="1.0.0"
+                              helper="Optional. Leave empty to let the server infer the current version."
+                            />
+                          </ExpandableFormCard>
+
+                          <ExpandableFormCard
+                            title="Thumbprint"
+                            subtitle="The X509 certificate thumbprint that securely identifies the Tentacle."
+                            expanded={listeningExpanded.thumbprint}
+                            onToggle={() => toggleListeningSection('thumbprint')}
+                          >
+                            <FormField
+                              label="Thumbprint"
+                              value={listeningThumbprint}
+                              onChange={setListeningThumbprint}
+                              helper="Run `squid-tentacle show-thumbprint` on the target machine to get this value."
+                            />
+                            <NoteBlock>
+                              You can confirm the validity of the thumbprint by opening the Tentacle administration tool on the discovered Tentacle.
+                            </NoteBlock>
+                          </ExpandableFormCard>
+
+                          <ExpandableFormCard
+                            title="Proxy"
+                            subtitle="Select whether to use a proxy to connect to this Tentacle."
+                            expanded={listeningExpanded.proxy}
+                            onToggle={() => toggleListeningSection('proxy')}
+                          >
+                            <div className="mb-5">
+                              <label className="block text-sm font-medium text-gray-700 mb-1.5">Connection method</label>
+                              <Radio.Group
+                                className="flex flex-col gap-2"
+                                value={listeningUseProxy ? 'proxy' : 'direct'}
+                                onChange={(event) => setListeningUseProxy(event.target.value === 'proxy')}
+                              >
+                                <Radio className="!block" value="direct">Connect to this Tentacle directly (default)</Radio>
+                                <Radio className="!block" value="proxy">Connect to this Tentacle through a proxy server</Radio>
+                              </Radio.Group>
+                            </div>
+                          </ExpandableFormCard>
+                        </>
+                      )}
                     </>
                   )}
 
@@ -2604,7 +2918,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
                 <div className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-8 py-4 flex justify-end gap-3">
                   <Button size="large" onClick={closeAddModal}>Cancel</Button>
-                  <Button size="large" onClick={() => setListeningStep('mode')}>Back</Button>
+                  <Button size="large" onClick={() => setAgentFormView(null)}>Back</Button>
                   {listeningRegistrationMode === 'manual' ? (
                     <Button
                       size="large"
