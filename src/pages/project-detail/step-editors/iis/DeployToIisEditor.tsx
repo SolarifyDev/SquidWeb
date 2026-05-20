@@ -17,10 +17,80 @@ import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
-const ACTION_TYPE = 'Squid.IIS'
+const ACTION_TYPE = 'Squid.DeployToIISWebSite'
 const DEFAULT_STEP_NAME = 'Deploy to IIS'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'
 const TARGET_ROLE_PROPERTY_NAMES = ['Squid.Action.TargetRoles', 'TargetRoles'] as const
+
+// ── Configure-Features modal (Octopus parity: Octopus.Action.EnabledFeatures CSV gate) ──
+// Persisted as a comma-separated list under `Squid.Action.EnabledFeatures`. Each entry is the
+// feature ID below; UI sections render only when their ID is present. Toggling a feature off
+// hides its section AND drops the section's properties on save (matching Octopus's "Configure
+// Features" behaviour where un-checking removes the entire surface — re-checking yields empty
+// defaults). The 5 supported features map to live editor sections; the 2 unsupported ones are
+// listed for migrate-from-Octopus operators with a "Coming soon" tag, no UI section yet.
+const FEATURES_PROPERTY = 'Squid.Action.EnabledFeatures'
+
+type IisFeatureId =
+  | 'Squid.Features.CustomDirectory'
+  | 'Squid.Features.CustomScripts'
+  | 'Squid.Features.JsonConfigurationVariables'
+  | 'Squid.Features.ConfigurationVariables'
+  | 'Squid.Features.ConfigurationTransforms'
+  | 'Squid.Features.SubstituteInFiles'
+  | 'Squid.Features.PowerShellEdition'
+
+interface IisFeatureDescriptor {
+  id: IisFeatureId
+  name: string
+  description: React.ReactNode
+  supported: boolean
+}
+
+const IIS_FEATURES: readonly IisFeatureDescriptor[] = [
+  {
+    id: 'Squid.Features.CustomDirectory',
+    name: 'Custom Installation Directory',
+    description: 'Change where Tentacle extracts your package',
+    supported: false,
+  },
+  {
+    id: 'Squid.Features.CustomScripts',
+    name: 'Custom Deployment Scripts',
+    description: 'Execute scripts during the deployment, without embedding them in your package',
+    supported: true,
+  },
+  {
+    id: 'Squid.Features.JsonConfigurationVariables',
+    name: 'Structured Configuration Variables',
+    description: 'Replace settings in JSON, YAML, XML, and Java Properties files with variables defined in Squid.',
+    supported: true,
+  },
+  {
+    id: 'Squid.Features.ConfigurationVariables',
+    name: '.NET Configuration Variables',
+    description: (<>Replace settings in any <em>.config</em> files with variables defined in Squid.</>),
+    supported: true,
+  },
+  {
+    id: 'Squid.Features.ConfigurationTransforms',
+    name: '.NET Configuration Transforms',
+    description: (<>Runs configuration file transforms, such as <em>Web.Release.config</em></>),
+    supported: true,
+  },
+  {
+    id: 'Squid.Features.SubstituteInFiles',
+    name: 'Substitute Variables in Templates',
+    description: (<>Transforms files using the Squid <code>#{'{Variable}'}</code> substitution syntax</>),
+    supported: true,
+  },
+  {
+    id: 'Squid.Features.PowerShellEdition',
+    name: 'PowerShell Edition',
+    description: 'Specify the edition of PowerShell used during deployments',
+    supported: false,
+  },
+]
 
 const PackageProperties = {
   feedId: ['Squid.Action.Package.FeedId', 'Octopus.Action.Package.FeedId'],
@@ -29,30 +99,76 @@ const PackageProperties = {
 } as const
 
 const IisProperties = {
-  deploymentType: ['Squid.Action.IIS.DeploymentType', 'Octopus.Action.IIS.DeploymentType'],
-  webSiteName: ['Squid.Action.IIS.WebSiteName', 'Octopus.Action.IIS.WebSiteName'],
+  deploymentType: ['Squid.Action.IISWebSite.DeploymentType', 'Squid.Action.IIS.DeploymentType', 'Octopus.Action.IIS.DeploymentType'],
+  createOrUpdateWebSite: ['Squid.Action.IISWebSite.CreateOrUpdateWebSite'],
+  webApplicationCreateOrUpdate: ['Squid.Action.IISWebSite.WebApplication.CreateOrUpdate'],
+  virtualDirectoryCreateOrUpdate: ['Squid.Action.IISWebSite.VirtualDirectory.CreateOrUpdate'],
+  webSiteName: ['Squid.Action.IISWebSite.WebSiteName', 'Squid.Action.IIS.WebSiteName', 'Octopus.Action.IIS.WebSiteName'],
+  webRoot: ['Squid.Action.IISWebSite.WebRoot'],
+  webApplicationWebSiteName: ['Squid.Action.IISWebSite.WebApplication.WebSiteName'],
+  webApplicationVirtualPath: ['Squid.Action.IISWebSite.WebApplication.VirtualPath'],
+  webApplicationPhysicalPath: ['Squid.Action.IISWebSite.WebApplication.PhysicalPath'],
+  virtualDirectoryWebSiteName: ['Squid.Action.IISWebSite.VirtualDirectory.WebSiteName'],
+  virtualDirectoryVirtualPath: ['Squid.Action.IISWebSite.VirtualDirectory.VirtualPath'],
+  virtualDirectoryPhysicalPath: ['Squid.Action.IISWebSite.VirtualDirectory.PhysicalPath'],
   virtualDirectoryName: ['Squid.Action.IIS.VirtualDirectoryName', 'Octopus.Action.IIS.VirtualDirectoryName'],
   webApplicationName: ['Squid.Action.IIS.WebApplicationName', 'Octopus.Action.IIS.WebApplicationName'],
   physicalPathMode: ['Squid.Action.IIS.PhysicalPathMode', 'Octopus.Action.IIS.PhysicalPathMode'],
   relativePath: ['Squid.Action.IIS.RelativePath', 'Octopus.Action.IIS.RelativePath'],
-  startWebSite: ['Squid.Action.IIS.StartWebSite', 'Octopus.Action.IIS.StartWebSite'],
-  applicationPoolName: ['Squid.Action.IIS.ApplicationPoolName', 'Octopus.Action.IIS.ApplicationPoolName'],
-  applicationPoolClr: ['Squid.Action.IIS.ApplicationPoolClrVersion', 'Octopus.Action.IIS.ApplicationPoolClrVersion'],
-  applicationPoolIdentity: ['Squid.Action.IIS.ApplicationPoolIdentity', 'Octopus.Action.IIS.ApplicationPoolIdentity'],
-  startApplicationPool: ['Squid.Action.IIS.StartApplicationPool', 'Octopus.Action.IIS.StartApplicationPool'],
-  bindings: ['Squid.Action.IIS.Bindings', 'Octopus.Action.IIS.Bindings'],
-  existingBindings: ['Squid.Action.IIS.ExistingBindings', 'Octopus.Action.IIS.ExistingBindings'],
-  authAnonymous: ['Squid.Action.IIS.Auth.Anonymous', 'Octopus.Action.IIS.Auth.Anonymous'],
-  authBasic: ['Squid.Action.IIS.Auth.Basic', 'Octopus.Action.IIS.Auth.Basic'],
-  authWindows: ['Squid.Action.IIS.Auth.Windows', 'Octopus.Action.IIS.Auth.Windows'],
-  replaceConfigVariables: ['Squid.Action.IIS.ReplaceConfigVariables', 'Octopus.Action.IIS.ReplaceConfigVariables'],
-  runConfigTransforms: ['Squid.Action.IIS.RunConfigTransforms', 'Octopus.Action.IIS.RunConfigTransforms'],
-  additionalTransforms: ['Squid.Action.IIS.AdditionalTransforms', 'Octopus.Action.IIS.AdditionalTransforms'],
+  startWebSite: ['Squid.Action.IISWebSite.StartWebSite', 'Squid.Action.IIS.StartWebSite', 'Octopus.Action.IIS.StartWebSite'],
+  applicationPoolName: ['Squid.Action.IISWebSite.ApplicationPoolName', 'Squid.Action.IIS.ApplicationPoolName', 'Octopus.Action.IIS.ApplicationPoolName'],
+  webApplicationApplicationPoolName: ['Squid.Action.IISWebSite.WebApplication.ApplicationPoolName'],
+  applicationPoolClr: ['Squid.Action.IISWebSite.ApplicationPoolFrameworkVersion', 'Squid.Action.IIS.ApplicationPoolClrVersion', 'Octopus.Action.IIS.ApplicationPoolClrVersion'],
+  webApplicationApplicationPoolClr: ['Squid.Action.IISWebSite.WebApplication.ApplicationPoolFrameworkVersion'],
+  applicationPoolIdentity: ['Squid.Action.IISWebSite.ApplicationPoolIdentityType', 'Squid.Action.IIS.ApplicationPoolIdentity', 'Octopus.Action.IIS.ApplicationPoolIdentity'],
+  webApplicationApplicationPoolIdentity: ['Squid.Action.IISWebSite.WebApplication.ApplicationPoolIdentityType'],
+  applicationPoolUsername: ['Squid.Action.IISWebSite.ApplicationPoolUsername', 'Squid.Action.IIS.ApplicationPoolUsername', 'Octopus.Action.IIS.ApplicationPoolUsername'],
+  applicationPoolPassword: ['Squid.Action.IISWebSite.ApplicationPoolPassword', 'Squid.Action.IIS.ApplicationPoolPassword', 'Octopus.Action.IIS.ApplicationPoolPassword'],
+  webApplicationApplicationPoolUsername: ['Squid.Action.IISWebSite.WebApplication.ApplicationPoolUsername'],
+  webApplicationApplicationPoolPassword: ['Squid.Action.IISWebSite.WebApplication.ApplicationPoolPassword'],
+  startApplicationPool: ['Squid.Action.IISWebSite.StartApplicationPool', 'Squid.Action.IIS.StartApplicationPool', 'Octopus.Action.IIS.StartApplicationPool'],
+  bindings: ['Squid.Action.IISWebSite.Bindings', 'Squid.Action.IIS.Bindings', 'Octopus.Action.IIS.Bindings'],
+  existingBindings: ['Squid.Action.IISWebSite.ExistingBindings', 'Squid.Action.IIS.ExistingBindings', 'Octopus.Action.IIS.ExistingBindings'],
+  authAnonymous: ['Squid.Action.IISWebSite.EnableAnonymousAuthentication', 'Squid.Action.IIS.Auth.Anonymous', 'Octopus.Action.IIS.Auth.Anonymous'],
+  authBasic: ['Squid.Action.IISWebSite.EnableBasicAuthentication', 'Squid.Action.IIS.Auth.Basic', 'Octopus.Action.IIS.Auth.Basic'],
+  authWindows: ['Squid.Action.IISWebSite.EnableWindowsAuthentication', 'Squid.Action.IIS.Auth.Windows', 'Octopus.Action.IIS.Auth.Windows'],
+  replaceConfigVariables: ['Squid.Action.IISWebSite.ConfigurationVariables.Enabled', 'Squid.Action.IIS.ReplaceConfigVariables', 'Octopus.Action.IIS.ReplaceConfigVariables'],
+  runConfigTransforms: ['Squid.Action.IISWebSite.ConfigurationTransforms.Enabled', 'Squid.Action.IIS.RunConfigTransforms', 'Octopus.Action.IIS.RunConfigTransforms'],
+  configTransformsEnvironmentName: ['Squid.Action.IISWebSite.ConfigurationTransforms.EnvironmentName'],
+  additionalTransforms: ['Squid.Action.IISWebSite.ConfigurationTransforms.AdditionalTransforms', 'Squid.Action.IIS.AdditionalTransforms', 'Octopus.Action.IIS.AdditionalTransforms'],
+  // SubstituteInFiles (Phase 8)
+  substituteInFilesEnabled: ['Squid.Action.IISWebSite.SubstituteInFiles.Enabled'],
+  substituteInFilesTargetFiles: ['Squid.Action.IISWebSite.SubstituteInFiles.TargetFiles'],
+  // StructuredConfigurationVariables (Phase 9 — JSON leaf replacement)
+  structuredConfigEnabled: ['Squid.Action.IISWebSite.StructuredConfigurationVariables.Enabled'],
+  structuredConfigTargets: ['Squid.Action.IISWebSite.StructuredConfigurationVariables.Targets'],
+  // Additional config-rewriter scan paths
+  additionalPaths: ['Squid.Action.IISWebSite.AdditionalPaths'],
+  // Custom scripts (PreDeploy / PostDeploy)
+  customScriptsPreDeploy: ['Squid.Action.CustomScripts.PreDeploy.ps1'],
+  customScriptsPostDeploy: ['Squid.Action.CustomScripts.PostDeploy.ps1'],
+  // HTTPS Certificate auto-import (P0-1)
+  certificatePfxBase64: ['Squid.Action.IISWebSite.Certificate.PfxBase64'],
+  certificatePfxPassword: ['Squid.Action.IISWebSite.Certificate.PfxPassword'],
+  certificateThumbprintVariableName: ['Squid.Action.IISWebSite.Certificate.ThumbprintVariableName'],
+  // Package extraction (Phase 10) + deployment journal short-circuit (P0-2)
+  packageSourcePath: ['Squid.Action.IISWebSite.Package.SourcePath'],
+  packageExtractTo: ['Squid.Action.IISWebSite.Package.ExtractTo'],
+  packagePurgeBeforeExtract: ['Squid.Action.IISWebSite.Package.PurgeBeforeExtract'],
+  packageSkipIfAlreadyInstalled: ['Squid.Action.IISWebSite.Package.SkipIfAlreadyInstalled'],
+  // IIS metabase retry tuning
+  maxRetryFailures: ['Squid.Action.IISWebSite.MaxRetryFailures'],
+  sleepBetweenRetryFailuresInSeconds: ['Squid.Action.IISWebSite.SleepBetweenRetryFailuresInSeconds'],
+  // Error tolerance + diagnostics (P2-1, cross-action namespace — NOT under IISWebSite)
+  ignoreVariableReplacementErrors: ['Squid.Action.Package.IgnoreVariableReplacementErrors'],
+  shouldFailDeploymentOnSubstitutionFails: ['Squid.Action.SubstituteInFiles.ShouldFailDeploymentOnSubstitutionFails'],
+  enableDiagnosticsConfigTransformationLogging: ['Squid.Action.Package.EnableDiagnosticsConfigTransformationLogging'],
 } as const
 
 const ActionPropertyFilterSet = new Set<string>([
   ...Object.values(PackageProperties).flat(),
   ...Object.values(IisProperties).flat(),
+  FEATURES_PROPERTY,
 ])
 const StepPropertyFilterSet = new Set<string>([STEP_CONDITION_EXPRESSION_PROPERTY, ...TARGET_ROLE_PROPERTY_NAMES])
 
@@ -60,9 +176,11 @@ type IisDeploymentType = 'webSite' | 'virtualDirectory' | 'webApplication'
 type PhysicalPathMode = 'packageRoot' | 'relativeToPackageRoot'
 type ExistingBindingsMode = 'Replace' | 'Merge'
 type StartTriggerMode = 'StartAfterPrevious' | 'StartWithPrevious'
-type AppPoolClrVersion = 'v2.0' | 'v4.0' | ''
-type AppPoolIdentity = 'ApplicationPoolIdentity' | 'NetworkService' | 'LocalService' | 'LocalSystem'
-type BindingProtocol = 'http' | 'https'
+type AppPoolClrVersion = 'v2.0' | 'v4.0' | 'No Managed Code'
+type AppPoolIdentity = 'ApplicationPoolIdentity' | 'NetworkService' | 'LocalService' | 'LocalSystem' | 'SpecificUser'
+type BindingProtocol = 'http' | 'https' | 'net.tcp' | 'net.pipe' | 'net.msmq' | 'msmq.formatname'
+
+const BINDING_PROTOCOL_VALUES: readonly BindingProtocol[] = ['http', 'https', 'net.tcp', 'net.pipe', 'net.msmq', 'msmq.formatname']
 
 interface IisBinding {
   id: string
@@ -71,6 +189,9 @@ interface IisBinding {
   ipAddress: string
   hostName: string
   enabled: boolean
+  requireSni: boolean
+  thumbprint: string
+  certificateVariable: string
 }
 
 interface IisActionValues {
@@ -87,6 +208,8 @@ interface IisActionValues {
   appPoolName: string
   appPoolClrVersion: AppPoolClrVersion
   appPoolIdentity: AppPoolIdentity
+  appPoolUsername: string
+  appPoolPassword: string
   startAppPool: boolean
   bindings: IisBinding[]
   existingBindings: ExistingBindingsMode
@@ -95,7 +218,28 @@ interface IisActionValues {
   authWindows: boolean
   replaceConfigVariables: boolean
   runConfigTransforms: boolean
+  configTransformsEnvironmentName: string
   additionalTransforms: string
+  substituteInFilesEnabled: boolean
+  substituteInFilesTargetFiles: string
+  structuredConfigEnabled: boolean
+  structuredConfigTargets: string
+  additionalPaths: string
+  customScriptsPreDeploy: string
+  customScriptsPostDeploy: string
+  certificatePfxBase64: string
+  certificatePfxPassword: string
+  certificateThumbprintVariableName: string
+  packageSourcePath: string
+  packageExtractTo: string
+  packagePurgeBeforeExtract: boolean
+  packageSkipIfAlreadyInstalled: boolean
+  maxRetryFailures: string
+  sleepBetweenRetryFailuresInSeconds: string
+  ignoreVariableReplacementErrors: boolean
+  shouldFailDeploymentOnSubstitutionFails: boolean
+  enableDiagnosticsConfigTransformationLogging: boolean
+  enabledFeatures: ReadonlySet<IisFeatureId>
 }
 
 function getActionProperty(action: DeploymentActionDto | undefined, names: readonly string[]): string | undefined {
@@ -121,8 +265,16 @@ function normalizeBoolean(value: string | undefined, fallback = false): boolean 
 }
 
 function normalizeDeploymentType(value: string | undefined): IisDeploymentType {
-  if (value === 'virtualDirectory') return 'virtualDirectory'
-  if (value === 'webApplication') return 'webApplication'
+  if (value === 'virtualDirectory' || value === 'VirtualDirectory') return 'virtualDirectory'
+  if (value === 'webApplication' || value === 'WebApplication') return 'webApplication'
+  return 'webSite'
+}
+
+function normalizeDeploymentTypeFromAction(action: DeploymentActionDto | undefined): IisDeploymentType {
+  const explicitType = getActionProperty(action, IisProperties.deploymentType)
+  if (explicitType) return normalizeDeploymentType(explicitType)
+  if (normalizeBoolean(getActionProperty(action, IisProperties.virtualDirectoryCreateOrUpdate), false)) return 'virtualDirectory'
+  if (normalizeBoolean(getActionProperty(action, IisProperties.webApplicationCreateOrUpdate), false)) return 'webApplication'
   return 'webSite'
 }
 
@@ -136,7 +288,7 @@ function normalizeExistingBindings(value: string | undefined): ExistingBindingsM
 
 function normalizeClrVersion(value: string | undefined): AppPoolClrVersion {
   if (value === 'v2.0') return 'v2.0'
-  if (value === '') return ''
+  if (value === 'No Managed Code' || value === '') return 'No Managed Code'
   return 'v4.0'
 }
 
@@ -144,7 +296,118 @@ function normalizeIdentity(value: string | undefined): AppPoolIdentity {
   if (value === 'NetworkService') return 'NetworkService'
   if (value === 'LocalService') return 'LocalService'
   if (value === 'LocalSystem') return 'LocalSystem'
+  if (value === 'SpecificUser') return 'SpecificUser'
   return 'ApplicationPoolIdentity'
+}
+
+function normalizeBindingProtocol(value: string | undefined): BindingProtocol {
+  if (!value) return 'http'
+  const lower = value.toLowerCase()
+  return (BINDING_PROTOCOL_VALUES as readonly string[]).includes(lower) ? (lower as BindingProtocol) : 'http'
+}
+
+function normalizeNonNegativeIntegerString(value: string | undefined): string {
+  if (!value?.trim()) return ''
+  const trimmed = value.trim()
+  if (/^\d+$/.test(trimmed)) return trimmed
+  return ''
+}
+
+/**
+ * Reconstruct the EnabledFeatures set for an existing action.
+ *
+ * Truth source: the action's `Squid.Action.EnabledFeatures` CSV property (set by prior FE
+ * saves once this Configure-Features modal was deployed).
+ *
+ * Fallback (property absent — new step OR legacy step from before the modal landed): default
+ * to the two Octopus-style baseline features (.NET Configuration Variables + Transforms).
+ * The other 3 supported features (Substitute in Files / Structured Config / Custom Scripts)
+ * stay opt-in via the Configure Features modal.
+ */
+const DEFAULT_ENABLED_FEATURES: readonly IisFeatureId[] = [
+  'Squid.Features.ConfigurationVariables',
+  'Squid.Features.ConfigurationTransforms',
+]
+
+function inferEnabledFeatures(action: DeploymentActionDto | undefined): Set<IisFeatureId> {
+  const raw = getActionProperty(action, [FEATURES_PROPERTY])
+  if (raw != null) {
+    const tokens = raw.split(',').map((token) => token.trim()).filter(Boolean)
+    const allowed = new Set<string>(IIS_FEATURES.filter((feature) => feature.supported).map((feature) => feature.id))
+    return new Set(tokens.filter((token): token is IisFeatureId => allowed.has(token)))
+  }
+
+  return new Set(DEFAULT_ENABLED_FEATURES)
+}
+
+function serializeEnabledFeatures(features: ReadonlySet<IisFeatureId>): string {
+  // Sorted CSV — keeps the saved property stable across no-op reopens.
+  return Array.from(features).sort().join(',')
+}
+
+function getInitialWebSiteName(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): string {
+  if (deploymentType === 'virtualDirectory') {
+    return getActionProperty(action, IisProperties.virtualDirectoryWebSiteName) ?? getActionProperty(action, IisProperties.webSiteName) ?? ''
+  }
+  if (deploymentType === 'webApplication') {
+    return getActionProperty(action, IisProperties.webApplicationWebSiteName) ?? getActionProperty(action, IisProperties.webSiteName) ?? ''
+  }
+  return getActionProperty(action, IisProperties.webSiteName) ?? ''
+}
+
+function getInitialPhysicalPath(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): string {
+  if (deploymentType === 'virtualDirectory') {
+    return getActionProperty(action, IisProperties.virtualDirectoryPhysicalPath) ?? getActionProperty(action, IisProperties.relativePath) ?? ''
+  }
+  if (deploymentType === 'webApplication') {
+    return getActionProperty(action, IisProperties.webApplicationPhysicalPath) ?? getActionProperty(action, IisProperties.relativePath) ?? ''
+  }
+  return getActionProperty(action, IisProperties.webRoot) ?? getActionProperty(action, IisProperties.relativePath) ?? ''
+}
+
+function getInitialPhysicalPathMode(action: DeploymentActionDto | undefined, physicalPath: string): PhysicalPathMode {
+  const legacyMode = getActionProperty(action, IisProperties.physicalPathMode)
+  if (legacyMode) return normalizePhysicalPathMode(legacyMode)
+  return physicalPath.trim() && physicalPath.trim() !== '.' ? 'relativeToPackageRoot' : 'packageRoot'
+}
+
+function getInitialApplicationPoolName(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): string {
+  if (deploymentType === 'webApplication') {
+    return getActionProperty(action, IisProperties.webApplicationApplicationPoolName) ?? getActionProperty(action, IisProperties.applicationPoolName) ?? ''
+  }
+  return getActionProperty(action, IisProperties.applicationPoolName) ?? ''
+}
+
+function getInitialApplicationPoolClr(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): AppPoolClrVersion {
+  if (deploymentType === 'webApplication') {
+    return normalizeClrVersion(getActionProperty(action, IisProperties.webApplicationApplicationPoolClr) ?? getActionProperty(action, IisProperties.applicationPoolClr))
+  }
+  return normalizeClrVersion(getActionProperty(action, IisProperties.applicationPoolClr))
+}
+
+function getInitialApplicationPoolIdentity(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): AppPoolIdentity {
+  if (deploymentType === 'webApplication') {
+    return normalizeIdentity(getActionProperty(action, IisProperties.webApplicationApplicationPoolIdentity) ?? getActionProperty(action, IisProperties.applicationPoolIdentity))
+  }
+  return normalizeIdentity(getActionProperty(action, IisProperties.applicationPoolIdentity))
+}
+
+function getInitialApplicationPoolUsername(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): string {
+  if (deploymentType === 'webApplication') {
+    return getActionProperty(action, IisProperties.webApplicationApplicationPoolUsername) ?? getActionProperty(action, IisProperties.applicationPoolUsername) ?? ''
+  }
+  return getActionProperty(action, IisProperties.applicationPoolUsername) ?? ''
+}
+
+function getInitialApplicationPoolPassword(action: DeploymentActionDto | undefined, deploymentType: IisDeploymentType): string {
+  if (deploymentType === 'webApplication') {
+    return getActionProperty(action, IisProperties.webApplicationApplicationPoolPassword) ?? getActionProperty(action, IisProperties.applicationPoolPassword) ?? ''
+  }
+  return getActionProperty(action, IisProperties.applicationPoolPassword) ?? ''
+}
+
+function resolvePhysicalPathValue(values: IisActionValues): string {
+  return values.physicalPathMode === 'relativeToPackageRoot' ? values.relativePath.trim() : '.'
 }
 
 function createDefaultBinding(): IisBinding {
@@ -155,7 +418,26 @@ function createDefaultBinding(): IisBinding {
     ipAddress: '',
     hostName: '',
     enabled: true,
+    requireSni: false,
+    thumbprint: '',
+    certificateVariable: '',
   }
+}
+
+function readBooleanLikeField(source: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const raw = source[key]
+    if (raw === undefined || raw === null) continue
+    if (typeof raw === 'boolean') return raw
+    if (typeof raw === 'string' || typeof raw === 'number') {
+      const text = String(raw).trim()
+      if (!text) continue
+      const lower = text.toLowerCase()
+      if (lower === 'true' || lower === '1' || lower === 'yes') return true
+      if (lower === 'false' || lower === '0' || lower === 'no') return false
+    }
+  }
+  return undefined
 }
 
 function parseBindings(value: string | undefined): IisBinding[] {
@@ -168,18 +450,14 @@ function parseBindings(value: string | undefined): IisBinding[] {
       .map((entry): IisBinding | null => {
         if (!entry || typeof entry !== 'object') return null
         const source = entry as Record<string, unknown>
-        const protocol = String(source.protocol ?? source.Protocol ?? 'http').toLowerCase()
-        const normalizedProtocol: BindingProtocol = protocol === 'https' ? 'https' : 'http'
+        const normalizedProtocol = normalizeBindingProtocol(String(source.protocol ?? source.Protocol ?? 'http'))
         const portValue = String(source.port ?? source.Port ?? (normalizedProtocol === 'https' ? '443' : '80'))
         const hostName = String(source.hostName ?? source.hostname ?? source.HostName ?? source.Hostname ?? source.host ?? '')
         const ipAddress = String(source.ipAddress ?? source.IPAddress ?? source.ip ?? '')
-        const enabledValue = source.enabled ?? source.Enabled
-        const enabled = typeof enabledValue === 'boolean'
-          ? enabledValue
-          : normalizeBoolean(
-            typeof enabledValue === 'string' || typeof enabledValue === 'number' ? String(enabledValue) : undefined,
-            true,
-          )
+        const enabled = readBooleanLikeField(source, 'enabled', 'Enabled') ?? true
+        const requireSni = readBooleanLikeField(source, 'requireSni', 'RequireSni', 'SniRequired', 'sniRequired') ?? false
+        const thumbprint = String(source.thumbprint ?? source.Thumbprint ?? '')
+        const certificateVariable = String(source.certificateVariable ?? source.CertificateVariable ?? '')
         return {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
           protocol: normalizedProtocol,
@@ -187,6 +465,9 @@ function parseBindings(value: string | undefined): IisBinding[] {
           ipAddress,
           hostName,
           enabled,
+          requireSni,
+          thumbprint,
+          certificateVariable,
         }
       })
       .filter((item): item is IisBinding => Boolean(item))
@@ -197,15 +478,31 @@ function parseBindings(value: string | undefined): IisBinding[] {
 }
 
 function serializeBindings(bindings: IisBinding[]): string {
-  const normalized = bindings
-    .map((binding) => ({
+  const normalized = bindings.map((binding) => {
+    const base: Record<string, unknown> = {
       protocol: binding.protocol,
       port: binding.port.trim(),
-      ipAddress: binding.ipAddress.trim(),
-      hostName: binding.hostName.trim(),
+      host: binding.hostName.trim(),
+      ipAddress: binding.ipAddress.trim() || '*',
       enabled: binding.enabled,
-    }))
+      requireSni: binding.requireSni,
+    }
+
+    if (binding.protocol === 'https') {
+      const cv = binding.certificateVariable.trim()
+      const tb = binding.thumbprint.trim()
+      // Prefer certificateVariable — PS line 486-490 picks it first; thumbprint is the fallback.
+      if (cv) base.certificateVariable = cv
+      else if (tb) base.thumbprint = tb
+    }
+
+    return base
+  })
   return JSON.stringify(normalized)
+}
+
+function boolPropertyValue(value: boolean): string {
+  return value ? 'True' : 'False'
 }
 
 function buildActionProperties(existingAction: DeploymentActionDto | undefined, values: IisActionValues): DeploymentActionPropertyDto[] {
@@ -227,25 +524,119 @@ function buildActionProperties(existingAction: DeploymentActionDto | undefined, 
   pushProperty(PackageProperties.feedId[0], values.packageFeedId)
   pushProperty(PackageProperties.packageId[0], values.packageId)
   pushProperty(PackageProperties.version[0], values.packageVersion)
+  const physicalPath = resolvePhysicalPathValue(values)
+  const deployWebSite = values.deploymentType === 'webSite'
+  const deployWebApplication = values.deploymentType === 'webApplication'
+  const deployVirtualDirectory = values.deploymentType === 'virtualDirectory'
+
   pushProperty(IisProperties.deploymentType[0], values.deploymentType)
-  pushProperty(IisProperties.webSiteName[0], values.webSiteName)
-  pushProperty(IisProperties.virtualDirectoryName[0], values.virtualDirectoryName)
-  pushProperty(IisProperties.webApplicationName[0], values.webApplicationName)
-  pushProperty(IisProperties.physicalPathMode[0], values.physicalPathMode)
-  pushProperty(IisProperties.relativePath[0], values.relativePath)
-  pushProperty(IisProperties.startWebSite[0], values.startWebSite ? 'true' : 'false')
-  pushProperty(IisProperties.applicationPoolName[0], values.appPoolName)
-  pushProperty(IisProperties.applicationPoolClr[0], values.appPoolClrVersion, true)
-  pushProperty(IisProperties.applicationPoolIdentity[0], values.appPoolIdentity)
-  pushProperty(IisProperties.startApplicationPool[0], values.startAppPool ? 'true' : 'false')
-  pushProperty(IisProperties.bindings[0], serializeBindings(values.bindings))
-  pushProperty(IisProperties.existingBindings[0], values.existingBindings)
-  pushProperty(IisProperties.authAnonymous[0], values.authAnonymous ? 'true' : 'false')
-  pushProperty(IisProperties.authBasic[0], values.authBasic ? 'true' : 'false')
-  pushProperty(IisProperties.authWindows[0], values.authWindows ? 'true' : 'false')
-  pushProperty(IisProperties.replaceConfigVariables[0], values.replaceConfigVariables ? 'true' : 'false')
-  pushProperty(IisProperties.runConfigTransforms[0], values.runConfigTransforms ? 'true' : 'false')
-  pushProperty(IisProperties.additionalTransforms[0], values.additionalTransforms, true)
+  pushProperty(IisProperties.createOrUpdateWebSite[0], boolPropertyValue(deployWebSite))
+  pushProperty(IisProperties.webApplicationCreateOrUpdate[0], boolPropertyValue(deployWebApplication))
+  pushProperty(IisProperties.virtualDirectoryCreateOrUpdate[0], boolPropertyValue(deployVirtualDirectory))
+
+  const useSpecificUser = values.appPoolIdentity === 'SpecificUser'
+
+  if (deployWebSite) {
+    pushProperty(IisProperties.webSiteName[0], values.webSiteName)
+    pushProperty(IisProperties.webRoot[0], physicalPath)
+    pushProperty(IisProperties.applicationPoolName[0], values.appPoolName)
+    pushProperty(IisProperties.applicationPoolClr[0], values.appPoolClrVersion)
+    pushProperty(IisProperties.applicationPoolIdentity[0], values.appPoolIdentity)
+    if (useSpecificUser) {
+      pushProperty(IisProperties.applicationPoolUsername[0], values.appPoolUsername)
+      pushProperty(IisProperties.applicationPoolPassword[0], values.appPoolPassword, true)
+    }
+    pushProperty(IisProperties.startApplicationPool[0], boolPropertyValue(values.startAppPool))
+    pushProperty(IisProperties.bindings[0], serializeBindings(values.bindings))
+    pushProperty(IisProperties.existingBindings[0], values.existingBindings)
+    pushProperty(IisProperties.authAnonymous[0], boolPropertyValue(values.authAnonymous))
+    pushProperty(IisProperties.authBasic[0], boolPropertyValue(values.authBasic))
+    pushProperty(IisProperties.authWindows[0], boolPropertyValue(values.authWindows))
+    pushProperty(IisProperties.startWebSite[0], boolPropertyValue(values.startWebSite))
+  }
+
+  if (deployWebApplication) {
+    pushProperty(IisProperties.webApplicationWebSiteName[0], values.webSiteName)
+    pushProperty(IisProperties.webApplicationVirtualPath[0], values.webApplicationName)
+    pushProperty(IisProperties.webApplicationPhysicalPath[0], physicalPath)
+    pushProperty(IisProperties.webApplicationApplicationPoolName[0], values.appPoolName)
+    pushProperty(IisProperties.webApplicationApplicationPoolClr[0], values.appPoolClrVersion)
+    pushProperty(IisProperties.webApplicationApplicationPoolIdentity[0], values.appPoolIdentity)
+    if (useSpecificUser) {
+      pushProperty(IisProperties.webApplicationApplicationPoolUsername[0], values.appPoolUsername)
+      pushProperty(IisProperties.webApplicationApplicationPoolPassword[0], values.appPoolPassword, true)
+    }
+    pushProperty(IisProperties.startApplicationPool[0], boolPropertyValue(values.startAppPool))
+  }
+
+  if (deployVirtualDirectory) {
+    pushProperty(IisProperties.virtualDirectoryWebSiteName[0], values.webSiteName)
+    pushProperty(IisProperties.virtualDirectoryVirtualPath[0], values.virtualDirectoryName)
+    pushProperty(IisProperties.virtualDirectoryPhysicalPath[0], physicalPath)
+  }
+
+  // .NET Configuration Variables — gated by Squid.Features.ConfigurationVariables.
+  if (values.enabledFeatures.has('Squid.Features.ConfigurationVariables')) {
+    pushProperty(IisProperties.replaceConfigVariables[0], boolPropertyValue(values.replaceConfigVariables))
+  }
+
+  // .NET Configuration Transforms — gated by Squid.Features.ConfigurationTransforms.
+  if (values.enabledFeatures.has('Squid.Features.ConfigurationTransforms')) {
+    pushProperty(IisProperties.runConfigTransforms[0], boolPropertyValue(values.runConfigTransforms))
+    if (values.runConfigTransforms) {
+      pushProperty(IisProperties.configTransformsEnvironmentName[0], values.configTransformsEnvironmentName, true)
+    }
+    pushProperty(IisProperties.additionalTransforms[0], values.additionalTransforms, true)
+  }
+
+  // Substitute Variables in Files — gated by Squid.Features.SubstituteInFiles.
+  if (values.enabledFeatures.has('Squid.Features.SubstituteInFiles')) {
+    pushProperty(IisProperties.substituteInFilesEnabled[0], boolPropertyValue(values.substituteInFilesEnabled))
+    if (values.substituteInFilesEnabled) {
+      pushProperty(IisProperties.substituteInFilesTargetFiles[0], values.substituteInFilesTargetFiles, true)
+    }
+  }
+
+  // Structured Configuration Variables — gated by Squid.Features.JsonConfigurationVariables (Octopus alias).
+  if (values.enabledFeatures.has('Squid.Features.JsonConfigurationVariables')) {
+    pushProperty(IisProperties.structuredConfigEnabled[0], boolPropertyValue(values.structuredConfigEnabled))
+    if (values.structuredConfigEnabled) {
+      pushProperty(IisProperties.structuredConfigTargets[0], values.structuredConfigTargets, true)
+    }
+  }
+
+  // AdditionalPaths — shared by all 4 rewriters; only relevant if any rewriter feature is on,
+  // but we let operators pre-populate so it stays even if no rewriter is currently enabled.
+  pushProperty(IisProperties.additionalPaths[0], values.additionalPaths, true)
+
+  // Custom Deployment Scripts — gated by Squid.Features.CustomScripts.
+  if (values.enabledFeatures.has('Squid.Features.CustomScripts')) {
+    pushProperty(IisProperties.customScriptsPreDeploy[0], values.customScriptsPreDeploy, true)
+    pushProperty(IisProperties.customScriptsPostDeploy[0], values.customScriptsPostDeploy, true)
+  }
+
+  // Configure-Features modal selection — persist the CSV so the next reopen sees the same gate.
+  pushProperty(FEATURES_PROPERTY, serializeEnabledFeatures(values.enabledFeatures), true)
+
+  // HTTPS certificate auto-import
+  pushProperty(IisProperties.certificatePfxBase64[0], values.certificatePfxBase64)
+  pushProperty(IisProperties.certificatePfxPassword[0], values.certificatePfxPassword, true)
+  pushProperty(IisProperties.certificateThumbprintVariableName[0], values.certificateThumbprintVariableName)
+
+  // Package extraction + journal short-circuit
+  pushProperty(IisProperties.packageSourcePath[0], values.packageSourcePath)
+  pushProperty(IisProperties.packageExtractTo[0], values.packageExtractTo)
+  pushProperty(IisProperties.packagePurgeBeforeExtract[0], boolPropertyValue(values.packagePurgeBeforeExtract))
+  pushProperty(IisProperties.packageSkipIfAlreadyInstalled[0], boolPropertyValue(values.packageSkipIfAlreadyInstalled))
+
+  // IIS metabase retry tuning
+  pushProperty(IisProperties.maxRetryFailures[0], values.maxRetryFailures)
+  pushProperty(IisProperties.sleepBetweenRetryFailuresInSeconds[0], values.sleepBetweenRetryFailuresInSeconds)
+
+  // Error tolerance + diagnostics
+  pushProperty(IisProperties.ignoreVariableReplacementErrors[0], boolPropertyValue(values.ignoreVariableReplacementErrors))
+  pushProperty(IisProperties.shouldFailDeploymentOnSubstitutionFails[0], boolPropertyValue(values.shouldFailDeploymentOnSubstitutionFails))
+  pushProperty(IisProperties.enableDiagnosticsConfigTransformationLogging[0], boolPropertyValue(values.enableDiagnosticsConfigTransformationLogging))
 
   return next
 }
@@ -320,25 +711,35 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
     const [packageSearchLoading, setPackageSearchLoading] = useState(false)
     const packageSearchRequestId = useRef(0)
 
-    const [deploymentType, setDeploymentType] = useState<IisDeploymentType>(
-      normalizeDeploymentType(getActionProperty(action, IisProperties.deploymentType)),
+    const initialDeploymentType = useMemo(() => normalizeDeploymentTypeFromAction(action), [action])
+    const initialPhysicalPath = useMemo(() => getInitialPhysicalPath(action, initialDeploymentType), [action, initialDeploymentType])
+    const [deploymentType, setDeploymentType] = useState<IisDeploymentType>(initialDeploymentType)
+    const [webSiteName, setWebSiteName] = useState(getInitialWebSiteName(action, initialDeploymentType))
+    const [virtualDirectoryName, setVirtualDirectoryName] = useState(
+      getActionProperty(action, IisProperties.virtualDirectoryVirtualPath) ?? getActionProperty(action, IisProperties.virtualDirectoryName) ?? '',
     )
-    const [webSiteName, setWebSiteName] = useState(getActionProperty(action, IisProperties.webSiteName) ?? '')
-    const [virtualDirectoryName, setVirtualDirectoryName] = useState(getActionProperty(action, IisProperties.virtualDirectoryName) ?? '')
-    const [webApplicationName, setWebApplicationName] = useState(getActionProperty(action, IisProperties.webApplicationName) ?? '')
+    const [webApplicationName, setWebApplicationName] = useState(
+      getActionProperty(action, IisProperties.webApplicationVirtualPath) ?? getActionProperty(action, IisProperties.webApplicationName) ?? '',
+    )
     const [physicalPathMode, setPhysicalPathMode] = useState<PhysicalPathMode>(
-      normalizePhysicalPathMode(getActionProperty(action, IisProperties.physicalPathMode)),
+      getInitialPhysicalPathMode(action, initialPhysicalPath),
     )
-    const [relativePath, setRelativePath] = useState(getActionProperty(action, IisProperties.relativePath) ?? '')
+    const [relativePath, setRelativePath] = useState(initialPhysicalPath === '.' ? '' : initialPhysicalPath)
     const [startWebSite, setStartWebSite] = useState(
       normalizeBoolean(getActionProperty(action, IisProperties.startWebSite), true),
     )
-    const [appPoolName, setAppPoolName] = useState(getActionProperty(action, IisProperties.applicationPoolName) ?? '')
+    const [appPoolName, setAppPoolName] = useState(getInitialApplicationPoolName(action, initialDeploymentType))
     const [appPoolClrVersion, setAppPoolClrVersion] = useState<AppPoolClrVersion>(
-      normalizeClrVersion(getActionProperty(action, IisProperties.applicationPoolClr)),
+      getInitialApplicationPoolClr(action, initialDeploymentType),
     )
     const [appPoolIdentity, setAppPoolIdentity] = useState<AppPoolIdentity>(
-      normalizeIdentity(getActionProperty(action, IisProperties.applicationPoolIdentity)),
+      getInitialApplicationPoolIdentity(action, initialDeploymentType),
+    )
+    const [appPoolUsername, setAppPoolUsername] = useState(
+      getInitialApplicationPoolUsername(action, initialDeploymentType),
+    )
+    const [appPoolPassword, setAppPoolPassword] = useState(
+      getInitialApplicationPoolPassword(action, initialDeploymentType),
     )
     const [startAppPool, setStartAppPool] = useState(
       normalizeBoolean(getActionProperty(action, IisProperties.startApplicationPool), true),
@@ -367,9 +768,97 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
     const [runConfigTransforms, setRunConfigTransforms] = useState(
       normalizeBoolean(getActionProperty(action, IisProperties.runConfigTransforms), true),
     )
+    const [configTransformsEnvironmentName, setConfigTransformsEnvironmentName] = useState(
+      getActionProperty(action, IisProperties.configTransformsEnvironmentName) ?? '#{Squid.Environment.Name}',
+    )
     const [additionalTransforms, setAdditionalTransforms] = useState(
       getActionProperty(action, IisProperties.additionalTransforms) ?? '',
     )
+    const [substituteInFilesEnabled, setSubstituteInFilesEnabled] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.substituteInFilesEnabled), false),
+    )
+    const [substituteInFilesTargetFiles, setSubstituteInFilesTargetFiles] = useState(
+      getActionProperty(action, IisProperties.substituteInFilesTargetFiles) ?? '',
+    )
+    const [structuredConfigEnabled, setStructuredConfigEnabled] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.structuredConfigEnabled), false),
+    )
+    const [structuredConfigTargets, setStructuredConfigTargets] = useState(
+      getActionProperty(action, IisProperties.structuredConfigTargets) ?? '',
+    )
+    const [additionalPaths, setAdditionalPaths] = useState(
+      getActionProperty(action, IisProperties.additionalPaths) ?? '',
+    )
+    const [customScriptsPreDeploy, setCustomScriptsPreDeploy] = useState(
+      getActionProperty(action, IisProperties.customScriptsPreDeploy) ?? '',
+    )
+    const [customScriptsPostDeploy, setCustomScriptsPostDeploy] = useState(
+      getActionProperty(action, IisProperties.customScriptsPostDeploy) ?? '',
+    )
+    const [certificatePfxBase64, setCertificatePfxBase64] = useState(
+      getActionProperty(action, IisProperties.certificatePfxBase64) ?? '',
+    )
+    const [certificatePfxPassword, setCertificatePfxPassword] = useState(
+      getActionProperty(action, IisProperties.certificatePfxPassword) ?? '',
+    )
+    const [certificateThumbprintVariableName, setCertificateThumbprintVariableName] = useState(
+      getActionProperty(action, IisProperties.certificateThumbprintVariableName) ?? '',
+    )
+    const [packageSourcePath, setPackageSourcePath] = useState(
+      getActionProperty(action, IisProperties.packageSourcePath) ?? '',
+    )
+    const [packageExtractTo, setPackageExtractTo] = useState(
+      getActionProperty(action, IisProperties.packageExtractTo) ?? '',
+    )
+    const [packagePurgeBeforeExtract, setPackagePurgeBeforeExtract] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.packagePurgeBeforeExtract), false),
+    )
+    const [packageSkipIfAlreadyInstalled, setPackageSkipIfAlreadyInstalled] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.packageSkipIfAlreadyInstalled), false),
+    )
+    const [maxRetryFailures, setMaxRetryFailures] = useState(
+      normalizeNonNegativeIntegerString(getActionProperty(action, IisProperties.maxRetryFailures)),
+    )
+    const [sleepBetweenRetryFailuresInSeconds, setSleepBetweenRetryFailuresInSeconds] = useState(
+      normalizeNonNegativeIntegerString(getActionProperty(action, IisProperties.sleepBetweenRetryFailuresInSeconds)),
+    )
+    const [ignoreVariableReplacementErrors, setIgnoreVariableReplacementErrors] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.ignoreVariableReplacementErrors), false),
+    )
+    const [shouldFailDeploymentOnSubstitutionFails, setShouldFailDeploymentOnSubstitutionFails] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.shouldFailDeploymentOnSubstitutionFails), false),
+    )
+    const [enableDiagnosticsConfigTransformationLogging, setEnableDiagnosticsConfigTransformationLogging] = useState(
+      normalizeBoolean(getActionProperty(action, IisProperties.enableDiagnosticsConfigTransformationLogging), false),
+    )
+
+    const initialEnabledFeatures = useMemo(() => inferEnabledFeatures(action), [action])
+    const [enabledFeatures, setEnabledFeatures] = useState<ReadonlySet<IisFeatureId>>(initialEnabledFeatures)
+    const [featuresModalOpen, setFeaturesModalOpen] = useState(false)
+    const [featuresDraft, setFeaturesDraft] = useState<ReadonlySet<IisFeatureId>>(initialEnabledFeatures)
+
+    const openFeaturesModal = () => {
+      setFeaturesDraft(new Set(enabledFeatures))
+      setFeaturesModalOpen(true)
+    }
+
+    const closeFeaturesModal = () => {
+      setFeaturesModalOpen(false)
+    }
+
+    const toggleFeatureDraft = (id: IisFeatureId, checked: boolean) => {
+      setFeaturesDraft((current) => {
+        const next = new Set(current)
+        if (checked) next.add(id)
+        else next.delete(id)
+        return next
+      })
+    }
+
+    const saveFeatures = () => {
+      setEnabledFeatures(new Set(featuresDraft))
+      setFeaturesModalOpen(false)
+    }
 
     const loadFeeds = useCallback(async () => {
       setFeedsLoading(true)
@@ -506,12 +995,12 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
       }
 
       if (deploymentType === 'virtualDirectory' && !virtualDirectoryName.trim()) {
-        message.warning('Virtual directory name is required')
+        message.warning('Virtual path is required')
         return
       }
 
       if (deploymentType === 'webApplication' && !webApplicationName.trim()) {
-        message.warning('Web application name is required')
+        message.warning('Virtual path is required')
         return
       }
 
@@ -520,10 +1009,66 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
         return
       }
 
-      const hasBindingWithoutPort = bindings.some((binding) => binding.enabled && !binding.port.trim())
-      if (hasBindingWithoutPort) {
-        message.warning('Each enabled binding must include a port')
+      if (deploymentType !== 'virtualDirectory' && !appPoolName.trim()) {
+        message.warning('Application pool name is required')
         return
+      }
+
+      if (deploymentType !== 'virtualDirectory' && appPoolIdentity === 'SpecificUser' && !appPoolUsername.trim()) {
+        message.warning('Username is required when using a custom application pool identity')
+        return
+      }
+
+      if (deploymentType === 'webSite') {
+        const hasBindingWithoutPort = bindings.some((binding) => binding.enabled && !binding.port.trim())
+        if (hasBindingWithoutPort) {
+          message.warning('Each enabled binding must include a port')
+          return
+        }
+
+        const httpsBindingMissingCert = bindings.some((binding) =>
+          binding.enabled
+          && binding.protocol === 'https'
+          && !binding.thumbprint.trim()
+          && !binding.certificateVariable.trim(),
+        )
+        if (httpsBindingMissingCert) {
+          message.warning('Each enabled HTTPS binding must reference a certificate (thumbprint or certificate variable)')
+          return
+        }
+      }
+
+      if (substituteInFilesEnabled && !substituteInFilesTargetFiles.trim()) {
+        message.warning('Substitute in Files target files are required when this feature is enabled')
+        return
+      }
+
+      if (structuredConfigEnabled && !structuredConfigTargets.trim()) {
+        message.warning('Structured Configuration Variables targets are required when this feature is enabled')
+        return
+      }
+
+      if (certificatePfxBase64.trim() && !certificateThumbprintVariableName.trim()) {
+        message.warning('Certificate thumbprint variable name is required when PFX content is provided (so bindings can reference the imported cert)')
+        return
+      }
+
+      if (packageSourcePath.trim() && !/\.(zip|nupkg)$/i.test(packageSourcePath.trim())) {
+        message.warning('Package source path must end with .zip or .nupkg')
+        return
+      }
+
+      if (maxRetryFailures.trim() && !/^\d+$/.test(maxRetryFailures.trim())) {
+        message.warning('Max retry failures must be a non-negative integer')
+        return
+      }
+
+      if (sleepBetweenRetryFailuresInSeconds.trim()) {
+        const seconds = Number.parseInt(sleepBetweenRetryFailuresInSeconds.trim(), 10)
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > 60) {
+          message.warning('Sleep between retry failures must be a number from 0 to 60 (seconds)')
+          return
+        }
       }
 
       const actionValues: IisActionValues = {
@@ -540,6 +1085,8 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
         appPoolName,
         appPoolClrVersion,
         appPoolIdentity,
+        appPoolUsername,
+        appPoolPassword,
         startAppPool,
         bindings,
         existingBindings,
@@ -548,7 +1095,28 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
         authWindows,
         replaceConfigVariables,
         runConfigTransforms,
+        configTransformsEnvironmentName,
         additionalTransforms,
+        substituteInFilesEnabled,
+        substituteInFilesTargetFiles,
+        structuredConfigEnabled,
+        structuredConfigTargets,
+        additionalPaths,
+        customScriptsPreDeploy,
+        customScriptsPostDeploy,
+        certificatePfxBase64,
+        certificatePfxPassword,
+        certificateThumbprintVariableName,
+        packageSourcePath,
+        packageExtractTo,
+        packagePurgeBeforeExtract,
+        packageSkipIfAlreadyInstalled,
+        maxRetryFailures,
+        sleepBetweenRetryFailuresInSeconds,
+        ignoreVariableReplacementErrors,
+        shouldFailDeploymentOnSubstitutionFails,
+        enableDiagnosticsConfigTransformationLogging,
+        enabledFeatures,
       }
       const actionProperties = buildActionProperties(action, actionValues)
       const stepProperties = buildStepProperties(step?.properties, step?.id ?? 0, conditions, targetTags)
@@ -617,6 +1185,8 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
       appPoolName,
       appPoolClrVersion,
       appPoolIdentity,
+      appPoolUsername,
+      appPoolPassword,
       startAppPool,
       bindings,
       existingBindings,
@@ -625,7 +1195,28 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
       authWindows,
       replaceConfigVariables,
       runConfigTransforms,
+      configTransformsEnvironmentName,
       additionalTransforms,
+      substituteInFilesEnabled,
+      substituteInFilesTargetFiles,
+      structuredConfigEnabled,
+      structuredConfigTargets,
+      additionalPaths,
+      customScriptsPreDeploy,
+      customScriptsPostDeploy,
+      certificatePfxBase64,
+      certificatePfxPassword,
+      certificateThumbprintVariableName,
+      packageSourcePath,
+      packageExtractTo,
+      packagePurgeBeforeExtract,
+      packageSkipIfAlreadyInstalled,
+      maxRetryFailures,
+      sleepBetweenRetryFailuresInSeconds,
+      ignoreVariableReplacementErrors,
+      shouldFailDeploymentOnSubstitutionFails,
+      enableDiagnosticsConfigTransformationLogging,
+      enabledFeatures,
       step,
       processId,
     ])
@@ -937,12 +1528,12 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                       options={[
                         { label: 'v4.0', value: 'v4.0' },
                         { label: 'v2.0', value: 'v2.0' },
-                        { label: 'No Managed Code', value: '' },
+                        { label: 'No Managed Code', value: 'No Managed Code' },
                       ]}
                       size="small"
                       className="w-full"
                     />
-                    <p className="mb-0 mt-1 text-xs text-slate-500">
+                    <p className="mb-0 mt-2 text-xs text-slate-500">
                       The version of the .NET common language runtime that this application pool will use. Choose <strong>v2.0</strong> for applications built against .NET 2.0, 3.0 or 3.5. Choose <strong>v4.0</strong> for .NET 4.0 or 4.5
                     </p>
                   </div>
@@ -957,12 +1548,46 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                         { label: 'Network Service', value: 'NetworkService' },
                         { label: 'Local Service', value: 'LocalService' },
                         { label: 'Local System', value: 'LocalSystem' },
+                        { label: 'Custom user (Specific User)', value: 'SpecificUser' },
                       ]}
                       size="small"
                       className="w-full"
                     />
-                    <p className="mb-0 mt-1 text-xs text-slate-500">Which built-in account will the application pool run under.</p>
+                    <p className="mb-0 mt-2 text-xs text-slate-500">Which account will the application pool run under.</p>
                   </div>
+
+                  {appPoolIdentity === 'SpecificUser' ? (
+                    <>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-600">Username</label>
+                        <Input
+                          size="small"
+                          value={appPoolUsername}
+                          onChange={(event) => setAppPoolUsername(event.target.value)}
+                          placeholder={'DOMAIN\\user or .\\user'}
+                          autoComplete="off"
+                        />
+                        <p className="mb-0 mt-1 text-xs text-slate-500">
+                          The Windows account the application pool will run under. Use <code>DOMAIN\user</code> for a domain account or <code>.\user</code> for a local account.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-600">Password</label>
+                        <Input.Password
+                          size="small"
+                          value={appPoolPassword}
+                          onChange={(event) => setAppPoolPassword(event.target.value)}
+                          placeholder="Password or #{Sensitive.AppPoolPassword}"
+                          autoComplete="new-password"
+                          visibilityToggle
+                        />
+                        <p className="mb-0 mt-1 text-xs text-slate-500">
+                          The password for the account. Reference a sensitive variable (e.g. <code>#{'{Sensitive.AppPoolPassword}'}</code>) to avoid storing the secret in the step definition.
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
 
                   <div>
                     <Checkbox checked={startAppPool} onChange={(event) => setStartAppPool(event.target.checked)}>
@@ -1011,6 +1636,13 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                                 <p className="mb-0">Port: <strong>{binding.port || '(not set)'}</strong></p>
                                 {binding.ipAddress.trim() ? <p className="mb-0">IP: <strong>{binding.ipAddress}</strong></p> : null}
                                 {binding.hostName.trim() ? <p className="mb-0">Host: <strong>{binding.hostName}</strong></p> : null}
+                                {binding.protocol === 'https' && binding.certificateVariable.trim() ? (
+                                  <p className="mb-0">Cert variable: <strong>{binding.certificateVariable}</strong></p>
+                                ) : null}
+                                {binding.protocol === 'https' && !binding.certificateVariable.trim() && binding.thumbprint.trim() ? (
+                                  <p className="mb-0">Cert thumbprint: <strong>{binding.thumbprint.slice(0, 12)}{binding.thumbprint.length > 12 ? '…' : ''}</strong></p>
+                                ) : null}
+                                {binding.protocol === 'https' && binding.requireSni ? <p className="mb-0">SNI: <strong>required</strong></p> : null}
                                 {!binding.enabled ? <p className="mb-0 text-amber-600">Disabled</p> : null}
                               </div>
                               <button
@@ -1058,6 +1690,10 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                             options={[
                               { label: 'HTTP', value: 'http' },
                               { label: 'HTTPS', value: 'https' },
+                              { label: 'net.tcp', value: 'net.tcp' },
+                              { label: 'net.pipe', value: 'net.pipe' },
+                              { label: 'net.msmq', value: 'net.msmq' },
+                              { label: 'msmq.formatname', value: 'msmq.formatname' },
                             ]}
                           />
                         </div>
@@ -1097,6 +1733,46 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                             Leave empty to use any host header.
                           </p>
                         </div>
+
+                        {bindingDraft.protocol === 'https' ? (
+                          <>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 mb-1">Certificate variable name</label>
+                              <Input
+                                value={bindingDraft.certificateVariable}
+                                onChange={(event) => setBindingDraft((current) => ({ ...current, certificateVariable: event.target.value }))}
+                                placeholder="OrderApiCert"
+                              />
+                              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                                When set, the agent reads <code>${'{VarName}'}.Thumbprint</code> from Squid variables (typically populated by the HTTPS Certificate auto-import section below). Takes precedence over the static thumbprint.
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-medium text-slate-600 mb-1">Certificate thumbprint</label>
+                              <Input
+                                value={bindingDraft.thumbprint}
+                                onChange={(event) => setBindingDraft((current) => ({ ...current, thumbprint: event.target.value }))}
+                                placeholder="ABCD1234… (LocalMachine\\My)"
+                              />
+                              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                                Fallback when no variable is set. The cert must already exist in <code>Cert:\LocalMachine\My</code> on the agent.
+                              </p>
+                            </div>
+
+                            <div>
+                              <Checkbox
+                                checked={bindingDraft.requireSni}
+                                onChange={(event) => setBindingDraft((current) => ({ ...current, requireSni: event.target.checked }))}
+                              >
+                                <span className="text-sm">Require Server Name Indication (SNI)</span>
+                              </Checkbox>
+                              <p className="text-xs text-slate-500 leading-relaxed mt-1 mb-0">
+                                Bind the certificate to the hostname instead of the IP/port pair. Useful when multiple HTTPS sites share an IP. Requires IIS 8+.
+                              </p>
+                            </div>
+                          </>
+                        ) : null}
 
                         <div>
                           <div className="text-xs font-medium text-slate-600 mb-2">Binding status</div>
@@ -1159,19 +1835,22 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
             ) : null}
           </CollapsibleSection>
 
-          <CollapsibleSection
-            title=".NET Configuration Variables"
-            subtitle="If set, replace appSettings and connectionString entries in any .config files."
-            defaultOpen
-          >
-            <Checkbox checked={replaceConfigVariables} onChange={(event) => setReplaceConfigVariables(event.target.checked)}>
-              <span className="text-sm">Replace entries in .config files</span>
-            </Checkbox>
-            <p className="mb-0 mt-1 text-xs text-slate-500">
-              Tentacle will scan <code>.config</code> files and replace matching keys using step variables.
-            </p>
-          </CollapsibleSection>
+          {enabledFeatures.has('Squid.Features.ConfigurationVariables') ? (
+            <CollapsibleSection
+              title=".NET Configuration Variables"
+              subtitle="If set, replace appSettings and connectionString entries in any .config files."
+              defaultOpen
+            >
+              <Checkbox checked={replaceConfigVariables} onChange={(event) => setReplaceConfigVariables(event.target.checked)}>
+                <span className="text-sm">Replace entries in .config files</span>
+              </Checkbox>
+              <p className="mb-0 mt-1 text-xs text-slate-500">
+                Tentacle will scan <code>.config</code> files and replace matching keys using step variables.
+              </p>
+            </CollapsibleSection>
+          ) : null}
 
+          {enabledFeatures.has('Squid.Features.ConfigurationTransforms') ? (
           <CollapsibleSection
             title=".NET Configuration Transforms"
             subtitle="Configure .NET XML configuration transforms."
@@ -1187,6 +1866,21 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                   Squid can run configuration transformation files. By default Squid looks for <em>*.Release.config</em> and <em>*.&lt;EnvironmentName&gt;.config</em>.
                 </p>
               </div>
+
+              {runConfigTransforms ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Environment name token</label>
+                  <Input
+                    size="small"
+                    value={configTransformsEnvironmentName}
+                    onChange={(event) => setConfigTransformsEnvironmentName(event.target.value)}
+                    placeholder="#{Squid.Environment.Name}"
+                  />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Picks the <code>*.&lt;name&gt;.config</code> overlay. Leave empty to apply only the Release transform.
+                  </p>
+                </div>
+              ) : null}
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">Additional transforms</label>
@@ -1214,6 +1908,342 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
               </div>
             </div>
           </CollapsibleSection>
+          ) : null}
+
+          {enabledFeatures.has('Squid.Features.SubstituteInFiles') ? (
+          <CollapsibleSection
+            title="Substitute Variables in Files"
+            subtitle="Replace #{Variable} tokens inside any text file (JSON / YAML / properties / .config / .txt)."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <Checkbox checked={substituteInFilesEnabled} onChange={(event) => setSubstituteInFilesEnabled(event.target.checked)}>
+                <span className="text-sm">Enable variable token replacement in files</span>
+              </Checkbox>
+
+              {substituteInFilesEnabled ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Target files</label>
+                  <Input.TextArea
+                    value={substituteInFilesTargetFiles}
+                    onChange={(event) => setSubstituteInFilesTargetFiles(event.target.value)}
+                    autoSize={{ minRows: 3, maxRows: 8 }}
+                    placeholder={'appsettings.json\nappsettings.#{Squid.Environment.Name}.json\n*.yml'}
+                  />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Newline-separated globs relative to the web root (or absolute paths). Every <code>#{'{VariableName}'}</code> token is replaced with the matching Squid variable; unmatched tokens are left intact unless <em>Fail deployment on unresolved tokens</em> is enabled in <em>Error Tolerance</em>.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </CollapsibleSection>
+          ) : null}
+
+          {enabledFeatures.has('Squid.Features.JsonConfigurationVariables') ? (
+          <CollapsibleSection
+            title="Structured Configuration Variables"
+            subtitle="Replace JSON leaves where the path matches a Squid variable (e.g. Logging:LogLevel:Default)."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <Checkbox checked={structuredConfigEnabled} onChange={(event) => setStructuredConfigEnabled(event.target.checked)}>
+                <span className="text-sm">Enable JSON leaf replacement</span>
+              </Checkbox>
+
+              {structuredConfigEnabled ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Target files</label>
+                  <Input.TextArea
+                    value={structuredConfigTargets}
+                    onChange={(event) => setStructuredConfigTargets(event.target.value)}
+                    autoSize={{ minRows: 3, maxRows: 8 }}
+                    placeholder={'appsettings.json\nappsettings.Production.json'}
+                  />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Newline-separated globs relative to the web root. Path forms <code>Logging.LogLevel.Default</code> and <code>Logging:LogLevel:Default</code> are both supported.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </CollapsibleSection>
+          ) : null}
+
+          <CollapsibleSection
+            title="Additional Configuration Paths"
+            subtitle="Extra directories scanned by every config rewriter (in addition to the web root)."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-2">
+              <label className="mb-1 block text-xs font-medium text-slate-600">Paths (one per line)</label>
+              <Input.TextArea
+                value={additionalPaths}
+                onChange={(event) => setAdditionalPaths(event.target.value)}
+                autoSize={{ minRows: 3, maxRows: 8 }}
+                placeholder={'C:\\inetpub\\OrderApi\\config\nC:\\inetpub\\OrderApi\\shared'}
+              />
+              <p className="mb-0 mt-1 text-xs text-slate-500">
+                Absolute directory paths scanned in addition to the web root by Substitute in Files, Configuration Transforms, Configuration Variables, and Structured Configuration Variables.
+              </p>
+            </div>
+          </CollapsibleSection>
+
+          {enabledFeatures.has('Squid.Features.CustomScripts') ? (
+          <CollapsibleSection
+            title="Custom Scripts"
+            subtitle="Run PowerShell before / after the IIS configuration step (e.g. Stop-WebAppPool, health check)."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Pre-deploy script (PowerShell)</label>
+                <Input.TextArea
+                  value={customScriptsPreDeploy}
+                  onChange={(event) => setCustomScriptsPreDeploy(event.target.value)}
+                  autoSize={{ minRows: 4, maxRows: 16 }}
+                  placeholder={'# Release file locks before deployment\nStop-WebAppPool $applicationPoolName'}
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Runs before the IIS configuration logic. <code>WebAdministration</code> is auto-imported and <code>$SquidParameters</code> / <code>$SquidVariables</code> are available.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Post-deploy script (PowerShell)</label>
+                <Input.TextArea
+                  value={customScriptsPostDeploy}
+                  onChange={(event) => setCustomScriptsPostDeploy(event.target.value)}
+                  autoSize={{ minRows: 4, maxRows: 16 }}
+                  placeholder={'# Smoke test after deployment\nStart-WebAppPool $applicationPoolName\nInvoke-WebRequest http://localhost/health -UseBasicParsing'}
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Runs after a successful IIS configuration step. Skipped if the configure step threw.
+                </p>
+              </div>
+            </div>
+          </CollapsibleSection>
+          ) : null}
+
+          <CollapsibleSection
+            title="HTTPS Certificate"
+            subtitle="Auto-import a PFX into Cert:\LocalMachine\My on the agent so HTTPS bindings can reference it."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">PFX content (base64 or variable reference)</label>
+                <Input.TextArea
+                  value={certificatePfxBase64}
+                  onChange={(event) => setCertificatePfxBase64(event.target.value)}
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                  placeholder={'#{Sensitive.OrderApiPfx}'}
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Recommended pattern: store the base64-encoded PFX bytes as a sensitive Squid variable and reference it via <code>#{'{Sensitive.MyPfx}'}</code>. Leave empty if HTTPS bindings reference a cert already installed manually.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">PFX import password</label>
+                <Input.Password
+                  size="small"
+                  value={certificatePfxPassword}
+                  onChange={(event) => setCertificatePfxPassword(event.target.value)}
+                  placeholder="#{Sensitive.OrderApiPfxPassword}"
+                  autoComplete="new-password"
+                  visibilityToggle
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Optional — leave empty if the PFX has no password.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Thumbprint variable name</label>
+                <Input
+                  size="small"
+                  value={certificateThumbprintVariableName}
+                  onChange={(event) => setCertificateThumbprintVariableName(event.target.value)}
+                  placeholder="OrderApiCert"
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  After import, the imported cert's thumbprint is exposed at <code>$SquidVariables["&lt;name&gt;.Thumbprint"]</code>. Reference it from a binding's <strong>Certificate variable name</strong> field.
+                </p>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Package Extraction"
+            subtitle="Extract a pre-staged .zip / .nupkg into the web root before configuring IIS."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Source path on agent</label>
+                <Input
+                  size="small"
+                  value={packageSourcePath}
+                  onChange={(event) => setPackageSourcePath(event.target.value)}
+                  placeholder={'C:\\Squid\\Staging\\OrderApi.1.2.3.zip'}
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Absolute path to a <code>.zip</code> or <code>.nupkg</code> already staged on the Tentacle agent (via a prior step, fileserver mount, or operator manual stage). Leave empty to skip extraction.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Extract to</label>
+                <Input
+                  size="small"
+                  value={packageExtractTo}
+                  onChange={(event) => setPackageExtractTo(event.target.value)}
+                  placeholder="Defaults to the web root"
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Target directory for extraction. When empty, defaults to the configured web root.
+                </p>
+              </div>
+
+              <Checkbox checked={packagePurgeBeforeExtract} onChange={(event) => setPackagePurgeBeforeExtract(event.target.checked)}>
+                <span className="text-sm">Purge target directory before extract</span>
+              </Checkbox>
+              <p className="mb-0 mt-0 text-xs text-slate-500">
+                Deletes the entire target dir before re-extracting. Use to guarantee stale files from prior deploys don't survive.
+              </p>
+
+              <Checkbox checked={packageSkipIfAlreadyInstalled} onChange={(event) => setPackageSkipIfAlreadyInstalled(event.target.checked)}>
+                <span className="text-sm">Skip if already installed (use deployment journal)</span>
+              </Checkbox>
+              <p className="mb-0 mt-0 text-xs text-slate-500">
+                Short-circuits the deploy when a prior successful deploy has the same package fingerprint + web root, based on the per-site journal at <code>%ProgramData%\Squid\IISDeploy\journal\&lt;site&gt;.json</code>.
+              </p>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Error Tolerance & Diagnostics"
+            subtitle="Tune how the script reacts to missing variables, malformed configs, and transform failures."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-3">
+              <div>
+                <Checkbox checked={ignoreVariableReplacementErrors} onChange={(event) => setIgnoreVariableReplacementErrors(event.target.checked)}>
+                  <span className="text-sm">Ignore Configuration Variables XML parse errors</span>
+                </Checkbox>
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  When enabled, malformed <code>.config</code> files are logged and skipped instead of aborting the deploy.
+                </p>
+              </div>
+
+              <div>
+                <Checkbox checked={shouldFailDeploymentOnSubstitutionFails} onChange={(event) => setShouldFailDeploymentOnSubstitutionFails(event.target.checked)}>
+                  <span className="text-sm">Fail deployment when Substitute in Files leaves unresolved tokens</span>
+                </Checkbox>
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  When disabled (default), <code>#{'{X}'}</code> tokens without a matching Squid variable are left intact in the deployed file.
+                </p>
+              </div>
+
+              <div>
+                <Checkbox checked={enableDiagnosticsConfigTransformationLogging} onChange={(event) => setEnableDiagnosticsConfigTransformationLogging(event.target.checked)}>
+                  <span className="text-sm">Enable per-rule XDT diagnostics logging</span>
+                </Checkbox>
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Verbose trace of every XDT rule evaluated during Configuration Transforms — useful for debugging transform mismatches.
+                </p>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Application Pool Retry Tuning"
+            subtitle="Tune IIS metabase mutex retry behavior for performance-tuned hosts."
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Max retry failures</label>
+                <Input
+                  size="small"
+                  value={maxRetryFailures}
+                  onChange={(event) => setMaxRetryFailures(event.target.value.replace(/\D/g, ''))}
+                  placeholder="5 (default)"
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Maximum retry count when the IIS metabase mutex is held by another process. Leave empty for the default (5).
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Sleep between retry failures (seconds)</label>
+                <Input
+                  size="small"
+                  value={sleepBetweenRetryFailuresInSeconds}
+                  onChange={(event) => setSleepBetweenRetryFailuresInSeconds(event.target.value.replace(/\D/g, ''))}
+                  placeholder="Random 1–3 (default)"
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Sleep interval between mutex retry attempts. Capped at 60. Leave empty for the random 1–3 second default.
+                </p>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Features" subtitle="Toggle Octopus-style feature surfaces on/off for this step." defaultOpen fullWidth>
+            <div className="flex w-full flex-col items-center gap-2 py-2">
+              <Button type="primary" onClick={openFeaturesModal}>
+                Configure features
+              </Button>
+              <div className="max-w-[520px] text-center text-xs leading-relaxed text-slate-500">
+                You can add or manage additional features used by this step. Each ticked feature exposes its configuration section above; unticking removes the section and drops its property values on save.
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <Modal
+            title="Enabled Features"
+            open={featuresModalOpen}
+            onCancel={closeFeaturesModal}
+            onOk={saveFeatures}
+            okText="OK"
+            cancelText="Cancel"
+            width={720}
+          >
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="w-[44%] py-2 pr-4 text-left text-xs font-medium uppercase tracking-wide text-slate-500">Feature</th>
+                  <th className="py-2 pl-4 text-left text-xs font-medium uppercase tracking-wide text-slate-500">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {IIS_FEATURES.map((feature) => {
+                  const checked = featuresDraft.has(feature.id)
+                  return (
+                    <tr key={feature.id} className="border-b border-slate-100 last:border-b-0">
+                      <td className="py-3 pr-4 align-top">
+                        <Checkbox
+                          checked={checked}
+                          disabled={!feature.supported}
+                          onChange={(event) => toggleFeatureDraft(feature.id, event.target.checked)}
+                        >
+                          <span className="text-sm text-slate-700">{feature.name}</span>
+                          {!feature.supported ? (
+                            <span className="ml-2 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+                              Coming soon
+                            </span>
+                          ) : null}
+                        </Checkbox>
+                      </td>
+                      <td className="py-3 pl-4 align-top text-sm leading-relaxed text-slate-600">
+                        {feature.description}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </Modal>
 
           <CollapsibleSection title="Conditions" subtitle="Configure when and where this step should run." defaultOpen fullWidth>
             <StepConditionsSection
