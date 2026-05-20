@@ -5,12 +5,13 @@ interface CollapsibleSectionProps {
   subtitle?: React.ReactNode
   defaultOpen?: boolean
   fullWidth?: boolean
+  titleWidth?: number
   children: React.ReactNode
 }
 
 const TITLE_WIDTH = 200
 
-export function CollapsibleSection({ title, subtitle, defaultOpen = false, fullWidth = false, children }: CollapsibleSectionProps) {
+export function CollapsibleSection({ title, subtitle, defaultOpen = false, fullWidth = false, titleWidth = TITLE_WIDTH, children }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen)
 
   return (
@@ -20,7 +21,7 @@ export function CollapsibleSection({ title, subtitle, defaultOpen = false, fullW
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left gap-4"
       >
-        <span className="text-sm font-semibold text-slate-700 flex-shrink-0" style={{ width: TITLE_WIDTH }}>
+        <span className="text-sm font-semibold text-slate-700 flex-shrink-0" style={{ width: titleWidth }}>
           {title}
         </span>
         {subtitle && <span className="text-xs text-slate-400 flex-1 min-w-0">{subtitle}</span>}
@@ -40,7 +41,7 @@ export function CollapsibleSection({ title, subtitle, defaultOpen = false, fullW
             <div className="space-y-4">{children}</div>
           ) : (
             <div className="flex gap-4">
-              <div className="flex-shrink-0" style={{ width: TITLE_WIDTH }} />
+              <div className="flex-shrink-0" style={{ width: titleWidth }} />
               <div className="min-w-0 space-y-4" style={{ width: 560 }}>{children}</div>
             </div>
           )}

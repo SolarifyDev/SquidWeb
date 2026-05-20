@@ -21,6 +21,7 @@ import { KubernetesRawYamlEditor } from './step-editors/kubernetes-raw-yaml/Kube
 import { ManualInterventionEditor } from './step-editors/manual/ManualInterventionEditor'
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
+import { DeployToIisEditor } from './step-editors/iis/DeployToIisEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
 import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
 import {
@@ -52,6 +53,8 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.Manual':                     ManualInterventionEditor,
   'Squid.ManualIntervention':         ManualInterventionEditor,
   'Squid.HealthCheck':                HealthCheckEditor,
+  'Squid.DeployToIISWebSite':         DeployToIisEditor,
+  'Squid.IIS':                        DeployToIisEditor,
   'Squid.OpenClaw.InvokeTool':        OpenClawInvokeToolEditor,
   'Squid.OpenClaw.ChatCompletion':    OpenClawChatCompletionEditor,
   'Squid.OpenClaw.RunAgent':          OpenClawRunAgentEditor,
@@ -81,6 +84,7 @@ function actionSummary(actionType: string): string {
     'Squid.HelmChartUpgrade': 'Deploy a Helm Chart',
     'Squid.KubernetesKustomize': 'Deploy with Kustomize',
     'Squid.Kubernetes.Kustomize': 'Deploy with Kustomize',
+    'Squid.DeployToIISWebSite': 'Deploy to IIS',
     'Squid.IIS': 'Deploy to IIS',
     'Squid.TentaclePackage': 'Deploy a Package',
     'Squid.AzureAppService': 'Deploy an Azure App Service',
@@ -486,7 +490,7 @@ const STEP_TEMPLATES: StepTemplate[] = [
   {
     id: 'iis',
     title: 'Deploy to IIS',
-    actionType: 'Squid.IIS',
+    actionType: 'Squid.DeployToIISWebSite',
     bullets: ['Deploy the contents of a package to a Website, a Web Application or a Virtual Directory.'],
     categoryIds: ['package', 'windows'],
   },
