@@ -1260,6 +1260,38 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
 
     return (
       <div className="flex h-full flex-col">
+        <style>
+          {`
+            .iis-package-feed-select.ant-select .ant-select-selector,
+            .iis-package-id-autocomplete.ant-select .ant-select-selector {
+              min-height: 31px !important;
+              height: 31px !important;
+              display: flex !important;
+              align-items: center !important;
+            }
+            .iis-package-feed-select.ant-select .ant-select-selection-item,
+            .iis-package-feed-select.ant-select .ant-select-selection-placeholder,
+            .iis-package-id-autocomplete.ant-select .ant-select-selection-item,
+            .iis-package-id-autocomplete.ant-select .ant-select-selection-placeholder {
+              line-height: 29px !important;
+            }
+            .iis-package-feed-select.ant-select .ant-select-selection-search-input,
+            .iis-package-id-autocomplete.ant-select .ant-select-selection-search-input {
+              height: 29px !important;
+              line-height: 29px !important;
+            }
+            .iis-package-feed-select .ant-select-arrow,
+            .iis-package-id-autocomplete .ant-select-arrow {
+              top: 50% !important;
+              transform: translateY(-50%) !important;
+              margin-top: 0 !important;
+            }
+            .iis-package-version-input.ant-input {
+              height: 31px !important;
+              line-height: 29px !important;
+            }
+          `}
+        </style>
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-slate-100">
@@ -1328,7 +1360,7 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                         setPackageSearchTerm(packageId)
                       }}
                       size="small"
-                      className="w-full"
+                      className="w-full iis-package-feed-select"
                       showSearch
                       loading={feedsLoading}
                       allowClear
@@ -1351,7 +1383,7 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                   <div className="flex min-h-[28px] items-center gap-2">
                     <AutoComplete
                       size="small"
-                      className="w-full min-w-0"
+                      className="w-full min-w-0 iis-package-id-autocomplete"
                       value={packageId}
                       placeholder="Package ID"
                       options={packageSearchOptions.map((value) => ({ value }))}
@@ -1385,6 +1417,7 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
                   <label className="mb-1 block text-xs font-medium text-slate-600">Version (optional)</label>
                   <Input
                     size="small"
+                    className="iis-package-version-input"
                     value={packageVersion}
                     onChange={(event) => setPackageVersion(event.target.value)}
                     placeholder="1.0.0"
