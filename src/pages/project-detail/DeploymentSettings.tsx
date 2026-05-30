@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { Button, Radio, Spin, message } from 'antd'
+import { DownOutlined } from '@ant-design/icons'
 import { getProjects } from 'pages/apis/project'
 import {
   getDeploymentSettings,
@@ -17,6 +18,43 @@ const DEFAULT_SETTINGS: DeploymentSettingsDto = {
   },
 }
 
+interface DetailPanelProps {
+  title: string
+  subtitle: string
+  isOpen: boolean
+  onToggle: () => void
+  children: ReactNode
+  hasBorder?: boolean
+}
+
+function DetailPanel({ title, subtitle, isOpen, onToggle, children, hasBorder = true }: DetailPanelProps) {
+  return (
+    <div className={hasBorder ? 'border-b border-gray-200' : ''}>
+      <div
+        className="grid items-start py-4 pl-6 pr-6 cursor-pointer select-none"
+        style={{ gridTemplateColumns: '260px 1fr auto' }}
+        onClick={onToggle}
+      >
+        <div className="text-base font-bold text-gray-900 pt-0.5">{title}</div>
+        <div className="text-sm text-gray-500 pt-0.5">{subtitle}</div>
+        <button
+          type="button"
+          aria-label={isOpen ? `Collapse ${title}` : `Expand ${title}`}
+          className="text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <DownOutlined className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} style={{ fontSize: 12 }} />
+        </button>
+      </div>
+      {isOpen ? (
+        <div className="grid pl-6 pr-6 pb-5" style={{ gridTemplateColumns: '260px 1fr' }}>
+          <div />
+          <div>{children}</div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function DeploymentSettings() {
   const { projectName } = useParams<{ spaceId: string; projectName: string }>()
 
@@ -24,6 +62,8 @@ export default function DeploymentSettings() {
   const [saving, setSaving] = useState(false)
   const [projectId, setProjectId] = useState<number | null>(null)
   const [settings, setSettings] = useState<DeploymentSettingsDto>(DEFAULT_SETTINGS)
+  const [savedSettings, setSavedSettings] = useState<DeploymentSettingsDto>(DEFAULT_SETTINGS)
+  const [transientOpen, setTransientOpen] = useState(true)
 
   useEffect(() => {
     if (!projectName) return
@@ -44,6 +84,7 @@ export default function DeploymentSettings() {
 
         setProjectId(project.id)
         setSettings(loaded ?? DEFAULT_SETTINGS)
+        setSavedSettings(loaded ?? DEFAULT_SETTINGS)
       } catch {
         if (!cancelled) message.error('Failed to load deployment settings')
       } finally {
@@ -55,6 +96,15 @@ export default function DeploymentSettings() {
       cancelled = true
     }
   }, [projectName])
+
+  const transient = settings.transientDeploymentTargets
+
+  const isDirty = useMemo(
+    () =>
+      transient.unavailableDeploymentTargets !== savedSettings.transientDeploymentTargets.unavailableDeploymentTargets ||
+      transient.unhealthyDeploymentTargets !== savedSettings.transientDeploymentTargets.unhealthyDeploymentTargets,
+    [transient, savedSettings],
+  )
 
   const updateUnavailable = (value: UnavailableDeploymentTargetBehavior) =>
     setSettings((previous) => ({
@@ -75,7 +125,9 @@ export default function DeploymentSettings() {
 
     try {
       const saved = await saveDeploymentSettings(projectId, settings)
-      setSettings(saved ?? settings)
+      const next = saved ?? settings
+      setSettings(next)
+      setSavedSettings(next)
       message.success('Deployment settings saved')
     } catch {
       message.error('Failed to save deployment settings')
@@ -86,70 +138,98 @@ export default function DeploymentSettings() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="h-full flex items-center justify-center bg-white">
         <Spin />
       </div>
     )
   }
 
-  const transient = settings.transientDeploymentTargets
+  if (projectId == null) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white">
+        <div className="text-sm text-slate-600">Project not found.</div>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-800">Deployment Settings</h1>
-        <Button type="primary" loading={saving} disabled={projectId == null} onClick={handleSave}>
-          Save
-        </Button>
-      </div>
+    <div className="bg-white min-h-full">
+      <div className="max-w-[1600px] mx-auto pt-4 pb-6">
+        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+          <div className="px-6 pt-4 pb-3 border-b border-gray-200">
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-2xl font-semibold text-gray-900 m-0 min-w-0">Deployment Settings</h1>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button type="primary" disabled={!isDirty || saving} loading={saving} title="Save" onClick={handleSave}>
+                  Save
+                </Button>
+              </div>
+            </div>
 
-      <div className="border border-gray-200 rounded-md">
-        <div className="px-6 py-3 text-sm font-semibold text-gray-700 bg-gray-50 border-b border-gray-200">
-          Transient Deployment Targets
-        </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                className="text-xs text-gray-500 hover:text-gray-700 uppercase font-semibold tracking-wide bg-transparent border-0 cursor-pointer"
+                onClick={() => setTransientOpen((previous) => !previous)}
+              >
+                {transientOpen ? 'COLLAPSE ALL' : 'EXPAND ALL'}
+              </button>
+            </div>
+          </div>
 
-        <div className="p-6 space-y-6">
-          <div>
-            <div className="text-sm font-medium text-gray-700 mb-2">Unavailable Deployment targets</div>
-            <Radio.Group
-              value={transient.unavailableDeploymentTargets}
-              onChange={(event) => updateUnavailable(event.target.value as UnavailableDeploymentTargetBehavior)}
-            >
-              <div className="space-y-2">
+          <DetailPanel
+            title="Transient Deployment Targets"
+            subtitle="Choose to skip unavailable, or exclude unhealthy targets from the deployment."
+            isOpen={transientOpen}
+            onToggle={() => setTransientOpen((previous) => !previous)}
+            hasBorder={false}
+          >
+            <div className="max-w-[900px]">
+              <div className="text-sm font-semibold text-slate-800 mb-2">Unavailable Deployment targets</div>
+
+              <Radio.Group
+                value={transient.unavailableDeploymentTargets}
+                onChange={(event) => updateUnavailable(event.target.value as UnavailableDeploymentTargetBehavior)}
+                className="grid gap-2"
+              >
+                <div>
+                  <Radio value="SkipAndContinue">
+                    Skip and continue <span className="text-slate-400">(default)</span>
+                  </Radio>
+                </div>
                 <div>
                   <Radio value="FailDeployment">Fail deployment</Radio>
                 </div>
-                <div>
-                  <Radio value="SkipAndContinue">Skip and continue</Radio>
-                </div>
-              </div>
-            </Radio.Group>
-            <p className="text-xs text-gray-500 mt-1">
-              Deployment targets that are unavailable at the start of the deployment, or become unavailable during it,
-              will be skipped and removed from the deployment.
-            </p>
-          </div>
+              </Radio.Group>
 
-          <div>
-            <div className="text-sm font-medium text-gray-700 mb-2">Unhealthy Deployment Targets</div>
-            <Radio.Group
-              value={transient.unhealthyDeploymentTargets}
-              onChange={(event) => updateUnhealthy(event.target.value as UnhealthyDeploymentTargetBehavior)}
-            >
-              <div className="space-y-2">
+              <p className="text-sm text-slate-600 mt-2 pl-6 max-w-[640px]">
+                Deployment targets that are unavailable at the start of the deployment, or become unavailable during it, will be
+                skipped and removed from the deployment.
+              </p>
+
+              <div className="text-sm font-semibold text-slate-800 mb-2 mt-6">Unhealthy Deployment Targets</div>
+
+              <Radio.Group
+                value={transient.unhealthyDeploymentTargets}
+                onChange={(event) => updateUnhealthy(event.target.value as UnhealthyDeploymentTargetBehavior)}
+                className="grid gap-2"
+              >
+                <div>
+                  <Radio value="Exclude">
+                    Exclude <span className="text-slate-400">(default)</span>
+                  </Radio>
+                </div>
                 <div>
                   <Radio value="DoNotExclude">Do not exclude</Radio>
                 </div>
-                <div>
-                  <Radio value="Exclude">Exclude</Radio>
-                </div>
-              </div>
-            </Radio.Group>
-            <p className="text-xs text-gray-500 mt-1">
-              Deployment targets that are unhealthy at the start of the deployment will be skipped and removed from the
-              deployment.
-            </p>
-          </div>
+              </Radio.Group>
+
+              <p className="text-sm text-slate-600 mt-2 pl-6 max-w-[640px]">
+                Deployment targets that are unhealthy at the start of the deployment will be skipped and removed from the
+                deployment.
+              </p>
+            </div>
+          </DetailPanel>
         </div>
       </div>
     </div>
