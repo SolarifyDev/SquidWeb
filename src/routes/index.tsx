@@ -36,6 +36,7 @@ import DeployCreate from "pages/project-detail/DeployCreate";
 import DeploymentDetail from "pages/project-detail/DeploymentDetail";
 import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetailRedirect";
 import ProjectSettings from "pages/project-detail/ProjectSettings";
+import DeploymentSettings from "pages/project-detail/DeploymentSettings";
 import ProjectVersionControl from "pages/project-detail/ProjectVersionControl";
 import SettingsPage from 'pages/settings'
 import PersonalSettingsPage from 'pages/account/PersonalSettingsPage'
@@ -228,6 +229,11 @@ const routes = [
                 path: "deployments/channels/edit/:channelId",
                 component: ChannelDetail,
                 name: "ChannelDetail",
+              },
+              {
+                path: "deployments/settings",
+                component: DeploymentSettings,
+                name: "DeploymentSettings",
               },
               {
                 path: "releases",
