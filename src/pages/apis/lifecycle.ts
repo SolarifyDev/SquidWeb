@@ -1,6 +1,6 @@
 import { get, post } from 'utils/request'
 
-export type RetentionPolicyUnit = 0 | 1 | 2 | 3
+export type RetentionPolicyUnit = 0 | 1 | 2 | 3 | 4
 
 export interface LifecycleSummaryDto {
   id: number

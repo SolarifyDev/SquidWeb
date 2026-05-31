@@ -187,6 +187,77 @@
   padding-left: 0 !important;
 }
 
+/* Retention count + unit: two side-by-side cells, each a rounded bordered box. Both cells stretch
+   to the same height and their inner antd controls are borderless/transparent (the cell box is the
+   visible field), so count and unit stay aligned regardless of antd's per-control box model. The
+   shared height + line-height (below) put both labels on the same baseline; the spinner is hidden. */
+.retention-control {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.retention-cell {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d9dde3;
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.retention-cell:hover {
+  border-color: #b9c0cc;
+}
+
+.retention-cell:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+/* Inner controls are fully borderless/transparent — the cell box is the visible field. */
+.retention-cell .retention-count-input.ant-input-number,
+.retention-cell .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+/* Centre the count in its (narrower) cell. */
+.retention-cell .retention-count-input.ant-input-number {
+  width: 64px !important;
+}
+
+.retention-cell .retention-count-input .ant-input-number-input {
+  text-align: center;
+}
+
+/* Centre the unit label too (matching the count). Symmetric padding offsets the dropdown arrow's
+   reserved space so the label sits in the visual middle of the box rather than hugging the left. */
+.retention-cell .ant-select.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+
+.retention-cell .ant-select .ant-select-selection-item {
+  text-align: center;
+}
+
+/* Pin one shared height + line-height across both controls so "30" and "Days" sit on the exact
+   same baseline (antd's number input and select otherwise centre text with different metrics). */
+.retention-cell .retention-count-input .ant-input-number-input-wrap,
+.retention-cell .retention-count-input .ant-input-number-input,
+.retention-cell .ant-select.ant-select-single:not(.ant-select-customize-input) .ant-select-selector,
+.retention-cell .ant-select .ant-select-selection-item {
+  height: 34px !important;
+  min-height: 34px !important;
+  line-height: 34px !important;
+}
+
+.retention-control .ant-input-number-handler-wrap {
+  display: none;
+}
+
 .ant-input:hover,
 .ant-input-affix-wrapper:hover,
 .ant-input-number:hover {

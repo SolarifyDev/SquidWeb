@@ -331,24 +331,30 @@ function PhaseCard({ phase, index, environmentOptions, allowDelete = true, onTog
                     <Radio value="keepLimited">Keep a limited number</Radio>
                   </Radio.Group>
                   {phase.phaseReleaseRetention === 'keepLimited' && (
-                    <div className="flex items-center gap-2 mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
-                      <InputNumber
-                        min={1}
-                        value={phase.phaseReleaseRetentionCount}
-                        onChange={(v) => onUpdate({ phaseReleaseRetentionCount: v ?? 1 })}
-                        style={{ width: 80 }}
-                      />
-                      <Select
-                        value={phase.phaseReleaseRetentionUnit}
-                        onChange={(v) => onUpdate({ phaseReleaseRetentionUnit: v })}
-                        style={{ width: 110 }}
-                        options={[
-                          { value: 'Days', label: 'Days' },
-                          { value: 'Weeks', label: 'Weeks' },
-                          { value: 'Months', label: 'Months' },
-                          { value: 'Years', label: 'Years' },
-                        ]}
-                      />
+                    <div className="retention-control mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="retention-cell">
+                        <InputNumber
+                          min={1}
+                          value={phase.phaseReleaseRetentionCount}
+                          onChange={(v) => onUpdate({ phaseReleaseRetentionCount: v ?? 1 })}
+                          className="retention-count-input"
+                          style={{ width: 80 }}
+                        />
+                      </div>
+                      <div className="retention-cell">
+                        <Select
+                          value={phase.phaseReleaseRetentionUnit}
+                          onChange={(v) => onUpdate({ phaseReleaseRetentionUnit: v })}
+                          style={{ width: 110 }}
+                          options={[
+                            { value: 'Days', label: 'Days' },
+                            { value: 'Weeks', label: 'Weeks' },
+                            { value: 'Months', label: 'Months' },
+                            { value: 'Years', label: 'Years' },
+                            { value: 'Releases', label: 'Releases' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -363,24 +369,29 @@ function PhaseCard({ phase, index, environmentOptions, allowDelete = true, onTog
                     <Radio value="keepLimited">Keep a limited number</Radio>
                   </Radio.Group>
                   {phase.phaseFileRetention === 'keepLimited' && (
-                    <div className="flex items-center gap-2 mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
-                      <InputNumber
-                        min={1}
-                        value={phase.phaseFileRetentionCount}
-                        onChange={(v) => onUpdate({ phaseFileRetentionCount: v ?? 1 })}
-                        style={{ width: 80 }}
-                      />
-                      <Select
-                        value={phase.phaseFileRetentionUnit}
-                        onChange={(v) => onUpdate({ phaseFileRetentionUnit: v })}
-                        style={{ width: 110 }}
-                        options={[
-                          { value: 'Days', label: 'Days' },
-                          { value: 'Weeks', label: 'Weeks' },
-                          { value: 'Months', label: 'Months' },
-                          { value: 'Years', label: 'Years' },
-                        ]}
-                      />
+                    <div className="retention-control mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="retention-cell">
+                        <InputNumber
+                          min={1}
+                          value={phase.phaseFileRetentionCount}
+                          onChange={(v) => onUpdate({ phaseFileRetentionCount: v ?? 1 })}
+                          className="retention-count-input"
+                          style={{ width: 80 }}
+                        />
+                      </div>
+                      <div className="retention-cell">
+                        <Select
+                          value={phase.phaseFileRetentionUnit}
+                          onChange={(v) => onUpdate({ phaseFileRetentionUnit: v })}
+                          style={{ width: 110 }}
+                          options={[
+                            { value: 'Days', label: 'Days' },
+                            { value: 'Weeks', label: 'Weeks' },
+                            { value: 'Months', label: 'Months' },
+                            { value: 'Years', label: 'Years' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -500,6 +511,7 @@ function toRetentionUnit(unit?: RetentionPolicyUnit | string | null): string {
   if (unit === 1 || unit === 'Weeks') return 'Weeks';
   if (unit === 2 || unit === 'Months') return 'Months';
   if (unit === 3 || unit === 'Years') return 'Years';
+  if (unit === 4 || unit === 'Releases') return 'Releases';
   return 'Days';
 }
 
@@ -507,6 +519,7 @@ function toRetentionUnitValue(unit?: string | null): RetentionPolicyUnit {
   if (unit === 'Weeks') return 1;
   if (unit === 'Months') return 2;
   if (unit === 'Years') return 3;
+  if (unit === 'Releases') return 4;
   return 0;
 }
 
@@ -1122,24 +1135,30 @@ const Lifecycles: React.FC = () => {
                         <Radio value="keepLimitedReleases">Keep a limited number</Radio>
                       </Radio.Group>
                       {detailReleaseRetention === 'keepLimitedReleases' && (
-                        <div className="flex items-center gap-2 mt-2 ml-6">
-                          <InputNumber
-                            min={1}
-                            value={detailReleaseRetentionCount}
-                            onChange={(v) => setDetailReleaseRetentionCount(v ?? 1)}
-                            style={{ width: 80 }}
-                          />
-                          <Select
-                            value={detailReleaseRetentionUnit}
-                            onChange={setDetailReleaseRetentionUnit}
-                            style={{ width: 110 }}
-                            options={[
-                              { value: 'Days', label: 'Days' },
-                              { value: 'Weeks', label: 'Weeks' },
-                              { value: 'Months', label: 'Months' },
-                              { value: 'Years', label: 'Years' },
-                            ]}
-                          />
+                        <div className="retention-control mt-2 ml-6">
+                          <div className="retention-cell">
+                            <InputNumber
+                              min={1}
+                              value={detailReleaseRetentionCount}
+                              onChange={(v) => setDetailReleaseRetentionCount(v ?? 1)}
+                              className="retention-count-input"
+                              style={{ width: 80 }}
+                            />
+                          </div>
+                          <div className="retention-cell">
+                            <Select
+                              value={detailReleaseRetentionUnit}
+                              onChange={setDetailReleaseRetentionUnit}
+                              style={{ width: 110 }}
+                              options={[
+                                { value: 'Days', label: 'Days' },
+                                { value: 'Weeks', label: 'Weeks' },
+                                { value: 'Months', label: 'Months' },
+                                { value: 'Years', label: 'Years' },
+                                { value: 'Releases', label: 'Releases' },
+                              ]}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1154,24 +1173,29 @@ const Lifecycles: React.FC = () => {
                         <Radio value="keepLimitedFiles">Keep a limited number</Radio>
                       </Radio.Group>
                       {detailFileRetention === 'keepLimitedFiles' && (
-                        <div className="flex items-center gap-2 mt-2 ml-6">
-                          <InputNumber
-                            min={1}
-                            value={detailFileRetentionCount}
-                            onChange={(v) => setDetailFileRetentionCount(v ?? 1)}
-                            style={{ width: 80 }}
-                          />
-                          <Select
-                            value={detailFileRetentionUnit}
-                            onChange={setDetailFileRetentionUnit}
-                            style={{ width: 110 }}
-                            options={[
-                              { value: 'Days', label: 'Days' },
-                              { value: 'Weeks', label: 'Weeks' },
-                              { value: 'Months', label: 'Months' },
-                              { value: 'Years', label: 'Years' },
-                            ]}
-                          />
+                        <div className="retention-control mt-2 ml-6">
+                          <div className="retention-cell">
+                            <InputNumber
+                              min={1}
+                              value={detailFileRetentionCount}
+                              onChange={(v) => setDetailFileRetentionCount(v ?? 1)}
+                              className="retention-count-input"
+                              style={{ width: 80 }}
+                            />
+                          </div>
+                          <div className="retention-cell">
+                            <Select
+                              value={detailFileRetentionUnit}
+                              onChange={setDetailFileRetentionUnit}
+                              style={{ width: 110 }}
+                              options={[
+                                { value: 'Days', label: 'Days' },
+                                { value: 'Weeks', label: 'Weeks' },
+                                { value: 'Months', label: 'Months' },
+                                { value: 'Years', label: 'Years' },
+                              ]}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1453,24 +1477,30 @@ const Lifecycles: React.FC = () => {
                     <Radio value="keepLimited">Keep a limited number</Radio>
                   </Radio.Group>
                   {releaseRetention === 'keepLimited' && (
-                    <div className="flex items-center gap-2 mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
-                      <InputNumber
-                        min={1}
-                        value={releaseRetentionCount}
-                        onChange={(v) => setReleaseRetentionCount(v ?? 1)}
-                        style={{ width: 80 }}
-                      />
-                      <Select
-                        value={releaseRetentionUnit}
-                        onChange={setReleaseRetentionUnit}
-                        style={{ width: 110 }}
-                        options={[
-                          { value: 'Days', label: 'Days' },
-                          { value: 'Weeks', label: 'Weeks' },
-                          { value: 'Months', label: 'Months' },
-                          { value: 'Years', label: 'Years' },
-                        ]}
-                      />
+                    <div className="retention-control mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="retention-cell">
+                        <InputNumber
+                          min={1}
+                          value={releaseRetentionCount}
+                          onChange={(v) => setReleaseRetentionCount(v ?? 1)}
+                          className="retention-count-input"
+                          style={{ width: 80 }}
+                        />
+                      </div>
+                      <div className="retention-cell">
+                        <Select
+                          value={releaseRetentionUnit}
+                          onChange={setReleaseRetentionUnit}
+                          style={{ width: 110 }}
+                          options={[
+                            { value: 'Days', label: 'Days' },
+                            { value: 'Weeks', label: 'Weeks' },
+                            { value: 'Months', label: 'Months' },
+                            { value: 'Years', label: 'Years' },
+                            { value: 'Releases', label: 'Releases' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1487,24 +1517,29 @@ const Lifecycles: React.FC = () => {
                     <Radio value="keepLimited">Keep a limited number</Radio>
                   </Radio.Group>
                   {fileRetention === 'keepLimited' && (
-                    <div className="flex items-center gap-2 mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
-                      <InputNumber
-                        min={1}
-                        value={fileRetentionCount}
-                        onChange={(v) => setFileRetentionCount(v ?? 1)}
-                        style={{ width: 80 }}
-                      />
-                      <Select
-                        value={fileRetentionUnit}
-                        onChange={setFileRetentionUnit}
-                        style={{ width: 110 }}
-                        options={[
-                          { value: 'Days', label: 'Days' },
-                          { value: 'Weeks', label: 'Weeks' },
-                          { value: 'Months', label: 'Months' },
-                          { value: 'Years', label: 'Years' },
-                        ]}
-                      />
+                    <div className="retention-control mt-2 ml-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="retention-cell">
+                        <InputNumber
+                          min={1}
+                          value={fileRetentionCount}
+                          onChange={(v) => setFileRetentionCount(v ?? 1)}
+                          className="retention-count-input"
+                          style={{ width: 80 }}
+                        />
+                      </div>
+                      <div className="retention-cell">
+                        <Select
+                          value={fileRetentionUnit}
+                          onChange={setFileRetentionUnit}
+                          style={{ width: 110 }}
+                          options={[
+                            { value: 'Days', label: 'Days' },
+                            { value: 'Weeks', label: 'Weeks' },
+                            { value: 'Months', label: 'Months' },
+                            { value: 'Years', label: 'Years' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
