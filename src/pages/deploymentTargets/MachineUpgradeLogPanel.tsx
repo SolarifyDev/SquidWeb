@@ -62,10 +62,6 @@ export default function MachineUpgradeLogPanel({ machineId }: Props) {
         ) : null}
       </div>
 
-      <div className="text-xs text-gray-500 mt-1">
-        Raw Phase B log captured from the agent (tail-truncated to 50 KB). Empty until an upgrade has run on this machine.
-      </div>
-
       {open ? (
         <div className="mt-3">
           {loading && !loaded ? (
