@@ -499,6 +499,28 @@ export function getMachineUpgradeEvents(machineId: number) {
   return get<MachineUpgradeEventsData>(`/machines/${machineId}/upgrade-events`)
 }
 
+// --- Connection Log (real Halibut transport events for the machine's endpoint) ---
+
+export interface MachineConnectionLogEntry {
+  occurredAt: string
+  type: string
+  message: string
+  error: string
+}
+
+export interface MachineConnectionLogData {
+  machineId: number
+  endpoint: string
+  entries: MachineConnectionLogEntry[]
+}
+
+export function getMachineConnectionLog(machineId: number, maxEntries?: number) {
+  return get<MachineConnectionLogData>(
+    `/machines/${machineId}/connection-log`,
+    maxEntries ? { params: { maxEntries } } : undefined,
+  )
+}
+
 function shouldTryNextHealthRoute(error: unknown): boolean {
   const status = (error as any)?.response?.status ?? (error as any)?.status
   return status === 400 || status === 404 || status === 405 || status === 415 || status === 422

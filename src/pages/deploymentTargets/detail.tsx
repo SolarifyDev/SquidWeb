@@ -24,6 +24,7 @@ import { getEnvironments, EnvironmentDto } from 'pages/apis/environment'
 import { DeploymentAccountType, getDeploymentAccounts, DeploymentAccountDto } from 'pages/apis/deploymentAccount'
 import { getTargetTags } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
+import MachineConnectionLogPanel from 'pages/deploymentTargets/MachineConnectionLogPanel'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1979,6 +1980,8 @@ function ConnectivityTab({
           </div>
         </div>
       ) : null}
+
+      <MachineConnectionLogPanel machineId={machine.id} />
     </div>
   )
 }
