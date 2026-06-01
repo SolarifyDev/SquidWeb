@@ -25,6 +25,7 @@ import { DeploymentAccountType, getDeploymentAccounts, DeploymentAccountDto } fr
 import { getTargetTags } from 'pages/apis/targetTag'
 import { useSpace } from 'contexts/SpaceContext'
 import MachineConnectionLogPanel from 'pages/deploymentTargets/MachineConnectionLogPanel'
+import MachineUpgradeLogPanel from 'pages/deploymentTargets/MachineUpgradeLogPanel'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1342,19 +1343,22 @@ const DeploymentTargetDetailPage: React.FC = () => {
               <PlaceholderTab title="Deployments" />
             )}
             {activeTab === 'events' && (
-              <UpgradeEventsTab
-                machineName={machine.name}
-                events={upgradeEvents}
-                loading={upgradeEventsLoading}
-                active={upgradeEventsActive}
-                stalled={upgradeEventsStalled}
-                error={upgradeEventsError}
-                legacyFallback={upgradeEventsLegacyFallback}
-                targetVersion={upgradeEventsTargetVersion}
-                pollIntervalMs={UPGRADE_EVENTS_POLL_INTERVAL_MS}
-                lastPolledAt={upgradeEventsLastPolledAt}
-                pollCount={upgradeEventsPollCount}
-              />
+              <>
+                <UpgradeEventsTab
+                  machineName={machine.name}
+                  events={upgradeEvents}
+                  loading={upgradeEventsLoading}
+                  active={upgradeEventsActive}
+                  stalled={upgradeEventsStalled}
+                  error={upgradeEventsError}
+                  legacyFallback={upgradeEventsLegacyFallback}
+                  targetVersion={upgradeEventsTargetVersion}
+                  pollIntervalMs={UPGRADE_EVENTS_POLL_INTERVAL_MS}
+                  lastPolledAt={upgradeEventsLastPolledAt}
+                  pollCount={upgradeEventsPollCount}
+                />
+                <MachineUpgradeLogPanel machineId={machine.id} />
+              </>
             )}
           </div>
         </div>
@@ -2103,7 +2107,7 @@ function UpgradeEventsTab({
 
         {restartInProgress ? (
           <div className="mt-3 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-            正在重啟 Tentacle，預計 30-60 秒...
+            ⏳ Restarting Tentacle, typically 30-60s…
           </div>
         ) : null}
 

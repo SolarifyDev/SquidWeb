@@ -499,6 +499,17 @@ export function getMachineUpgradeEvents(machineId: number) {
   return get<MachineUpgradeEventsData>(`/machines/${machineId}/upgrade-events`)
 }
 
+// --- Full upgrade log (raw Phase B log text the agent captured) ---
+
+export interface MachineUpgradeLogData {
+  machineId: number
+  log: string
+}
+
+export function getMachineUpgradeLog(machineId: number) {
+  return get<MachineUpgradeLogData>(`/machines/${machineId}/upgrade-log`)
+}
+
 // --- Connection Log (real Halibut transport events for the machine's endpoint) ---
 
 export interface MachineConnectionLogEntry {
