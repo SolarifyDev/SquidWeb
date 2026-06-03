@@ -1091,12 +1091,14 @@ const DeployCreate: React.FC = () => {
                         .filter((name): name is string => Boolean(name))
                       const previewTargetNames = availableMachineNames.slice(0, 5)
                       const hiddenPreviewTargetNameCount = Math.max(availableMachineNames.length - previewTargetNames.length, 0)
+                      const excludedTargetCount = preview?.excludedTargets?.length ?? 0
+                      const excludedSuffix = excludedTargetCount > 0 ? ` (${excludedTargetCount} unavailable/unhealthy)` : ''
                       const statusText = preview
                         ? availableMachineCount > 0
-                          ? `${availableMachineCount} available`
+                          ? `${availableMachineCount} available${excludedSuffix}`
                           : preview.canDeploy
                             ? 'No targets required'
-                            : 'No available targets'
+                            : `No available targets${excludedSuffix}`
                         : validationLoading
                           ? 'Checking...'
                           : '-'

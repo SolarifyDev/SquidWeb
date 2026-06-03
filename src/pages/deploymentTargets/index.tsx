@@ -227,7 +227,7 @@ function unique(items: string[]): string[] {
   return Array.from(new Set(items))
 }
 
-function resolveMachineHealthState(machine: MachineDto): DeploymentTarget['healthState'] {
+export function resolveMachineHealthState(machine: MachineDto): DeploymentTarget['healthState'] {
   if (machine.isDisabled) return 'Disabled'
 
   const rawValue = (
@@ -241,10 +241,14 @@ function resolveMachineHealthState(machine: MachineDto): DeploymentTarget['healt
   if (rawValue === null || rawValue === undefined) return 'Unknown'
 
   if (typeof rawValue === 'number') {
+    // Mirrors the server MachineHealthStatus enum: Unknown=0, Healthy=1, HasWarnings=2,
+    // Unhealthy=3, Unavailable=4. "Disabled" is NOT a health value — it is driven solely by
+    // isDisabled (handled above). The previous mapping shifted these (e.g. 4 -> "Disabled"),
+    // so an enabled-but-Unavailable target was wrongly shown as Disabled.
     if (rawValue === 1) return 'Healthy'
-    if (rawValue === 2) return 'Unhealthy'
-    if (rawValue === 3) return 'Unavailable'
-    if (rawValue === 4) return 'Disabled'
+    if (rawValue === 2) return 'Unhealthy' // HasWarnings — surfaced as a warning state
+    if (rawValue === 3) return 'Unhealthy'
+    if (rawValue === 4) return 'Unavailable'
     return 'Unknown'
   }
 
