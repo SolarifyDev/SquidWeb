@@ -41,6 +41,8 @@ export interface DeploymentPreviewTargetResult {
   machineId: number
   machineName: string
   roles: string[]
+  /** Machine health at preview time (e.g. Healthy / Unavailable / Unhealthy). */
+  healthStatus?: string
 }
 
 export interface DeploymentPreviewStepResult {
@@ -62,6 +64,8 @@ export interface DeploymentPreviewResult {
   lifecycleId?: number | null
   allowedEnvironmentIds: number[]
   candidateTargets: DeploymentPreviewTargetResult[]
+  /** Targets matched by environment but excluded by the transient-target health policy (unavailable/unhealthy). */
+  excludedTargets?: DeploymentPreviewTargetResult[]
   steps: DeploymentPreviewStepResult[]
   message: string
 }
