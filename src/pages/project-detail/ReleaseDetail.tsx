@@ -41,6 +41,7 @@ import {
   getExternalFeedPackageNotes,
   type ExternalFeedPackageNotesItem,
 } from 'pages/apis/externalFeed'
+import DeploymentHistory from './DeploymentHistory'
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 
@@ -99,34 +100,6 @@ function formatDate(iso: string | null | undefined): string {
   })
 }
 
-function formatHistoryDateTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
-
-function deploymentCompletionVerb(state: string): string {
-  switch (state) {
-    case 'Success':
-      return 'succeeded'
-    case 'Failed':
-    case 'TimedOut':
-      return 'failed'
-    case 'Cancelled':
-    case 'Cancelling':
-      return 'cancelled'
-    default:
-      return 'completed'
-  }
-}
-
 function stateColor(state: string): string {
   switch (state) {
     case 'Success':    return '#00874d'
@@ -141,19 +114,6 @@ function stateColor(state: string): string {
 }
 
 type PhaseStatus = 'done' | 'current' | 'pending'
-
-type DeploymentHistoryEntryType = 'deployment-started' | 'deployment-completed' | 'release-created'
-
-interface DeploymentHistoryEntry {
-  key: string
-  occurredAt: string
-  actorName: string
-  type: DeploymentHistoryEntryType
-  deploymentId: number | null
-  environmentId: number | null
-  environmentName: string
-  state: string | null
-}
 
 function phaseStatusColor(status: PhaseStatus): string {
   switch (status) {
@@ -381,8 +341,6 @@ const ReleaseDetail: React.FC = () => {
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
   const [packageNotesLoading, setPackageNotesLoading] = useState(false)
   const [packageNotesByLookupKey, setPackageNotesByLookupKey] = useState<Map<string, ExternalFeedPackageNotesItem>>(new Map())
-  const [expandedHistoryRows, setExpandedHistoryRows] = useState<Record<string, boolean>>({})
-
   const encodedProjectName = encodeURIComponent(projectName ?? '')
   const basePath = `/${spaceId}/projects/${encodedProjectName}`
 
@@ -477,7 +435,6 @@ const ReleaseDetail: React.FC = () => {
   }, [deployMenuOpen])
 
   useEffect(() => {
-    setExpandedHistoryRows({})
   }, [release?.id])
 
   const envMap = useMemo(
@@ -700,69 +657,6 @@ const ReleaseDetail: React.FC = () => {
       cancelled = true
     }
   }, [packageNoteRequests, project?.spaceId, release?.spaceId])
-
-  const deploymentHistoryEntries = useMemo<DeploymentHistoryEntry[]>(() => {
-    const entries: DeploymentHistoryEntry[] = []
-
-    if (releaseProgression?.phases) {
-      for (const phase of releaseProgression.phases) {
-        for (const environment of phase.environments ?? []) {
-          const deployment = environment.deployment
-          if (!deployment) continue
-
-          const environmentName = environment.environmentName || `Environment #${environment.environmentId}`
-          const deploymentId = Number.isFinite(deployment.deploymentId) ? deployment.deploymentId : null
-
-          if (deployment.created) {
-            entries.push({
-              key: `deployment-started-${deploymentId ?? 'na'}-${environment.environmentId}`,
-              occurredAt: deployment.created,
-              actorName: 'system',
-              type: 'deployment-started',
-              deploymentId,
-              environmentId: environment.environmentId,
-              environmentName,
-              state: deployment.state ?? null,
-            })
-          }
-
-          if (deployment.completedTime) {
-            entries.push({
-              key: `deployment-completed-${deploymentId ?? 'na'}-${environment.environmentId}`,
-              occurredAt: deployment.completedTime,
-              actorName: 'system',
-              type: 'deployment-completed',
-              deploymentId,
-              environmentId: environment.environmentId,
-              environmentName,
-              state: deployment.state ?? null,
-            })
-          }
-        }
-      }
-    }
-
-    if (release?.assembled) {
-      entries.push({
-        key: `release-created-${release.id}`,
-        occurredAt: release.assembled,
-        actorName: 'system',
-        type: 'release-created',
-        deploymentId: null,
-        environmentId: null,
-        environmentName: '',
-        state: null,
-      })
-    }
-
-    return entries.sort((a, b) => {
-      const aTs = Date.parse(a.occurredAt)
-      const bTs = Date.parse(b.occurredAt)
-      const safeATs = Number.isFinite(aTs) ? aTs : 0
-      const safeBTs = Number.isFinite(bTs) ? bTs : 0
-      return safeBTs - safeATs
-    })
-  }, [release?.assembled, release?.id, releaseProgression?.phases])
 
   const phaseRows = useMemo(() => {
     if (!releaseProgression) return []
@@ -1520,110 +1414,12 @@ const ReleaseDetail: React.FC = () => {
         {/* ── Deployment History section ── */}
         <SectionHeading title="Deployment history" />
 
-        <div className="border border-slate-200 border-t-0 rounded-b-lg bg-white mb-6">
-          {deploymentHistoryEntries.length === 0 ? (
-            <div className="px-5 py-5 text-sm text-slate-500">No deployment history available for this release.</div>
-          ) : (
-            <ul className="list-none m-0 p-0">
-              {deploymentHistoryEntries.map((entry, index) => {
-                const isExpanded = Boolean(expandedHistoryRows[entry.key])
-                const deploymentPath = entry.deploymentId != null
-                  ? `${basePath}/releases/${encodeURIComponent(release.version)}/deployments/${entry.deploymentId}`
-                  : null
-                const releasePath = `${basePath}/releases/${encodeURIComponent(release.version)}?releaseId=${release.id}`
-
-                return (
-                  <li key={entry.key} className={index === deploymentHistoryEntries.length - 1 ? '' : 'border-b border-slate-200'}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={isExpanded}
-                      className="grid cursor-pointer grid-cols-1 items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 md:grid-cols-[47%_33%_16%_36px]"
-                      onClick={() => {
-                        setExpandedHistoryRows((previous) => ({
-                          ...previous,
-                          [entry.key]: !previous[entry.key],
-                        }))
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return
-                        event.preventDefault()
-                        setExpandedHistoryRows((previous) => ({
-                          ...previous,
-                          [entry.key]: !previous[entry.key],
-                        }))
-                      }}
-                    >
-                      <div className="min-w-0 text-sm text-slate-700 break-words">
-                        {entry.type === 'deployment-started' && deploymentPath ? (
-                          <>
-                            <Link to={deploymentPath} className="text-squid-blue hover:underline">Deploy to {entry.environmentName}</Link>
-                            <span> started for </span>
-                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
-                            <span> release </span>
-                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
-                            <span> to </span>
-                            <span className="text-squid-blue">{entry.environmentName}</span>
-                          </>
-                        ) : null}
-
-                        {entry.type === 'deployment-completed' && deploymentPath ? (
-                          <>
-                            <Link to={deploymentPath} className="text-squid-blue hover:underline">Deploy to {entry.environmentName}</Link>
-                            <span> {deploymentCompletionVerb(entry.state ?? '')} for </span>
-                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
-                            <span> release </span>
-                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
-                            <span> to </span>
-                            <span className="text-squid-blue">{entry.environmentName}</span>
-                          </>
-                        ) : null}
-
-                        {entry.type === 'release-created' ? (
-                          <>
-                            <Link to={basePath} className="text-squid-blue hover:underline">{project?.name ?? 'Project'}</Link>
-                            <span> release </span>
-                            <Link to={releasePath} className="text-squid-blue hover:underline">{release.version}</Link>
-                            <span> was created</span>
-                          </>
-                        ) : null}
-                      </div>
-
-                      <div className="text-sm text-slate-500 whitespace-nowrap md:text-left">
-                        {formatHistoryDateTime(entry.occurredAt)}
-                      </div>
-
-                      <div className="inline-flex items-center gap-1.5 text-sm text-slate-600">
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
-                          {(entry.actorName || 's').charAt(0).toUpperCase()}
-                        </span>
-                        <span>{entry.actorName}</span>
-                      </div>
-
-                      <div className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-500">
-                        <DownOutlined className={`transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
-                      </div>
-                    </div>
-
-                    {isExpanded ? (
-                      <div className="px-4 pb-3">
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                          <p className="m-0">Event type: {entry.type}</p>
-                          {entry.state ? <p className="m-0 mt-1">Deployment state: {entry.state}</p> : null}
-                          {deploymentPath ? (
-                            <p className="m-0 mt-1">
-                              <Link to={deploymentPath} className="text-squid-blue hover:underline">View deployment details</Link>
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
+        <DeploymentHistory
+          releaseId={release.id}
+          releaseVersion={release.version}
+          projectName={project?.name ?? 'Project'}
+          basePath={basePath}
+        />
       </div>
     </div>
   )
