@@ -1061,6 +1061,37 @@ const DeploymentTargetDetailPage: React.FC = () => {
     }
   }, [clearTentacleUpgradeRefreshTimer, loadTentacleUpgradeInfo, machine, navigate, refreshMachineSnapshot, runMachineHealthCheck, space.slug, startUpgradeEventsStreaming, stopUpgradeEventsStreaming])
 
+  // When the Events tab opens and no live stream is feeding it, fetch the
+  // persisted upgrade events once so the verdict banner + timeline reflect the
+  // LAST upgrade outcome — not only an upgrade triggered in this browser session.
+  // Ref-guarded per machine so an empty result (no upgrades yet) doesn't re-fetch
+  // in a loop.
+  const upgradeEventsSnapshotFetchedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (activeTab !== 'events') return
+    if (!machine) return
+    if (upgradeEventsActive) return
+    if (upgradeEventsSnapshotFetchedRef.current === machine.id) return
+
+    upgradeEventsSnapshotFetchedRef.current = machine.id
+    let cancelled = false
+    setUpgradeEventsLoading(true)
+    getMachineUpgradeEvents(machine.id)
+      .then((data) => {
+        if (!cancelled) setUpgradeEvents(data?.events ?? [])
+      })
+      .catch(() => {
+        /* leave events empty; the empty-state copy handles "no upgrades yet" */
+      })
+      .finally(() => {
+        if (!cancelled) setUpgradeEventsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, machine, upgradeEventsActive])
+
   const handleSave = async () => {
     if (!machine) return
     setSaving(true)
@@ -1969,9 +2000,15 @@ function ConnectivityTab({
       {tentacleUpgradeInfo?.canUpgrade ? (
         <div className="mt-4 border border-gray-200 rounded-md bg-white p-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div className="text-sm text-gray-500">Current Version</div>
-              <div className="text-lg font-mono text-gray-800 mt-1">{currentVersion}</div>
+            <div className="flex items-center gap-8 flex-wrap">
+              <div>
+                <div className="text-sm text-gray-500">Current Version</div>
+                <div className="text-lg font-mono text-gray-800 mt-1">{currentVersion}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-500">Target Version</div>
+                <div className="text-lg font-mono text-green-700 mt-1">{tentacleUpgradeInfo.latestAvailableVersion}</div>
+              </div>
             </div>
             <Button
               type="primary"
@@ -1979,7 +2016,7 @@ function ConnectivityTab({
               onClick={onUpgradeToLatest}
               className="!bg-green-700 hover:!bg-green-800 !border-green-700"
             >
-              Upgrade to latest
+              Upgrade to {tentacleUpgradeInfo.latestAvailableVersion}
             </Button>
           </div>
         </div>
@@ -2017,6 +2054,77 @@ function getUpgradeEventVisual(kind: string): { icon: string; textClass: string 
   return { icon: '•', textClass: 'text-gray-700' }
 }
 
+// Operator-friendly labels for the upgrade phases. The structured `phase` field
+// stays 'A'/'B' (the events-parity data contract); only the display is relabelled
+// so the timeline reads in plain language instead of "Phase A/B" jargon.
+function phaseLabel(phase: string): string {
+  const p = String(phase).toUpperCase()
+  if (p === 'A') return 'Prep'
+  if (p === 'B') return 'Install'
+  return phase
+}
+
+// Top-level verdict for the upgrade, derived from the TERMINAL event so the
+// operator sees a clear success/failure at a glance instead of having to read
+// the timeline. Scans from the end for the terminal kind rather than trusting
+// the last event — the script can append a non-terminal 'gc' event after
+// 'success', so the terminal outcome isn't always the final line.
+function getUpgradeVerdict(
+  events: MachineUpgradeEventItem[],
+  active: boolean,
+  targetVersion: string | null,
+): { icon: string; text: string; className: string } | null {
+  if (events.length === 0) return null
+
+  let terminalEvent: MachineUpgradeEventItem | null = null
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (UPGRADE_EVENTS_TERMINAL_KINDS.has(events[i].kind)) {
+      terminalEvent = events[i]
+      break
+    }
+  }
+  const terminalKind = terminalEvent?.kind ?? ''
+
+  if (terminalKind === 'success') {
+    return {
+      icon: '✓',
+      text: `Upgrade succeeded${targetVersion ? ` — now on ${targetVersion}` : ''}.`,
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    }
+  }
+
+  if (terminalKind === 'rollback-ok') {
+    return {
+      icon: '↩',
+      text: 'Upgrade failed and was rolled back to the previous version.',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+    }
+  }
+
+  if (terminalKind.endsWith('-fail') || terminalKind === 'method-exhausted' || terminalKind === 'rollback-fail') {
+    const failMsg = terminalEvent?.message ?? ''
+    return {
+      icon: '✗',
+      text: `Upgrade failed${failMsg ? ` — ${failMsg}` : ''}.`,
+      className: 'border-rose-200 bg-rose-50 text-rose-700',
+    }
+  }
+
+  if (active) {
+    return {
+      icon: '⟳',
+      text: `Upgrade in progress${targetVersion ? ` to ${targetVersion}` : ''}…`,
+      className: 'border-blue-200 bg-blue-50 text-blue-700',
+    }
+  }
+
+  return {
+    icon: 'ℹ',
+    text: 'Last upgrade did not reach a terminal state.',
+    className: 'border-gray-200 bg-gray-50 text-gray-600',
+  }
+}
+
 function UpgradeEventsTab({
   machineName,
   events,
@@ -2044,6 +2152,7 @@ function UpgradeEventsTab({
 }) {
   const lastKind = events[events.length - 1]?.kind ?? ''
   const terminal = lastKind ? UPGRADE_EVENTS_TERMINAL_KINDS.has(lastKind) : false
+  const verdict = getUpgradeVerdict(events, active, targetVersion)
   const hasScopeExec = events.some((e) => e.kind === 'scope-exec')
   const hasPhaseB = events.some((e) => String(e.phase).toUpperCase() === 'B')
   const showRestartGap = active && hasScopeExec && !hasPhaseB && !terminal
@@ -2070,20 +2179,26 @@ function UpgradeEventsTab({
       </div>
 
       <div className="border border-gray-200 rounded-md bg-white p-6">
+        {!loading && verdict ? (
+          <div className={`mb-4 rounded border px-4 py-3 text-sm font-semibold ${verdict.className}`}>
+            {verdict.icon} {verdict.text}
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="text-sm text-gray-500">Loading upgrade events...</div>
         ) : null}
 
         {!loading && events.length === 0 ? (
           <div className="text-sm text-gray-500">
-            No live upgrade events yet.
+            No upgrades have run on this machine yet.
           </div>
         ) : null}
 
         {!loading && events.length > 0 ? (
           <div className="space-y-2">
             <div className="text-sm text-gray-700 mb-3">
-              Upgrading machine <strong>{machineName}</strong>{targetVersion ? ` to ${targetVersion}` : ''}.
+              Upgrade timeline for <strong>{machineName}</strong>{targetVersion ? ` (target ${targetVersion})` : ''}:
             </div>
             {events.map((event, index) => {
               const visual = getUpgradeEventVisual(event.kind)
@@ -2091,7 +2206,7 @@ function UpgradeEventsTab({
                 <div key={`${event.timestamp}-${event.kind}-${index}`} className="flex items-start gap-3">
                   <span className="w-5 text-center leading-5">{visual.icon}</span>
                   <span className="text-xs text-gray-500 w-16 shrink-0">{formatUpgradeEventTime(event.timestamp)}</span>
-                  <span className="text-xs text-gray-500 w-8 shrink-0">[{event.phase}]</span>
+                  <span className="text-xs text-gray-500 w-16 shrink-0">[{phaseLabel(event.phase)}]</span>
                   <span className={`text-sm ${visual.textClass}`}>{event.message}</span>
                 </div>
               )
