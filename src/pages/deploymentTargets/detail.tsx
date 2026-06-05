@@ -2064,6 +2064,24 @@ function phaseLabel(phase: string): string {
   return phase
 }
 
+// The version a 'success' event reports. The agent writes the success event
+// message as "Upgrade to <version> complete", so this lets us tell whether a
+// terminal success belongs to the run we're currently watching.
+function successVersionFromEvent(event: MachineUpgradeEventItem | null): string | null {
+  const m = /Upgrade to (\S+) complete/.exec(event?.message ?? '')
+  return m ? m[1] : null
+}
+
+// True once the events list reflects the run we're upgrading TO (rather than the
+// prior run the server keeps returning until the agent truncates + reports the
+// new run). A terminal success whose version matches the target proves the new
+// run finished; otherwise, while streaming, the terminal we see is stale.
+function eventsReflectTargetRun(terminalEvent: MachineUpgradeEventItem | null, targetVersion: string | null): boolean {
+  if (!targetVersion) return true
+  if (terminalEvent?.kind !== 'success') return false
+  return successVersionFromEvent(terminalEvent) === targetVersion
+}
+
 // Top-level verdict for the upgrade, derived from the TERMINAL event so the
 // operator sees a clear success/failure at a glance instead of having to read
 // the timeline. Scans from the end for the terminal kind rather than trusting
@@ -2085,10 +2103,24 @@ function getUpgradeVerdict(
   }
   const terminalKind = terminalEvent?.kind ?? ''
 
+  // While a NEW upgrade is streaming, the server keeps returning the PRIOR run's
+  // events until the agent truncates and reports the new run. A terminal event
+  // present in that window is stale (the previous version's outcome), so never
+  // surface it as this upgrade's result — show "in progress" until the events
+  // reflect the version we're upgrading to.
+  if (active && !eventsReflectTargetRun(terminalEvent, targetVersion)) {
+    return {
+      icon: '⟳',
+      text: `Upgrade in progress${targetVersion ? ` to ${targetVersion}` : ''}…`,
+      className: 'border-blue-200 bg-blue-50 text-blue-700',
+    }
+  }
+
   if (terminalKind === 'success') {
+    const onVersion = targetVersion ?? successVersionFromEvent(terminalEvent)
     return {
       icon: '✓',
-      text: `Upgrade succeeded${targetVersion ? ` — now on ${targetVersion}` : ''}.`,
+      text: `Upgrade succeeded${onVersion ? ` — now on ${onVersion}` : ''}.`,
       className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     }
   }
@@ -2153,6 +2185,12 @@ function UpgradeEventsTab({
   const lastKind = events[events.length - 1]?.kind ?? ''
   const terminal = lastKind ? UPGRADE_EVENTS_TERMINAL_KINDS.has(lastKind) : false
   const verdict = getUpgradeVerdict(events, active, targetVersion)
+  // While streaming a new run, the events can still be the PRIOR run (the server
+  // returns it until the agent reports the new one). Detect that — verdict is
+  // "in progress" yet the events already contain a completed terminal — and hide
+  // the stale timeline so it doesn't contradict the banner.
+  const staleTimeline =
+    active && verdict?.icon === '⟳' && events.some((e) => UPGRADE_EVENTS_TERMINAL_KINDS.has(e.kind))
   const hasScopeExec = events.some((e) => e.kind === 'scope-exec')
   const hasPhaseB = events.some((e) => String(e.phase).toUpperCase() === 'B')
   const showRestartGap = active && hasScopeExec && !hasPhaseB && !terminal
@@ -2195,7 +2233,13 @@ function UpgradeEventsTab({
           </div>
         ) : null}
 
-        {!loading && events.length > 0 ? (
+        {!loading && staleTimeline ? (
+          <div className="text-sm text-gray-500">
+            Waiting for the agent to start reporting this upgrade…
+          </div>
+        ) : null}
+
+        {!loading && events.length > 0 && !staleTimeline ? (
           <div className="space-y-2">
             <div className="text-sm text-gray-700 mb-3">
               Upgrade timeline for <strong>{machineName}</strong>{targetVersion ? ` (target ${targetVersion})` : ''}:
