@@ -1388,7 +1388,7 @@ const DeploymentTargetDetailPage: React.FC = () => {
                   lastPolledAt={upgradeEventsLastPolledAt}
                   pollCount={upgradeEventsPollCount}
                 />
-                <MachineUpgradeLogPanel machineId={machine.id} />
+                <MachineUpgradeLogPanel machineId={machine.id} active={upgradeEventsActive} />
               </>
             )}
           </div>
@@ -2157,6 +2157,73 @@ function getUpgradeVerdict(
   }
 }
 
+// Coarse upgrade milestones derived from the structured event kinds, for an
+// at-a-glance "where are we" stepper. The granular download / verify / extract
+// detail lives in the live raw log below; these are the milestones the events
+// expose.
+const UPGRADE_STAGES = ['Download', 'Install', 'Restart', 'Healthy', 'Done'] as const
+
+function stageIndexForKind(kind: string): number {
+  if (kind === 'swapped') return 1
+  if (kind === 'restart-start') return 2
+  if (kind === 'healthz-pass') return 3
+  if (kind === 'success' || kind === 'gc') return 4
+  return 0 // start / baseline / disk-precheck / method-selected / scope-exec
+}
+
+type StageState = 'done' | 'current' | 'pending' | 'failed'
+
+function computeStageStates(
+  events: MachineUpgradeEventItem[],
+  active: boolean,
+  verdict: { icon: string } | null,
+): StageState[] {
+  const succeeded = verdict?.icon === '✓'
+  const failed = verdict?.icon === '✗' || verdict?.icon === '↩'
+
+  let reached = 0
+  for (const e of events) {
+    if (!UPGRADE_EVENTS_TERMINAL_KINDS.has(e.kind) || e.kind === 'success') {
+      reached = Math.max(reached, stageIndexForKind(e.kind))
+    }
+  }
+
+  return UPGRADE_STAGES.map((_, i): StageState => {
+    if (succeeded) return 'done'
+    if (i < reached) return 'done'
+    if (i === reached) return failed ? 'failed' : active ? 'current' : 'done'
+    return 'pending'
+  })
+}
+
+function UpgradeStepper({ states }: { states: StageState[] }) {
+  return (
+    <div className="flex items-center gap-1 mb-4">
+      {UPGRADE_STAGES.map((stage, i) => {
+        const st = states[i]
+        const dot = st === 'done' ? '✓' : st === 'failed' ? '✗' : st === 'current' ? '●' : '○'
+        const dotColor =
+          st === 'done' ? 'text-emerald-600'
+            : st === 'failed' ? 'text-rose-600'
+            : st === 'current' ? 'text-blue-600'
+            : 'text-gray-300'
+        const labelColor = st === 'pending' ? 'text-gray-400' : 'text-gray-700'
+        return (
+          <React.Fragment key={stage}>
+            {i > 0 ? (
+              <span className={`h-px flex-1 ${states[i - 1] === 'done' ? 'bg-emerald-300' : 'bg-gray-200'}`} />
+            ) : null}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className={`text-sm leading-none ${dotColor} ${st === 'current' ? 'animate-pulse' : ''}`}>{dot}</span>
+              <span className={`text-xs font-medium ${labelColor}`}>{stage}</span>
+            </div>
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
 function UpgradeEventsTab({
   machineName,
   events,
@@ -2191,6 +2258,7 @@ function UpgradeEventsTab({
   // the stale timeline so it doesn't contradict the banner.
   const staleTimeline =
     active && verdict?.icon === '⟳' && events.some((e) => UPGRADE_EVENTS_TERMINAL_KINDS.has(e.kind))
+  const stageStates = computeStageStates(events, active, verdict)
   const hasScopeExec = events.some((e) => e.kind === 'scope-exec')
   const hasPhaseB = events.some((e) => String(e.phase).toUpperCase() === 'B')
   const showRestartGap = active && hasScopeExec && !hasPhaseB && !terminal
@@ -2221,6 +2289,10 @@ function UpgradeEventsTab({
           <div className={`mb-4 rounded border px-4 py-3 text-sm font-semibold ${verdict.className}`}>
             {verdict.icon} {verdict.text}
           </div>
+        ) : null}
+
+        {!loading && events.length > 0 && !staleTimeline ? (
+          <UpgradeStepper states={stageStates} />
         ) : null}
 
         {loading ? (

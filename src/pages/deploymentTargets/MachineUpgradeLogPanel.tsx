@@ -1,23 +1,27 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Empty, Spin } from 'antd'
 
 import { getMachineUpgradeLog } from '../apis/machine'
 
 interface Props {
   machineId: number
+  /**
+   * When an upgrade is actively streaming, the panel auto-opens and polls the raw
+   * log so the operator sees the granular download / retry / SHA / extract detail
+   * in real time (the structured Events timeline above is coarser).
+   */
+  active?: boolean
 }
 
+const POLL_MS = 3_000
+
 /**
- * Collapsible "Full upgrade log (raw)" panel. The Events tab above shows the
- * high-level per-phase timeline; this surfaces the raw Phase B log the agent
- * captured (the actual command output — apt/zip/SHA256/errors) for deep
- * debugging of a failed upgrade, without SSHing to the host.
- *
- * Lazy-loaded on first expand (the log can be up to 50 KB, tail-truncated by
- * the agent with an "earlier bytes truncated" marker at the head). Reads
+ * Collapsible "Full upgrade log (raw)" panel. Lazy-loaded on first expand, and —
+ * while an upgrade is active — auto-opened and polled every {@link POLL_MS} so it
+ * reflects the agent's log line-by-line as the upgrade runs. Reads
  * GET /machines/{id}/upgrade-log.
  */
-export default function MachineUpgradeLogPanel({ machineId }: Props) {
+export default function MachineUpgradeLogPanel({ machineId, active = false }: Props) {
   const [open, setOpen] = useState(false)
   const [log, setLog] = useState('')
   const [loading, setLoading] = useState(false)
@@ -38,6 +42,22 @@ export default function MachineUpgradeLogPanel({ machineId }: Props) {
     }
   }, [machineId])
 
+  // While an upgrade is active: auto-open + poll so the raw log is real-time.
+  useEffect(() => {
+    if (!active) return
+    setOpen(true)
+    void load()
+    const id = setInterval(() => void load(), POLL_MS)
+    return () => clearInterval(id)
+  }, [active, load])
+
+  // When the active upgrade ends, do one final fetch so the last lines land.
+  const prevActive = useRef(active)
+  useEffect(() => {
+    if (prevActive.current && !active && open) void load()
+    prevActive.current = active
+  }, [active, open, load])
+
   const toggle = () => {
     const next = !open
     setOpen(next)
@@ -54,6 +74,11 @@ export default function MachineUpgradeLogPanel({ machineId }: Props) {
         >
           <span className="text-gray-400">{open ? '▾' : '▸'}</span>
           Full upgrade log (raw)
+          {active ? (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700">
+              <span className="text-[10px] leading-none">●</span> Live
+            </span>
+          ) : null}
         </button>
         {open ? (
           <Button size="small" loading={loading} onClick={() => void load()}>
