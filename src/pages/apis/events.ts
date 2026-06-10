@@ -17,6 +17,7 @@ export enum EventCategory {
   DeploymentSucceeded = 16,
   DeploymentFailed = 17,
   DeploymentCanceled = 18,
+  DeploymentTimedOut = 19,
 }
 
 /** One persisted audit event from GET /api/events/list. Mirrors the server EventDto. */
