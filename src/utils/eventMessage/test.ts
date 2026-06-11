@@ -17,6 +17,7 @@ const TEMPLATES: Record<number, string> = {
   [EventCategory.DeploymentSucceeded]: 'Deploy to {Environment} succeeded for {Release}',
   [EventCategory.DeploymentFailed]: 'Deploy to {Environment} failed for {Release}',
   [EventCategory.DeploymentCanceled]: 'Deploy to {Environment} canceled for {Release}',
+  [EventCategory.DeploymentTimedOut]: 'Deploy to {Environment} timed out for {Release}',
 }
 
 function event(partial: Partial<EventDto>): EventDto {
@@ -101,6 +102,7 @@ describe('eventTone', () => {
     [EventCategory.DeploymentFailed, 'failure'],
     [EventCategory.ManualInterventionRaised, 'warning'],
     [EventCategory.GuidedFailureRaised, 'warning'],
+    [EventCategory.DeploymentTimedOut, 'warning'],
     [EventCategory.DeploymentCanceled, 'neutral'],
     [EventCategory.DocumentDeleted, 'neutral'],
     [EventCategory.DeploymentStarted, 'info'],

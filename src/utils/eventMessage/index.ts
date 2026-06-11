@@ -74,6 +74,9 @@ export function eventTone(category: number): EventTone {
       return 'failure'
     case EventCategory.ManualInterventionRaised:
     case EventCategory.GuidedFailureRaised:
+    // A timed-out deployment is paused + resumable (awaiting operator action),
+    // not a terminal failure — group it with the other "needs attention" states.
+    case EventCategory.DeploymentTimedOut:
       return 'warning'
     case EventCategory.DeploymentCanceled:
     case EventCategory.DocumentDeleted:
