@@ -7,6 +7,7 @@ import { changePassword, updateUserStatus } from 'pages/apis/account'
 import { getTeamMembers, getTeams, type TeamDto, type TeamMemberDto } from 'pages/apis/team'
 import { createUser, getUsers, type UserDto } from 'pages/apis/user'
 import { clearMustChangePasswordRequirement, getAuthUser } from 'utils/auth'
+import PageContainer from 'components/PageContainer'
 import { SettingsDetailPanel as DetailPanel } from './components/DetailFormTemplate'
 
 interface UsersSettingsProps {
@@ -508,9 +509,8 @@ export function UsersSettings({ canView, canEdit, canResetPassword, spaceId }: U
 
     return (
       <>
-        <div className="bg-white min-h-full">
-          <div className="max-w-[1600px] mx-auto pt-4 pb-6">
-            <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+        <PageContainer>
+            <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
               <div className="px-6 pt-4 pb-3 border-b border-gray-200">
                 <nav className="mb-2">
                   <ol className="flex items-center gap-1 text-sm">
@@ -689,8 +689,7 @@ export function UsersSettings({ canView, canEdit, canResetPassword, spaceId }: U
                 )}
               </DetailPanel>
             </div>
-          </div>
-        </div>
+        </PageContainer>
 
         {passwordModal}
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Select, Radio, Spin, message, Checkbox } from 'antd'
 import { DownOutlined, SearchOutlined } from '@ant-design/icons'
+import PageContainer from 'components/PageContainer'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getReleases, type ReleaseDto } from 'pages/apis/release'
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
@@ -738,9 +739,8 @@ const DeployCreate: React.FC = () => {
   }
 
   return (
-    <div className="bg-white min-h-full">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           {/* ── Header ── */}
           <div className="sticky top-0 z-10 bg-white rounded-t-md border-b border-gray-200 px-6 pt-5 pb-0">
             <nav className="mb-3">
@@ -1305,8 +1305,7 @@ const DeployCreate: React.FC = () => {
         )}
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

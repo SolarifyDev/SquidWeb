@@ -20,6 +20,7 @@ import {
   VariableSetOwnerType,
 } from 'pages/apis/variableSet'
 import { useSpace } from 'contexts/SpaceContext'
+import PageContainer from 'components/PageContainer'
 
 const { Title, Text, Link } = Typography
 const { TextArea } = Input
@@ -162,9 +163,8 @@ const VariableSets: React.FC = () => {
   const handleCodeBlock = () => insertMarkdown('```\n', '\n```')
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="rounded-xl border border-slate-200 overflow-hidden flex flex-col min-h-full p-6 gap-4 bg-white">
+    <PageContainer>
+        <div className="rounded-xl border border-slate-200/70 overflow-hidden flex flex-col min-h-full p-6 gap-4 bg-white shadow-card">
           <div className="px-0 pt-0">
             <div className="flex justify-between items-center mb-4">
               <Title level={3} className="!mb-0">Variable Sets</Title>
@@ -217,7 +217,6 @@ const VariableSets: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
 
       <Modal
         title="Add New Variable Set"
@@ -324,7 +323,7 @@ const VariableSets: React.FC = () => {
           </div>
         </div>
       </Modal>
-    </div>
+    </PageContainer>
   )
 }
 

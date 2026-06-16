@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import PageContainer from 'components/PageContainer';
 import { Input, InputNumber, Button, Dropdown, Radio, Checkbox, Alert, Spin, Modal, Select, message } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import {
@@ -1016,10 +1017,9 @@ const Lifecycles: React.FC = () => {
 
   if (selectedLifecycle) {
     return (
-      <div className="min-h-screen bg-white">
+      <PageContainer>
         <div ref={detailSentinelRef} style={{ height: 1 }} />
-        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-          <div className="border border-gray-200 rounded-md">
+          <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
 
             {/* Sticky header */}
             <div
@@ -1370,8 +1370,7 @@ const Lifecycles: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -1379,10 +1378,9 @@ const Lifecycles: React.FC = () => {
 
   if (showCreatePage) {
     return (
-      <div className="min-h-screen bg-white">
+      <PageContainer>
         <div ref={createSentinelRef} style={{ height: 1 }} />
-        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-          <div className="border border-gray-200 rounded-md">
+          <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
 
             {/* Sticky header */}
             <div
@@ -1682,17 +1680,15 @@ const Lifecycles: React.FC = () => {
               )}
             </div>
           </div>
-        </div>
-      </div>
+      </PageContainer>
     );
   }
 
   // ── List view ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <div className="flex items-center justify-between mb-6">
               <h1 className="text-2xl font-semibold text-gray-900 m-0">Lifecycles</h1>
@@ -1752,8 +1748,7 @@ const Lifecycles: React.FC = () => {
             </Spin>
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 };
 

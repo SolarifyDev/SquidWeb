@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input, Button, Select, InputNumber, Checkbox, Spin, Modal, message, Dropdown, Radio } from 'antd';
 import { SearchOutlined, PlusOutlined, DownOutlined, MoreOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import PageContainer from 'components/PageContainer';
 import {
   getExternalFeeds,
   createExternalFeed,
@@ -579,11 +580,10 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <PageContainer>
       <div ref={sentinelRef} style={{ height: 1 }} />
 
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md">
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
 
           {/* Sticky header */}
           <div
@@ -1050,7 +1050,6 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
             </FormPanel>
           )}
         </div>
-      </div>
 
       {/* Test result modal */}
       <Modal
@@ -1091,7 +1090,7 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
           Are you sure you want to delete <strong>{feed?.name}</strong>? This action cannot be undone.
         </p>
       </Modal>
-    </div>
+    </PageContainer>
   );
 }
 
@@ -1171,9 +1170,8 @@ const ExternalFeeds: React.FC = () => {
   );
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
 
           {/* Page header */}
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
@@ -1306,7 +1304,6 @@ const ExternalFeeds: React.FC = () => {
             )}
           </Spin>
         </div>
-      </div>
 
       {/* Test connection result */}
       <Modal
@@ -1343,7 +1340,7 @@ const ExternalFeeds: React.FC = () => {
           Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This action cannot be undone.
         </p>
       </Modal>
-    </div>
+    </PageContainer>
   );
 };
 

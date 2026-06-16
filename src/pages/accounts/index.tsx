@@ -3,6 +3,7 @@ import { Button, Dropdown, Spin, message } from 'antd';
 import type { MenuProps } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import PageContainer from 'components/PageContainer';
 import { useSpace } from 'contexts/SpaceContext';
 import { getEnvironments } from 'pages/apis/environment';
 import { DeploymentAccountDto, getDeploymentAccounts } from 'pages/apis/deploymentAccount';
@@ -330,9 +331,8 @@ const AccountsPage: React.FC = () => {
   };
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-semibold text-gray-900 m-0">Accounts</h1>
@@ -387,8 +387,7 @@ const AccountsPage: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 };
 

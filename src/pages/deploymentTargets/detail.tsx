@@ -3,6 +3,7 @@ import { Button, Dropdown, Input, Modal, Radio, Select, Spin, Switch, Tooltip, m
 import type { MenuProps } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import {
   checkMachineHealth,
   deleteMachines,
@@ -1250,9 +1251,8 @@ const DeploymentTargetDetailPage: React.FC = () => {
   ]
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           {/* Header */}
           <div className="px-6 pt-4 pb-4 border-b border-gray-200">
             {/* Breadcrumb */}
@@ -1393,8 +1393,7 @@ const DeploymentTargetDetailPage: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSpace } from 'contexts/SpaceContext';
 import { Button, Dropdown, Input, Popover, Select, Spin, Tabs, message } from 'antd';
 import { EditOutlined, FilterOutlined, MoreOutlined, SearchOutlined } from '@ant-design/icons';
@@ -534,7 +534,8 @@ const MultiVariableGroup: React.FC<{
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const ProjectVariables: React.FC = () => {
-  const { projectName } = useParams<{ projectName: string }>();
+  const { projectName, tab } = useParams<{ projectName: string; tab?: string }>();
+  const navigate = useNavigate();
   const { space } = useSpace();
 
   const [loading, setLoading] = useState(false);
@@ -1109,7 +1110,8 @@ const ProjectVariables: React.FC = () => {
       <div className="px-6">
         <Tabs
           items={tabItems}
-          defaultActiveKey="variables"
+          activeKey={tab && ['variables', 'templates', 'usage', 'settings'].includes(tab) ? tab : 'variables'}
+          onChange={(key) => navigate(`/${space.slug}/projects/${encodeURIComponent(projectName ?? '')}/variables${key === 'variables' ? '' : `/${key}`}`, { replace: true })}
           className="[&_.ant-tabs-nav]:mb-0 [&_.ant-tabs-tab]:px-3 [&_.ant-tabs-tab]:py-3"
         />
       </div>

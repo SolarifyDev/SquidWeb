@@ -750,7 +750,7 @@ const Project: React.FC = () => {
         ];
 
   return (
-    <div className="h-screen flex flex-col bg-white overflow-hidden">
+    <div className="h-full flex flex-col bg-white overflow-hidden">
       <style>{modalStyles}</style>
       <div className="flex-shrink-0 bg-white">
         <div className="px-4 sm:px-6 py-4 sm:py-5">

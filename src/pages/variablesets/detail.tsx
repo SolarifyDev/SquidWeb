@@ -4,6 +4,7 @@ import { useSpace } from 'contexts/SpaceContext';
 import { Button, Dropdown, Input, Popover, Select, Spin, Tabs, message } from 'antd';
 import { EditOutlined, FilterOutlined, MoreOutlined, SearchOutlined } from '@ant-design/icons';
 import VariableValueCell from 'components/variables/VariableValueCell';
+import PageContainer from 'components/PageContainer';
 import { getEnvironments } from 'pages/apis/environment';
 import { getMachines } from 'pages/apis/machine';
 import { getTargetTags } from 'pages/apis/targetTag';
@@ -451,7 +452,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
 };
 
 const VariableSetDetail: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, tab } = useParams<{ id: string; tab?: string }>();
   const navigate = useNavigate();
   const { space } = useSpace();
 
@@ -996,22 +997,19 @@ const VariableSetDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="bg-white min-h-screen">
-        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-          <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
-            <div className="flex items-center justify-center py-20">
-              <Spin tip="Loading..." />
-            </div>
+      <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
+          <div className="flex items-center justify-center py-20">
+            <Spin tip="Loading..." />
           </div>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-visible">
+    <PageContainer>
+      <div className="border border-slate-200/70 rounded-xl bg-white overflow-visible shadow-card">
           <div className="px-6 pt-4 pb-4 border-b border-gray-200">
             <nav>
               <ol>
@@ -1049,13 +1047,13 @@ const VariableSetDetail: React.FC = () => {
           <div className="px-6">
             <Tabs
               items={tabItems}
-              defaultActiveKey="variables"
+              activeKey={tab && ['variables', 'templates', 'usage', 'settings'].includes(tab) ? tab : 'variables'}
+              onChange={(key) => navigate(`/${space.slug}/library/variables/${id}${key === 'variables' ? '' : `/${key}`}`, { replace: true })}
               className="[&_.ant-tabs-nav]:mb-0 [&_.ant-tabs-tab]:px-3 [&_.ant-tabs-tab]:py-3"
             />
           </div>
-        </div>
       </div>
-    </div>
+    </PageContainer>
   );
 };
 

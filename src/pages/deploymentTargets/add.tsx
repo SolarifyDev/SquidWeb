@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Checkbox, Input, Modal, Radio, Select, message } from 'antd'
 import { CheckCircleFilled, CopyOutlined, DoubleLeftOutlined, DoubleRightOutlined, DownOutlined, ExclamationCircleOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
 import { getCertificates } from 'pages/apis/certificate'
@@ -1576,9 +1577,8 @@ const AddDeploymentTargetPage: React.FC = () => {
   }, [activeListeningScript])
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-4 pb-5 border-b border-gray-200">
             <nav>
               <ol>
@@ -1872,7 +1872,6 @@ const AddDeploymentTargetPage: React.FC = () => {
             </section>
           </div>
         </div>
-      </div>
 
       <Modal
         title={null}
@@ -3504,7 +3503,7 @@ const AddDeploymentTargetPage: React.FC = () => {
           </div>
         )}
       </Modal>
-    </div>
+    </PageContainer>
   )
 }
 
