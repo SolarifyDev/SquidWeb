@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import routes from "../routes";
 import { Link, Route, Routes, useLocation, Navigate, useNavigate, Outlet, matchPath } from "react-router-dom";
 import DeploySidebar from "./DeploySidebar";
+import TopProgressBar from "./TopProgressBar";
 import SpaceSwitcherDropdown from "./SpaceSwitcherDropdown";
 import { SpaceContext, SpaceInfo } from "../contexts/SpaceContext";
 import { PermissionProvider } from "../contexts/PermissionContext";
@@ -101,16 +102,16 @@ function NavItem({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={[
-        "relative mx-2 my-1 flex flex-col items-center justify-center rounded-xl h-14 px-1 font-medium text-sm transition-all duration-200 select-none",
+        "relative my-1 flex flex-col items-center justify-center h-14 px-1 font-medium text-sm transition-colors duration-200 select-none",
         active
-          ? "bg-white text-squid-blue shadow-sm ring-1 ring-slate-200"
-          : "text-slate-500 hover:bg-white/80 hover:text-squid-blue",
+          ? "text-squid-blue"
+          : "text-slate-500 hover:text-squid-blue",
       ].join(" ")}
     >
       {children}
       <span className="text-[10px] mt-0.5 leading-tight tracking-[0.02em]">{label}</span>
       {active && (
-        <span className="absolute left-0 top-2 bottom-2 w-1 bg-squid-blue rounded-r-full" />
+        <span className="absolute left-0 top-2 bottom-2 w-[3px] bg-squid-blue rounded-r-full" />
       )}
     </Link>
   );
@@ -277,21 +278,10 @@ function App() {
   return (
     <SpaceContext.Provider value={{ space: currentSpace }}>
     <PermissionProvider>
-    <div
-      className="page flex h-screen w-full flex-col"
-      style={{
-        background:
-          "radial-gradient(circle at 10% -10%, #ffffff 0%, #f4f6fa 40%, #eef2f6 100%)",
-      }}
-    >
+    <div className="page flex h-screen w-full flex-col bg-[#f1f2f4]">
       <div
-        className="page-top-bar flex-shrink-0 flex items-center px-4 gap-3 border-b border-slate-200/80"
-        style={{
-          height: "64px",
-          background:
-            "linear-gradient(180deg, rgba(248,250,252,0.95) 0%, rgba(241,245,249,0.92) 100%)",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
-        }}
+        className="page-top-bar flex-shrink-0 flex items-center px-4 gap-3 bg-[#f1f2f4]"
+        style={{ height: "64px" }}
       >
         <div className="relative flex-shrink-0" ref={spaceSwitcherRef}>
           <button
@@ -371,15 +361,10 @@ function App() {
         </div>
       </div>
 
-      <div className="page-content relative flex flex-1 min-h-0">
+      <div className="page-content relative flex flex-1 min-h-0 bg-[#f1f2f4]">
         <div
-          className="flex-shrink-0 flex flex-col border-r border-slate-200/70"
-          style={{
-            width: "72px",
-            height: "100%",
-            background:
-              "linear-gradient(180deg, rgba(248,250,252,0.94) 0%, rgba(241,245,249,0.92) 100%)",
-          }}
+          className="flex-shrink-0 flex flex-col bg-[#f1f2f4]"
+          style={{ width: "72px", height: "100%" }}
         >
           <nav className="flex flex-col pt-2">
             <NavItem
@@ -410,15 +395,15 @@ function App() {
               to={settingsBasePath}
               title="Settings"
               className={[
-                "relative mx-2 flex flex-col items-center justify-center h-12 w-auto self-stretch rounded-xl px-2 transition-all duration-200",
+                "relative flex flex-col items-center justify-center h-12 w-full self-stretch px-2 transition-colors duration-200",
                 isSettingsActive
-                  ? "bg-white text-squid-blue shadow-sm ring-1 ring-slate-200"
-                  : "text-slate-500 hover:bg-white/80 hover:text-squid-blue",
+                  ? "text-squid-blue"
+                  : "text-slate-500 hover:text-squid-blue",
               ].join(" ")}
             >
               <ConfigIcon className="w-6 h-6" />
               {isSettingsActive && (
-                <span className="absolute left-0 top-2 bottom-2 w-1 bg-squid-blue rounded-r-full" />
+                <span className="absolute left-0 top-2 bottom-2 w-[3px] bg-squid-blue rounded-r-full" />
               )}
             </Link>
 
@@ -487,8 +472,8 @@ function App() {
         {isDeploySection && (
           <div
             className={[
-              "page-content-deploy-sidebar transition-all duration-300 ease-in-out overflow-hidden",
-              isProjectDetailPage ? "absolute left-[72px] top-0 h-full z-10 bg-white" : "",
+              "page-content-deploy-sidebar transition-all duration-300 ease-in-out overflow-hidden rounded-tl-md",
+              isProjectDetailPage ? "absolute left-[72px] top-0 h-full z-10 bg-[#fbfcfd]" : "",
               showSidebarInline || showSidebarOverlay
                 ? "w-[220px] opacity-100"
                 : "w-0 opacity-0 pointer-events-none",
@@ -500,10 +485,13 @@ function App() {
           </div>
         )}
 
-        <div className="page-content-right flex-1 bg-white rounded-tl-xl shadow-[0_10px_30px_rgba(15,23,42,0.06)] overflow-y-auto min-h-0">
-          <Routes>
-            {renderRoutes(routes)}
-          </Routes>
+        <div className={`page-content-right relative z-0 flex flex-1 flex-col min-h-0 bg-white overflow-hidden ${showSidebarInline ? '' : 'rounded-tl-md'}`}>
+          <TopProgressBar />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <Routes>
+              {renderRoutes(routes)}
+            </Routes>
+          </div>
         </div>
       </div>
     </div>

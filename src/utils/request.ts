@@ -19,6 +19,33 @@ const instance: AxiosInstance = axios.create({
   timeout: 15000,
 })
 
+// 进行中的请求计数 + 订阅（供顶部进度条等全局 loading 指示使用）
+let inFlightCount = 0
+type InFlightListener = (count: number) => void
+const inFlightListeners = new Set<InFlightListener>()
+
+function emitInFlight() {
+  for (const listener of inFlightListeners) listener(inFlightCount)
+}
+
+function notifyRequestStarted() {
+  inFlightCount += 1
+  emitInFlight()
+}
+
+function notifyRequestSettled() {
+  inFlightCount = Math.max(0, inFlightCount - 1)
+  emitInFlight()
+}
+
+export function subscribeInFlight(listener: InFlightListener) {
+  inFlightListeners.add(listener)
+  listener(inFlightCount)
+  return () => {
+    inFlightListeners.delete(listener)
+  }
+}
+
 function readPersistedSpaceId() {
   try {
     const raw = window.localStorage.getItem(CURRENT_SPACE_ID_KEY)
@@ -136,6 +163,8 @@ instance.interceptors.request.use(
       config.data = appendSpaceIdToBody(config.data, currentSpaceId)
     }
 
+    notifyRequestStarted()
+
     return config
   },
   (error: AxiosError) => {
@@ -145,8 +174,12 @@ instance.interceptors.request.use(
 
 // 响应拦截：目前只透传错误，你可以在这里做全局错误提示、401 处理等
 instance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    notifyRequestSettled()
+    return response
+  },
   (error: AxiosError) => {
+    notifyRequestSettled()
     if (error.response?.status === 401) {
       handleUnauthorizedSession()
     }
