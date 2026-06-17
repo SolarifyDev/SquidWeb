@@ -241,7 +241,7 @@ const EnvironmentIcon: React.FC = () => (
 );
 
 const ScopeChip: React.FC<{ label: string }> = ({ label }) => (
-  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs mr-1 select-none">
+  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium mr-1 select-none">
     <EnvironmentIcon />
     {label}
   </span>
@@ -257,7 +257,7 @@ const InlineVariableInput: React.FC<{
     value={value}
     onChange={(e) => onChange(e.target.value)}
     placeholder={placeholder}
-    className="w-full bg-transparent border-0 border-b border-transparent px-0 py-1 text-sm font-mono text-gray-800 placeholder:text-gray-400 outline-none focus:border-slate-300"
+    className="w-full bg-transparent border-0 border-b border-transparent px-0 py-1 text-sm font-mono text-slate-800 placeholder:text-slate-400 outline-none transition-colors hover:border-slate-200 focus:border-squid-blue"
   />
 );
 
@@ -287,7 +287,7 @@ const ScopeCell: React.FC<{
             <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${index}`} label={s.scopeValue} />
           ))
         ) : (
-          <span className="text-gray-400 text-xs font-mono hover:text-gray-600">Define scope</span>
+          <span className="text-slate-400 text-xs font-mono hover:text-slate-600">Define scope</span>
         )}
       </div>
     </Popover>
@@ -339,7 +339,7 @@ const SingleVariableRow: React.FC<SingleRowProps> = ({
   onScopeEditorOpenChange,
   scopeEditorContent,
 }) => (
-  <div className="flex items-center hover:bg-gray-50 border-b border-gray-200" style={{ minHeight: ROW_HEIGHT }}>
+  <div className="flex items-center hover:bg-slate-50/70 transition-colors border-b border-slate-100" style={{ minHeight: ROW_HEIGHT }}>
     <div style={{ width: NAME_COL_WIDTH }} className="px-3">
       <InlineVariableInput value={entry.name} onChange={(next) => onNameChange(entry.id, next)} />
     </div>
@@ -395,8 +395,8 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
   const firstEntry = group.entries[0];
 
   return (
-    <div className="border-b border-gray-200">
-      <div className="flex items-center bg-white hover:bg-gray-50" style={{ minHeight: GROUP_ROW_HEIGHT }}>
+    <div className="border-b border-slate-200">
+      <div className="flex items-center bg-white hover:bg-slate-50/70" style={{ minHeight: GROUP_ROW_HEIGHT }}>
       <div style={{ width: NAME_COL_WIDTH }} className="px-3">
         <span className="font-mono text-sm text-gray-800">{group.name}</span>
       </div>
@@ -420,7 +420,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
       {group.entries.map((entry) => (
         <div key={entry.id} className="flex items-stretch" style={{ minHeight: ROW_HEIGHT }}>
           <div style={{ width: NAME_COL_WIDTH }} className="px-3" />
-          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-start">
+          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 border-t border-slate-200 flex items-start">
             <VariableValueCell
               name={entry.name}
               value={entry.value}
@@ -430,7 +430,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
               onSave={(patch) => onEntryPatch(entry.id, patch)}
             />
           </div>
-          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center">
+          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 border-t border-slate-200 flex items-center">
             <ScopeCell
               entry={entry}
               editorOpen={scopeEditorTarget?.kind === 'existing' && scopeEditorTarget.id === entry.id}
@@ -438,7 +438,7 @@ const MultiVariableGroup: React.FC<GroupProps> = ({
               editorContent={scopeEditorContent}
             />
           </div>
-          <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 border-t border-gray-200 flex items-center justify-end">
+          <div style={{ width: CONTROL_COL_WIDTH }} className="px-3 border-t border-slate-200 flex items-center justify-end">
             <RowControlActions
               isModified={isVariableModified(entry)}
               rowMenuItems={getRowMenuItems(entry, false)}
@@ -821,17 +821,17 @@ const VariableSetDetail: React.FC = () => {
   };
 
   const scopeEditorContent = (
-    <div className="w-[560px] space-y-3">
+    <div className="w-[560px] space-y-4">
       <div>
-        <label className="block text-sm text-gray-700 mb-1.5">Select environments</label>
+        <label className="block text-[13px] font-medium text-slate-600 mb-1.5">Select environments</label>
         <Select mode="multiple" value={scopeEditor.environments} onChange={(v) => handleScopeEditorChange({ environments: v })} options={environmentOptions} loading={scopeOptionsLoading} placeholder="Select environments" className="w-full" allowClear showSearch />
       </div>
       <div>
-        <label className="block text-sm text-gray-700 mb-1.5">Select target tags</label>
+        <label className="block text-[13px] font-medium text-slate-600 mb-1.5">Select target tags</label>
         <Select mode="multiple" value={scopeEditor.targetTags} onChange={(v) => handleScopeEditorChange({ targetTags: v })} options={targetTagOptions} loading={scopeOptionsLoading} placeholder="Select target tags" className="w-full" allowClear showSearch />
       </div>
       <div>
-        <label className="block text-sm text-gray-700 mb-1.5">Select targets</label>
+        <label className="block text-[13px] font-medium text-slate-600 mb-1.5">Select targets</label>
         <Select mode="multiple" value={scopeEditor.targets} onChange={(v) => handleScopeEditorChange({ targets: v })} options={targetOptions} loading={scopeOptionsLoading} placeholder="Select targets" className="w-full" allowClear showSearch />
       </div>
     </div>
@@ -855,19 +855,19 @@ const VariableSetDetail: React.FC = () => {
         </div>
       </section>
 
-      <div className="border border-gray-200 rounded-md overflow-visible bg-white">
-        <div className="flex border-b border-gray-200 bg-white">
-          <div style={{ width: NAME_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700">Name</div>
-          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700 border-l border-gray-200">Value</div>
-          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 py-2 text-sm font-medium text-gray-700 border-l border-gray-200">Scope</div>
+      <div className="border border-slate-200 rounded-lg overflow-visible bg-white">
+        <div className="flex border-b border-slate-200 bg-slate-50/60 rounded-t-lg">
+          <div style={{ width: NAME_COL_WIDTH }} className="px-3 py-2.5 text-[13px] font-semibold text-slate-500">Name</div>
+          <div style={{ width: VALUE_COL_WIDTH }} className="px-3 py-2.5 text-[13px] font-semibold text-slate-500 border-l border-slate-200">Value</div>
+          <div style={{ width: SCOPE_COL_WIDTH }} className="px-3 py-2.5 text-[13px] font-semibold text-slate-500 border-l border-slate-200">Scope</div>
           <div style={{ width: CONTROL_COL_WIDTH }} className="px-1 py-2" />
         </div>
 
-        <div className="border-b border-gray-200 bg-white">
+        <div className="border-b border-slate-200 bg-white">
           {draftValueRows.map((row, index) => (
             <div
               key={row.id}
-              className={`flex items-center ${index > 0 ? 'border-t border-gray-200' : ''}`}
+              className={`flex items-center ${index > 0 ? 'border-t border-slate-200' : ''}`}
               style={{ minHeight: ROW_HEIGHT }}
             >
               <div style={{ width: NAME_COL_WIDTH }} className="px-3">
@@ -909,7 +909,7 @@ const VariableSetDetail: React.FC = () => {
                         <ScopeChip key={`${s.scopeType}-${s.scopeValue}-${chipIndex}`} label={s.scopeValue} />
                       ))
                     ) : (
-                      <span className="text-gray-400 text-xs font-mono hover:text-gray-600">Define scope</span>
+                      <span className="text-slate-400 text-xs font-mono hover:text-slate-600">Define scope</span>
                     )}
                   </div>
                 </Popover>
@@ -917,7 +917,7 @@ const VariableSetDetail: React.FC = () => {
               <div style={{ width: CONTROL_COL_WIDTH }} className="px-3" />
             </div>
           ))}
-          <div className="border-t border-gray-200 bg-gray-50/60">
+          <div className="border-t border-slate-200 bg-slate-50/60">
             <div className="flex justify-end gap-2 px-3 py-2.5">
               <Button
                 size="middle"
@@ -1010,7 +1010,7 @@ const VariableSetDetail: React.FC = () => {
   return (
     <PageContainer>
       <div className="border border-slate-200/70 rounded-xl bg-white overflow-visible shadow-card">
-          <div className="px-6 pt-4 pb-4 border-b border-gray-200">
+          <div className="px-6 pt-4 pb-4 border-b border-slate-200">
             <nav>
               <ol>
                 <li>

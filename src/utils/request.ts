@@ -163,7 +163,7 @@ instance.interceptors.request.use(
       config.data = appendSpaceIdToBody(config.data, currentSpaceId)
     }
 
-    notifyRequestStarted()
+    if (!(config as any).silentLoading) notifyRequestStarted()
 
     return config
   },
@@ -175,11 +175,11 @@ instance.interceptors.request.use(
 // 响应拦截：目前只透传错误，你可以在这里做全局错误提示、401 处理等
 instance.interceptors.response.use(
   (response) => {
-    notifyRequestSettled()
+    if (!(response.config as any).silentLoading) notifyRequestSettled()
     return response
   },
   (error: AxiosError) => {
-    notifyRequestSettled()
+    if (!(error.config as any)?.silentLoading) notifyRequestSettled()
     if (error.response?.status === 401) {
       handleUnauthorizedSession()
     }
@@ -210,7 +210,11 @@ export class ApiError extends Error {
 
 const SUCCESS_CODE = 200
 
-export interface RequestConfig<T = any> extends AxiosRequestConfig<T> {}
+export interface RequestConfig<T = any> extends AxiosRequestConfig<T> {
+  // When true, this request is excluded from the global in-flight counter
+  // (so it won't drive the top progress bar). Use for component-local loading.
+  silentLoading?: boolean
+}
 
 // 统一处理后端 { data, msg, code } 的响应
 function handleBusinessResponse<T>(

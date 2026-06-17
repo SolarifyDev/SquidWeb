@@ -489,7 +489,7 @@ const AccountsCreatePage: React.FC = () => {
             onToggle={() => setExpanded((prev) => ({ ...prev, description: !prev.description }))}
           >
             <Input.TextArea
-              rows={3}
+              autoSize={{ minRows: 2, maxRows: 14 }}
               placeholder="Account description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
