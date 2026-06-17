@@ -1,4 +1,4 @@
-import { get, post } from 'utils/request'
+import { get, post, type RequestConfig } from 'utils/request'
 
 export interface ProjectGroupDto {
   id: number
@@ -20,14 +20,14 @@ export interface GetProjectGroupsResponseData {
   projectGroups: ProjectGroupDto[]
 }
 
-export function getProjectGroups(params?: GetProjectGroupsRequest) {
+export function getProjectGroups(params?: GetProjectGroupsRequest, config?: RequestConfig) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 1000,
     ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
-  return get<GetProjectGroupsResponseData>('/project-groups/list', { params: query })
+  return get<GetProjectGroupsResponseData>('/project-groups/list', { params: query, ...config })
 }
 
 export interface CreateProjectGroupCommand {

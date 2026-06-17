@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons'
 import {
   CreateVariableSet,
+  formatVariableSetRouteId,
   GetVariableSet,
   loadVariableSets,
   VariableSetItem,
@@ -121,7 +122,7 @@ const VariableSets: React.FC = () => {
 
     GetVariableSet(parsedId)
       .then(() => {
-        navigate(`/${space.slug}/library/variables/${parsedId}`)
+        navigate(`/${space.slug}/library/variables/${formatVariableSetRouteId(parsedId)}`)
       })
       .catch((error) => {
         console.error('Failed to load variable set detail', error)
@@ -257,8 +258,9 @@ const VariableSets: React.FC = () => {
             />
           </div>
 
-          {showMarkdown && (
-            <div className="flex items-center gap-1 p-2 bg-gray-50 border border-gray-200 rounded flex-wrap">
+          <div className={showMarkdown ? 'overflow-hidden rounded-lg border border-gray-200' : ''}>
+            {showMarkdown && (
+              <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200 flex-wrap">
               <Tooltip title="Bold">
                 <Button size="small" icon={<BoldOutlined />} onClick={handleBold} className="hover:bg-gray-200" />
               </Tooltip>
@@ -291,16 +293,16 @@ const VariableSets: React.FC = () => {
                 </Button>
               </Tooltip>
             </div>
-          )}
+            )}
 
-          <div>
             <TextArea
               ref={textAreaRef}
               placeholder="Variable set description"
               value={newSetDescription}
               onChange={(e) => setNewSetDescription(e.target.value)}
-              rows={showMarkdown ? 6 : 3}
-              className="text-sm font-mono"
+              autoSize={{ minRows: 2, maxRows: 18 }}
+              bordered={!showMarkdown}
+              className="text-sm"
             />
           </div>
 

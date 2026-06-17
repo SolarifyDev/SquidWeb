@@ -7,14 +7,25 @@ import {
   MoreOutlined,
   DownOutlined,
   UpOutlined,
-  CheckCircleFilled,
-  CloseCircleOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
 import { getEnvironments, createEnvironment } from 'pages/apis/environment';
 import { getMachines, MachineDto } from 'pages/apis/machine';
 import { useSpace } from 'contexts/SpaceContext';
 import PageContainer from 'components/PageContainer';
+import { resolveMachineHealthState } from 'pages/deploymentTargets';
+
+type HealthState = 'Healthy' | 'Unhealthy' | 'Unavailable' | 'Unknown' | 'Disabled';
+
+const HEALTH_STATE_ORDER: HealthState[] = ['Healthy', 'Unhealthy', 'Unavailable', 'Unknown', 'Disabled'];
+
+const HEALTH_STATE_META: Record<HealthState, { label: string; dot: string; iconBg: string; iconText: string }> = {
+  Healthy: { label: 'Healthy', dot: 'bg-green-500', iconBg: 'bg-green-100', iconText: 'text-green-700' },
+  Unhealthy: { label: 'Unhealthy', dot: 'bg-rose-500', iconBg: 'bg-rose-100', iconText: 'text-rose-700' },
+  Unavailable: { label: 'Unavailable', dot: 'bg-amber-500', iconBg: 'bg-amber-100', iconText: 'text-amber-700' },
+  Unknown: { label: 'Unknown', dot: 'bg-slate-400', iconBg: 'bg-slate-100', iconText: 'text-slate-500' },
+  Disabled: { label: 'Disabled', dot: 'bg-slate-400', iconBg: 'bg-slate-100', iconText: 'text-slate-500' },
+};
 
 const toEnvironmentSlug = (value: string) =>
   value
@@ -111,14 +122,26 @@ const Environments = () => {
   });
 
   // API 数据
+  interface MappedTarget {
+    name: string;
+    type: string;
+    url: string;
+    state: HealthState;
+    environmentNames: string[];
+    tags: string[];
+  }
+
+  interface EnvHealthGroup {
+    state: HealthState;
+    targets: MappedTarget[];
+  }
+
   interface EnvironmentWithTargets {
     key: string;
     name: string;
-    targets: number;
-    healthy: number;
-    disabled: number;
-    deployments: { name: string; type: string; url: string; status: string; environmentNames: string[]; tags: string[] }[];
-    disabledTargets: { name: string; type: string; url: string; status: string; environmentNames: string[]; tags: string[] }[];
+    total: number;
+    healthyCount: number;
+    groups: EnvHealthGroup[];
   }
 
   const [environments, setEnvironments] = useState<EnvironmentWithTargets[]>([]);
@@ -138,32 +161,22 @@ const Environments = () => {
         const envNameLookup = new Map<string, string>();
         envRes.environments.forEach((e) => envNameLookup.set(String(e.id), e.name));
 
-        // Group machines by environment
-        const envTargets = new Map<number, { healthy: MachineDto[]; disabled: MachineDto[] }>();
-        envRes.environments.forEach((e) => envTargets.set(e.id, { healthy: [], disabled: [] }));
+        // Group machines by environment.
+        const envTargets = new Map<number, MachineDto[]>();
+        envRes.environments.forEach((e) => envTargets.set(e.id, []));
 
         machineRes.machines.forEach((m) => {
-          const envIds = m.environmentIds ?? [];
-          envIds.forEach((envId: number) => {
-            const bucket = envTargets.get(envId);
-            if (bucket) {
-              if (m.isDisabled) {
-                bucket.disabled.push(m);
-              } else {
-                bucket.healthy.push(m);
-              }
-            }
+          (m.environmentIds ?? []).forEach((envId: number) => {
+            envTargets.get(envId)?.push(m);
           });
         });
 
-        const mapMachine = (m: MachineDto, status: string) => {
-          const mEnvIds = (m.environmentIds ?? []).map(String);
+        const mapMachine = (m: MachineDto): MappedTarget => {
           const mEnvNames = unique(
-            mEnvIds
-              .map((envId) => envNameLookup.get(envId) || '')
+            (m.environmentIds ?? [])
+              .map((envId) => envNameLookup.get(String(envId)) || '')
               .filter(Boolean),
           );
-          const roles = m.roles ?? [];
           const ep = parseEndpointJson(m.endpoint || '{}');
           const style = ep?.CommunicationStyle || 'Unknown';
           const summary = endpointSummary(ep);
@@ -171,24 +184,25 @@ const Environments = () => {
             name: m.name,
             type: communicationStyleLabel(style),
             url: summary || m.uri || '',
-            status,
+            state: resolveMachineHealthState(m),
             environmentNames: mEnvNames,
-            tags: roles,
+            tags: m.roles ?? [],
           };
         };
 
         const result: EnvironmentWithTargets[] = envRes.environments
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((e) => {
-            const bucket = envTargets.get(e.id) || { healthy: [], disabled: [] };
+            const targets = (envTargets.get(e.id) || []).map(mapMachine);
+            const groups: EnvHealthGroup[] = HEALTH_STATE_ORDER
+              .map((state) => ({ state, targets: targets.filter((t) => t.state === state) }))
+              .filter((group) => group.targets.length > 0);
             return {
               key: String(e.id),
               name: e.name,
-              targets: bucket.healthy.length + bucket.disabled.length,
-              healthy: bucket.healthy.length,
-              disabled: bucket.disabled.length,
-              deployments: bucket.healthy.map((m) => mapMachine(m, 'healthy')),
-              disabledTargets: bucket.disabled.map((m) => mapMachine(m, 'disabled')),
+              total: targets.length,
+              healthyCount: targets.filter((t) => t.state === 'Healthy').length,
+              groups,
             };
           });
         setEnvironments(result);
@@ -234,12 +248,12 @@ const Environments = () => {
 
   // 应用过滤逻辑
   const filteredEnvironments = environments.filter((env) => {
-    if (hideEmpty && env.targets === 0) return false;
-    if (disabledOnly && env.disabled === 0) return false;
+    if (hideEmpty && env.total === 0) return false;
+    if (disabledOnly && !env.groups.some((g) => g.state === 'Disabled')) return false;
     if (searchText && !env.name.toLowerCase().includes(searchText.toLowerCase())) return false;
     if (
       deploymentTargetSearch &&
-      ![...env.deployments, ...env.disabledTargets].some((d) =>
+      !env.groups.flatMap((g) => g.targets).some((d) =>
         `${d.name} ${d.type} ${d.url} ${d.environmentNames.join(' ')} ${d.tags.join(' ')}`.toLowerCase().includes(deploymentTargetSearch.toLowerCase())
       )
     ) {
@@ -523,39 +537,38 @@ const Environments = () => {
                   {filteredEnvironments.map((env) => (
                     <div
                       key={env.key}
-                      className="border border-gray-200 rounded-md bg-white overflow-hidden hover:shadow-sm transition-shadow"
+                      className="border border-slate-200 rounded-lg bg-white overflow-hidden transition-shadow hover:shadow-sm"
                     >
-                      <div className="flex items-start justify-between gap-3 p-4">
+                      <div
+                        onClick={() =>
+                          setExpandedKeys((prev: string[]) =>
+                            prev.includes(env.key)
+                              ? prev.filter((k) => k !== env.key)
+                              : [...prev, env.key]
+                          )
+                        }
+                        className="flex items-start justify-between gap-3 p-4 cursor-pointer select-none transition-colors hover:bg-slate-50/70"
+                      >
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <div className="flex items-center gap-2">
                               <MenuOutlined className="text-gray-400" />
                               <span className="font-semibold text-squid-blue text-base">{env.name}</span>
                             </div>
-                            <span className="text-gray-500 text-sm">
-                              {env.targets} deployment target{env.targets !== 1 ? 's' : ''}
+                            <span className="text-slate-500 text-sm">
+                              {env.total} deployment target{env.total !== 1 ? 's' : ''}
                             </span>
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Tag color="green" className="!m-0">
-                              {env.healthy} Healthy
-                            </Tag>
-                            <Tag className="!m-0" color="default">
-                              {env.disabled} Disabled
-                            </Tag>
-                            {env.targets === 0 && (
-                              <Tag className="!m-0" color="default">Empty</Tag>
-                            )}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <Button type="text" icon={<MoreOutlined />} />
+                          <Button type="text" icon={<MoreOutlined />} onClick={(e) => e.stopPropagation()} />
                           <Button
                             type="text"
+                            aria-label={expandedKeys.includes(env.key) ? 'Collapse environment' : 'Expand environment'}
                             icon={expandedKeys.includes(env.key) ? <UpOutlined /> : <DownOutlined />}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setExpandedKeys((prev: string[]) =>
                                 prev.includes(env.key)
                                   ? prev.filter((k) => k !== env.key)
@@ -567,120 +580,67 @@ const Environments = () => {
                       </div>
 
                       {expandedKeys.includes(env.key) && (
-                        <div className="border-t border-gray-200 bg-gray-50 px-4 py-4">
-                          <div className="space-y-5">
-                            <div>
-                              <div className="flex items-center gap-2 mb-3">
-                                <CheckCircleFilled className="text-green-500" />
-                                <span className="font-semibold text-xs uppercase tracking-wide text-gray-700">
-                                  Healthy Deployment Targets ({env.healthy})
-                                </span>
-                              </div>
+                        <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-4">
+                          {env.total === 0 ? (
+                            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-sm text-slate-500">
+                              No deployment targets in this environment
+                            </div>
+                          ) : (
+                            <div className="space-y-5">
+                              {env.groups.map((group) => {
+                                const meta = HEALTH_STATE_META[group.state];
+                                return (
+                                  <div key={group.state}>
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <span className={`inline-block w-2 h-2 rounded-full ${meta.dot}`} />
+                                      <span className="font-semibold text-xs uppercase tracking-wide text-slate-600">
+                                        {meta.label} ({group.state === 'Healthy' ? `${group.targets.length}/${env.total}` : group.targets.length})
+                                      </span>
+                                    </div>
 
-                              <div className="space-y-2">
-                                {env.deployments.length === 0 ? (
-                                  <div className="rounded border border-dashed border-gray-300 bg-white px-3 py-3 text-sm text-gray-500">
-                                    No healthy deployment targets
-                                  </div>
-                                ) : (
-                                  env.deployments.map((deployment, idx) => (
-                                    <div key={idx} className="bg-white rounded border border-gray-200 p-3">
-                                      <div className="flex items-start gap-3">
-                                        <div className="w-9 h-9 bg-green-100 rounded flex items-center justify-center flex-shrink-0">
-                                          <span className="text-green-700 text-lg">☸</span>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="font-medium text-gray-900 mb-0.5">{deployment.name}</div>
-                                          <div className="text-sm text-gray-600">{deployment.type}</div>
-                                          {deployment.url && (
-                                            <div className="text-xs text-gray-500 break-all mt-1">{deployment.url}</div>
-                                          )}
-                                          <div className="flex flex-wrap items-center gap-2 mt-2">
-                                            <CheckCircleFilled className="text-green-500" />
-                                            {deployment.environmentNames.slice(0, 3).map((envName, i) => (
-                                              <Tag key={`healthy-env-${i}`} color="blue" className="!m-0">
-                                                {envName}
-                                              </Tag>
-                                            ))}
-                                            {deployment.environmentNames.length > 3 && (
-                                              <Button type="link" size="small" className="!px-0">
-                                                +{deployment.environmentNames.length - 3} envs
-                                              </Button>
-                                            )}
-                                            {deployment.tags.slice(0, 4).map((tag, i) => (
-                                              <Tag key={i} color={tag === 'Normal' ? 'black' : 'default'} className="!m-0">
-                                                {tag}
-                                              </Tag>
-                                            ))}
-                                            {deployment.tags.length > 4 && (
-                                              <Button type="link" size="small" className="!px-0">
-                                                +{deployment.tags.length - 4} more
-                                              </Button>
-                                            )}
+                                    <div className="space-y-2">
+                                      {group.targets.map((target, idx) => (
+                                        <div key={idx} className="bg-white rounded-lg border border-slate-200 p-3 transition-shadow hover:shadow-sm">
+                                          <div className="flex items-start gap-3">
+                                            <div className={`w-9 h-9 ${meta.iconBg} rounded-lg flex items-center justify-center flex-shrink-0`}>
+                                              <span className={`${meta.iconText} text-lg`}>☸</span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <div className="font-medium text-slate-900 mb-0.5">{target.name}</div>
+                                              <div className="text-sm text-slate-600">{target.type}</div>
+                                              {target.url && (
+                                                <div className="text-xs text-slate-500 break-all mt-1">{target.url}</div>
+                                              )}
+                                              <div className="flex flex-wrap items-center gap-2 mt-2">
+                                                {target.environmentNames.slice(0, 3).map((envName, i) => (
+                                                  <Tag key={`env-${i}`} color="blue" className="!m-0">
+                                                    {envName}
+                                                  </Tag>
+                                                ))}
+                                                {target.environmentNames.length > 3 && (
+                                                  <Button type="link" size="small" className="!px-0">
+                                                    +{target.environmentNames.length - 3} envs
+                                                  </Button>
+                                                )}
+                                                {target.tags.slice(0, 4).map((tag, i) => (
+                                                  <Tag key={`tag-${i}`} className="!m-0">{tag}</Tag>
+                                                ))}
+                                                {target.tags.length > 4 && (
+                                                  <Button type="link" size="small" className="!px-0">
+                                                    +{target.tags.length - 4} more
+                                                  </Button>
+                                                )}
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
+                                      ))}
                                     </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-
-                            <div>
-                              <div className="flex items-center gap-2 mb-3">
-                                <CloseCircleOutlined className="text-gray-400" />
-                                <span className="font-semibold text-xs uppercase tracking-wide text-gray-700">
-                                  Disabled Deployment Targets ({env.disabled})
-                                </span>
-                              </div>
-
-                              <div className="space-y-2">
-                                {env.disabledTargets.length === 0 ? (
-                                  <div className="rounded border border-dashed border-gray-300 bg-white px-3 py-3 text-sm text-gray-500">
-                                    No disabled deployment targets
                                   </div>
-                                ) : (
-                                  env.disabledTargets.map((deployment, idx) => (
-                                    <div key={idx} className="bg-white rounded border border-gray-200 p-3">
-                                      <div className="flex items-start gap-3">
-                                        <div className="w-9 h-9 bg-gray-100 rounded flex items-center justify-center flex-shrink-0">
-                                          <span className="text-gray-500 text-lg">☸</span>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="font-medium text-gray-900 mb-0.5">{deployment.name}</div>
-                                          <div className="text-sm text-gray-600">{deployment.type}</div>
-                                          {deployment.url && (
-                                            <div className="text-xs text-gray-500 break-all mt-1">{deployment.url}</div>
-                                          )}
-                                          <div className="flex flex-wrap items-center gap-2 mt-2">
-                                            <CloseCircleOutlined className="text-gray-400" />
-                                            {deployment.environmentNames.slice(0, 3).map((envName, i) => (
-                                              <Tag key={`disabled-env-${i}`} color="blue" className="!m-0">
-                                                {envName}
-                                              </Tag>
-                                            ))}
-                                            {deployment.environmentNames.length > 3 && (
-                                              <Button type="link" size="small" className="!px-0">
-                                                +{deployment.environmentNames.length - 3} envs
-                                              </Button>
-                                            )}
-                                            {deployment.tags.slice(0, 4).map((tag, i) => (
-                                              <Tag key={i} className="!m-0">{tag}</Tag>
-                                            ))}
-                                            {deployment.tags.length > 4 && (
-                                              <Button type="link" size="small" className="!px-0">
-                                                +{deployment.tags.length - 4} more
-                                              </Button>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
+                                );
+                              })}
                             </div>
-                          </div>
+                          )}
                         </div>
                       )}
                     </div>

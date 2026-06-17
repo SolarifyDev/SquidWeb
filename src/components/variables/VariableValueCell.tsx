@@ -192,7 +192,7 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
               type="button"
               onClick={() => setIsActive(true)}
               onDoubleClick={openEditor}
-              className="w-full text-left px-0 py-1 border-0 border-b border-transparent hover:border-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+              className="w-full text-left px-0 py-1 border-0 border-b border-transparent hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               <div className="flex items-start gap-2">
                 <span className="mt-0.5 text-gray-500 flex-shrink-0" aria-hidden="true">
@@ -201,14 +201,14 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
                   </svg>
                 </span>
                 <div className="min-w-0 flex-1">
-                  <pre className="m-0 whitespace-nowrap overflow-hidden text-ellipsis text-[13px] font-mono text-gray-800 leading-5 cursor-pointer">
+                  <pre className="m-0 whitespace-nowrap overflow-hidden text-ellipsis text-[13px] font-mono text-slate-800 leading-5 cursor-pointer">
                     {value}
                   </pre>
                 </div>
               </div>
             </button>
           ) : (
-            <div className="w-full border-b border-transparent hover:border-gray-700 focus-within:border-gray-700 transition-colors">
+            <div className="w-full border-b border-transparent hover:border-slate-300 focus-within:border-squid-blue transition-colors">
               <input
                 type="text"
                 value={value}
@@ -219,7 +219,7 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
                 onDoubleClick={openEditor}
                 placeholder={placeholder}
                 title={value}
-                className="w-full bg-transparent border-0 px-0 py-1 text-sm font-mono text-gray-800 placeholder:text-gray-400 outline-none"
+                className="w-full bg-transparent border-0 px-0 py-1 text-sm font-mono text-slate-800 placeholder:text-slate-400 outline-none"
               />
             </div>
           )}
@@ -228,17 +228,17 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
 
       {isActive && (
         <div
-          className={`absolute top-0 z-30 rounded-sm border border-gray-300 bg-white shadow-lg px-3 py-1 min-h-[122px] ${multilineValue ? 'pb-6' : ''}`}
+          className={`absolute top-0 z-30 rounded-lg border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.12)] px-3 py-1 min-h-[122px] ${multilineValue ? 'pb-6' : ''}`}
           style={{ left: -CELL_PADDING_X, right: -CELL_PADDING_X }}
         >
-          <div className="w-full border-b-2 border-blue-500">
+          <div className="w-full border-b-2 border-squid-blue">
             {multilineValue ? (
               <button
                 type="button"
                 onClick={openEditor}
                 className="w-full text-left bg-transparent border-0 px-0 py-1 cursor-pointer"
               >
-                <pre className="m-0 whitespace-pre-wrap break-words text-sm font-mono text-gray-800 leading-5">{value}</pre>
+                <pre className="m-0 whitespace-pre-wrap break-words text-sm font-mono text-slate-800 leading-5">{value}</pre>
               </button>
             ) : (
               <input
@@ -249,7 +249,7 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
                 onDoubleClick={openEditor}
                 placeholder={placeholder}
                 title={value}
-                className="w-full bg-transparent border-0 px-0 py-1 pr-44 text-sm font-mono text-gray-800 placeholder:text-gray-400 outline-none"
+                className="w-full bg-transparent border-0 px-0 py-1 pr-44 text-sm font-mono text-slate-800 placeholder:text-slate-400 outline-none"
               />
             )}
           </div>
@@ -268,11 +268,11 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
                   onClick: ({ key }) => applyType(String(key) as VariableValueUiType),
                 }}
               >
-                <button type="button" className="text-blue-600 hover:text-blue-700 text-sm font-medium leading-none">
+                <button type="button" className="text-squid-blue hover:text-blue-700 text-sm font-medium leading-none">
                   Change type
                 </button>
               </Dropdown>
-              <button type="button" onClick={openEditor} className="text-blue-600 hover:text-blue-700 text-sm font-medium leading-none">
+              <button type="button" onClick={openEditor} className="text-squid-blue hover:text-blue-700 text-sm font-medium leading-none">
                 Open editor
               </button>
             </div>
@@ -290,11 +290,11 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
                   onClick: ({ key }) => applyType(String(key) as VariableValueUiType),
                 }}
               >
-                <button type="button" className="text-blue-600 hover:text-blue-700 text-sm font-medium leading-none">
+                <button type="button" className="text-squid-blue hover:text-blue-700 text-sm font-medium leading-none">
                   Change type
                 </button>
               </Dropdown>
-              <button type="button" onClick={openEditor} className="text-blue-600 hover:text-blue-700 text-sm font-medium leading-none">
+              <button type="button" onClick={openEditor} className="text-squid-blue hover:text-blue-700 text-sm font-medium leading-none">
                 Open editor
               </button>
             </div>

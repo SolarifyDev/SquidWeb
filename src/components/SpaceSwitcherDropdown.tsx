@@ -366,9 +366,9 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
   const dropdownStyle: React.CSSProperties = {
     top: 'calc(100% + 8px)',
     left: 0,
-    width: 296,
-    boxShadow: '0 18px 36px rgba(15,23,42,0.14), 0 4px 10px rgba(15,23,42,0.08)',
-    border: '1px solid rgba(148,163,184,0.28)',
+    width: 280,
+    boxShadow: '0 18px 40px rgba(15,23,42,0.16), 0 6px 14px rgba(15,23,42,0.09)',
+    border: '1px solid rgba(148,163,184,0.22)',
   };
 
   if (spaces.length === 0) {
@@ -378,7 +378,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
           ref={dropdownRef}
           role="dialog"
           aria-label="Space switcher dropdown"
-          className="absolute z-50 bg-white rounded-lg overflow-hidden"
+          className="absolute z-50 bg-white rounded-xl overflow-hidden"
           style={dropdownStyle}
         >
           <div className="px-6 pt-6 pb-5 flex flex-col items-center text-center">

@@ -4,6 +4,7 @@ import { Link, Route, Routes, useLocation, Navigate, useNavigate, Outlet, matchP
 import DeploySidebar from "./DeploySidebar";
 import TopProgressBar from "./TopProgressBar";
 import SpaceSwitcherDropdown from "./SpaceSwitcherDropdown";
+import ProjectSearchPalette from "./ProjectSearchPalette";
 import { SpaceContext, SpaceInfo } from "../contexts/SpaceContext";
 import { PermissionProvider } from "../contexts/PermissionContext";
 import { getSpaces, SpaceDto } from "pages/apis/space";
@@ -118,12 +119,6 @@ function NavItem({
 }
 
 // ── Header SVG icons ─────────────────────────────────────────────────────────
-
-const SearchIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <path fill="currentColor" d="M27.0112 16.9873C27.0112 13.4283 25.0728 10.1815 22.0088 8.37073C18.8823 6.56 15.0679 6.56 12.0039 8.37073C8.87738 10.1815 7.00147 13.4283 7.00147 16.9873C7.00147 20.6088 8.87738 23.8556 12.0039 25.6663C15.0679 27.4771 18.8823 27.4771 22.0088 25.6663C25.0728 23.8556 27.0112 20.6088 27.0112 16.9873ZM25.0728 27.2273C22.8217 28.9756 20.0078 29.9746 17.0064 29.9746C9.81534 29.9746 4 24.1678 4 16.9873C4 9.86927 9.81534 4 17.0064 4C24.1348 4 30.0127 9.86927 30.0127 16.9873C30.0127 20.0468 28.9497 22.8566 27.1988 25.1044L35.5779 33.4088C36.1407 34.0332 36.1407 34.9698 35.5779 35.5317C34.9526 36.1561 34.0147 36.1561 33.4519 35.5317L25.0728 27.2273Z" />
-  </svg>
-);
 
 const BellIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -289,31 +284,28 @@ function App() {
             aria-haspopup="dialog"
             aria-expanded={showSpaceSwitcher}
             onClick={() => setShowSpaceSwitcher(p => !p)}
-            className="group flex h-9 items-center rounded-lg pl-1 pr-2.5 text-left transition-all hover:-translate-y-[1px]"
+            className={`group relative flex h-9 items-center rounded-xl pl-[50px] pr-3 text-left transition-colors ${showSpaceSwitcher ? 'bg-squid-blue' : 'bg-slate-100 hover:bg-squid-blue'}`}
             style={{
-              width: 'clamp(220px, 20vw, 290px)',
-              backgroundColor: 'rgba(241, 245, 249, 0.96)',
-              boxShadow: showSpaceSwitcher
-                ? '0 4px 10px rgba(15,23,42,0.09), inset 0 0 0 1px rgba(148,163,184,0.22)'
-                : '0 1px 2px rgba(15,23,42,0.06), inset 0 0 0 1px rgba(148,163,184,0.18)',
+              width: 'clamp(200px, 17vw, 248px)',
+              boxShadow: '0 1px 2px rgba(15,23,42,0.07)',
             }}
           >
             <span
-              className="flex items-center justify-center flex-shrink-0 overflow-hidden"
+              className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center justify-center overflow-hidden"
               style={{
-                width: '2rem',
-                height: '2rem',
-                borderRadius: '8px',
+                width: '42px',
+                height: '42px',
+                borderRadius: '11px',
                 backgroundColor: '#fff',
-                boxShadow: '0 1px 4px rgba(15,23,42,0.10), inset 0 0 0 1px rgba(148,163,184,0.20)',
+                boxShadow: '0 2px 6px rgba(15,23,42,0.14)',
               }}
             >
-              <img src="/squid-logo.png" alt="Space Default Logo" className="w-full h-full object-contain" />
+              <img src="/squid-logo.png" alt="Space Default Logo" className="w-full h-full object-contain p-1" />
             </span>
-            <span className="ml-2.5 min-w-0 flex-1 truncate text-base font-semibold tracking-[-0.01em] text-slate-600">
+            <span className={`min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-0.01em] transition-colors ${showSpaceSwitcher ? 'text-white' : 'text-slate-700 group-hover:text-white'}`}>
               {currentSpace.name}
             </span>
-            <ChevronDownIcon className={`w-[18px] h-[18px] flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-slate-600 rotate-180' : 'text-slate-500 group-hover:text-slate-600'}`} />
+            <ChevronDownIcon className={`w-4 h-4 flex-shrink-0 transition-all ${showSpaceSwitcher ? 'text-white rotate-180' : 'text-slate-500 group-hover:text-white'}`} />
           </button>
           {showSpaceSwitcher && (
             <SpaceSwitcherDropdown
@@ -326,16 +318,7 @@ function App() {
           )}
         </div>
 
-        <div className="flex items-center w-80 max-w-[42vw] flex-shrink-0 px-3 h-9 rounded-lg border border-slate-300/80 bg-white/90 shadow-sm focus-within:border-squid-blue focus-within:ring-2 focus-within:ring-blue-100 transition-colors">
-          <SearchIcon className="w-4 h-4 text-slate-400 flex-shrink-0 mr-2" />
-          <input
-            type="text"
-            aria-label="Search"
-            autoComplete="off"
-            placeholder="Type Ctrl+Space to search..."
-            className="outline-none border-0 bg-transparent text-sm text-slate-700 placeholder-slate-400 flex-1 min-w-0"
-          />
-        </div>
+        <ProjectSearchPalette />
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -486,12 +469,15 @@ function App() {
         )}
 
         <div className={`page-content-right relative z-0 flex flex-1 flex-col min-h-0 bg-white overflow-hidden ${showSidebarInline ? '' : 'rounded-tl-md'}`}>
-          <TopProgressBar />
           <div className="flex-1 min-h-0 overflow-y-auto">
             <Routes>
               {renderRoutes(routes)}
             </Routes>
           </div>
+        </div>
+
+        <div className="pointer-events-none absolute left-[72px] right-0 top-0 z-50">
+          <TopProgressBar />
         </div>
       </div>
     </div>

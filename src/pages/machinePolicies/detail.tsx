@@ -499,7 +499,7 @@ const MachinePolicyDetail: React.FC = () => {
         onToggle={() => toggleCard('description')}
       >
         <label className="block text-sm text-gray-600 mb-1">Description</label>
-        <Input.TextArea rows={4} value={draft.description ?? ''} onChange={(event) => setDraft((previous) => ({ ...previous, description: event.target.value }))} />
+        <Input.TextArea autoSize={{ minRows: 2, maxRows: 16 }} value={draft.description ?? ''} onChange={(event) => setDraft((previous) => ({ ...previous, description: event.target.value }))} />
         <Button type="link" className="!px-0 !mt-1">
           Show markdown controls
         </Button>
