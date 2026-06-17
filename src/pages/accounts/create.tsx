@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Radio, Select, message } from 'antd'
 import { DownOutlined, UploadOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import { useSpace } from 'contexts/SpaceContext'
 import { createDeploymentAccount } from 'pages/apis/deploymentAccount'
 import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
@@ -387,9 +388,8 @@ const AccountsCreatePage: React.FC = () => {
   }, [space.id])
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-4 pb-3 border-b border-gray-200">
             <nav className="mb-2">
               <ol className="flex items-center gap-1 text-sm">
@@ -930,8 +930,7 @@ const AccountsCreatePage: React.FC = () => {
             </div>
           </FormPanel>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

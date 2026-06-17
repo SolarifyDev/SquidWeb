@@ -3,6 +3,7 @@ import { Button, Checkbox, Dropdown, Input, Select, Spin, message } from 'antd'
 import type { MenuProps } from 'antd'
 import { CopyOutlined, DownOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons'
 import { Link, useParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getChannels, updateChannel, type ChannelDto } from 'pages/apis/channel'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
@@ -250,34 +251,29 @@ const ChannelDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="bg-white min-h-screen">
-        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-          <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
-            <div className="flex items-center justify-center py-16">
-              <Spin tip="Loading channel..." />
-            </div>
+      <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
+          <div className="flex items-center justify-center py-16">
+            <Spin tip="Loading channel..." />
           </div>
         </div>
-      </div>
+      </PageContainer>
     )
   }
 
   if (!project || !channel) {
     return (
-      <div className="bg-white min-h-screen">
-        <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-          <div className="border border-gray-200 rounded-md bg-white overflow-hidden px-6 py-14 text-center text-gray-400 text-sm">
-            Channel not found.
-          </div>
+      <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card px-6 py-14 text-center text-gray-400 text-sm">
+          Channel not found.
         </div>
-      </div>
+      </PageContainer>
     )
   }
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-4 pb-3 border-b border-gray-200">
             <nav className="mb-2">
               <ol className="flex items-center gap-1 text-sm">
@@ -448,9 +444,7 @@ const ChannelDetail: React.FC = () => {
             </div>
           </div>
         </div>
-
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

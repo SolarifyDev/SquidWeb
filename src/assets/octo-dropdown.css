@@ -41,7 +41,7 @@
 
 .ant-select-focused:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector,
 .ant-select-open:not(.ant-select-disabled):not(.ant-select-customize-input) .ant-select-selector {
-  border-bottom-color: #2563eb !important;
+  border-bottom-color: #0d80d8 !important;
 }
 
 .ant-select-arrow {
@@ -95,7 +95,7 @@
 
 .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
   background: #eff6ff !important;
-  color: #2563eb !important;
+  color: #0d80d8 !important;
   font-weight: 500 !important;
 }
 
@@ -133,7 +133,7 @@
 }
 
 .octo-native-select:focus {
-  border-bottom-color: #2563eb;
+  border-bottom-color: #0d80d8;
 }
 
 /* Octopus-like underline input (single-line text input) */
@@ -155,7 +155,7 @@
 .octo-underline-input.ant-input:focus,
 .octo-underline-input.ant-input:focus-visible {
   border-color: transparent !important;
-  border-bottom-color: #2563eb !important;
+  border-bottom-color: #0d80d8 !important;
   box-shadow: none !important;
 }
 
@@ -212,8 +212,8 @@
 }
 
 .retention-cell:focus-within {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  border-color: #0d80d8;
+  box-shadow: 0 0 0 2px rgba(13, 128, 216, 0.12);
 }
 
 /* Inner controls are fully borderless/transparent — the cell box is the visible field. */
@@ -271,7 +271,7 @@
 .ant-input-affix-wrapper-focused,
 .ant-input-number-focused {
   border-color: transparent !important;
-  border-bottom-color: #2563eb !important;
+  border-bottom-color: #0d80d8 !important;
   box-shadow: none !important;
 }
 
@@ -312,7 +312,7 @@ input[type='number']:not(.ant-input):not(.ant-select-selection-search-input):not
 input[type='url']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
 input[type='tel']:not(.ant-input):not(.ant-select-selection-search-input):not([class*='visuallyHidden']):focus,
 textarea:not(.ant-input):not([class*='visuallyHidden']):focus {
-  border-bottom-color: #2563eb;
+  border-bottom-color: #0d80d8;
 }
 
 /* If input explicitly opts out with Tailwind border-0, don't add underline */

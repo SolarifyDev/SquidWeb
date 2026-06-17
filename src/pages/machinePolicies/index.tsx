@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Input, Spin, Tag, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import {
   MachinePolicyDto,
   ScriptPolicyDto,
@@ -122,9 +123,8 @@ const MachinePolicies: React.FC = () => {
   }, [policies, searchValue])
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <div className="flex items-center justify-between gap-3 mb-4">
               <h1 className="text-2xl font-semibold text-gray-900 m-0">Machine Policies</h1>
@@ -200,8 +200,7 @@ const MachinePolicies: React.FC = () => {
             </Spin>
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

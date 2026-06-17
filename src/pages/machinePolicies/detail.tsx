@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, InputNumber, Modal, Radio, Spin, Tag, message } from 'antd'
 import { ArrowLeftOutlined, DownOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import type { MachineDto } from 'pages/apis/machine'
 import { getMachines } from 'pages/apis/machine'
 import {
@@ -281,7 +282,7 @@ const FormSectionCard: React.FC<FormSectionCardProps> = ({
 
 const MachinePolicyDetail: React.FC = () => {
   const navigate = useNavigate()
-  const { policyId } = useParams<{ policyId: string }>()
+  const { policyId, tab } = useParams<{ policyId: string; tab?: string }>()
   const { space } = useSpace()
   const policiesBasePath = `/${space.slug}/infrastructure/machinepolicies`
 
@@ -291,7 +292,11 @@ const MachinePolicyDetail: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [activeTab, setActiveTab] = useState<'details' | 'usage'>('details')
+  const activeTab: 'details' | 'usage' = tab === 'usage' ? 'usage' : 'details'
+  const handleTabChange = (next: 'details' | 'usage') => {
+    if (isCreate || !policyId) return
+    navigate(`${policiesBasePath}/${policyId}${next === 'details' ? '' : `/${next}`}`, { replace: true })
+  }
   const [draft, setDraft] = useState<MachinePolicyDto>(createDefaultMachinePolicy(space.id))
   const [usageLoading, setUsageLoading] = useState(false)
   const [usageMachines, setUsageMachines] = useState<MachineDto[]>([])
@@ -1109,9 +1114,8 @@ const MachinePolicyDetail: React.FC = () => {
   )
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-4 pb-4 border-b border-gray-200">
             <button
               type="button"
@@ -1200,7 +1204,7 @@ const MachinePolicyDetail: React.FC = () => {
                     ? 'text-gray-900 border-b-2 border-squid-blue'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
-                onClick={() => setActiveTab('details')}
+                onClick={() => handleTabChange('details')}
               >
                 Details
               </button>
@@ -1211,7 +1215,7 @@ const MachinePolicyDetail: React.FC = () => {
                     ? 'text-gray-900 border-b-2 border-squid-blue'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
-                onClick={() => setActiveTab('usage')}
+                onClick={() => handleTabChange('usage')}
               >
                 Usage
               </button>
@@ -1224,8 +1228,7 @@ const MachinePolicyDetail: React.FC = () => {
             </Spin>
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

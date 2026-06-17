@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, Checkbox, Dropdown, Input, Modal, Spin, Tooltip, message, type MenuProps } from 'antd'
 import { MoreOutlined, SearchOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import { getAllPermissions, type PermissionDefinitionDto } from 'pages/apis/permission'
 import {
   createUserRole,
@@ -501,9 +502,8 @@ export function UserRolesSettings({ canView, canEdit }: UserRolesSettingsProps) 
     const activePermissionState = isCreateMode ? createPermissionState : detailPermissionState
 
     return (
-      <div className="bg-white min-h-full">
-        <div className="max-w-[1600px] mx-auto pt-4 pb-6">
-          <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+      <PageContainer>
+          <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
             <div className="px-6 pt-4 pb-3 border-b border-gray-200">
               <nav className="mb-2 text-sm">
                 <button type="button" className="border-0 bg-transparent p-0 text-squid-blue cursor-pointer hover:underline" onClick={closeRoleEditor}>
@@ -695,8 +695,7 @@ export function UserRolesSettings({ canView, canEdit }: UserRolesSettingsProps) 
               </table>
             </div>
           </div>
-        </div>
-      </div>
+      </PageContainer>
     )
   }
 

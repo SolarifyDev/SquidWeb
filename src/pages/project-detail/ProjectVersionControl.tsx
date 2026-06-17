@@ -1,15 +1,15 @@
 import React from 'react'
 import { Button } from 'antd'
 import { Link, useParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 
 const ProjectVersionControl: React.FC = () => {
   const { spaceId, projectName } = useParams<{ spaceId: string; projectName: string }>()
   const projectSettingsPath = `/${spaceId}/projects/${projectName}/settings`
 
   return (
-    <div className="bg-white min-h-full">
-      <div className="max-w-[1600px] mx-auto pt-4 pb-6">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold text-gray-900 m-0 min-w-0">Version Control</h1>
             <Button type="primary" disabled>
@@ -31,8 +31,7 @@ const ProjectVersionControl: React.FC = () => {
             </Link>
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PageContainer from 'components/PageContainer';
 import { 
   Button, 
   Tabs, 
@@ -193,7 +194,7 @@ const Tasks: React.FC = () => {
   };
 
   return (
-    <div className="p-6 bg-white min-h-screen">
+    <PageContainer>
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <Title level={3} className="!mb-0">Tasks</Title>
@@ -481,7 +482,7 @@ const Tasks: React.FC = () => {
           </Collapse>
         </div>
       </Modal>
-    </div>
+    </PageContainer>
   );
 };
 

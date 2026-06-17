@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input, Spin, message } from 'antd';
+import PageContainer from 'components/PageContainer';
 import {
   AppstoreOutlined,
   CheckCircleFilled,
@@ -355,9 +356,8 @@ const InfrastructureOverviewPage: React.FC = () => {
   }
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <h1 className="text-2xl font-semibold text-gray-900 m-0">Overview</h1>
           </div>
@@ -491,8 +491,7 @@ const InfrastructureOverviewPage: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 };
 

@@ -14,6 +14,7 @@ import {
 import { getEnvironments, createEnvironment } from 'pages/apis/environment';
 import { getMachines, MachineDto } from 'pages/apis/machine';
 import { useSpace } from 'contexts/SpaceContext';
+import PageContainer from 'components/PageContainer';
 
 const toEnvironmentSlug = (value: string) =>
   value
@@ -315,9 +316,8 @@ const Environments = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 pt-5 pb-5">
             <div className="flex items-center justify-between gap-4 mb-4">
               <div>
@@ -691,7 +691,6 @@ const Environments = () => {
             </div>
           </div>
         </div>
-      </div>
 
       {/* Add Environment Modal - 添加环境弹窗 */}
       <Modal
@@ -828,7 +827,7 @@ const Environments = () => {
           </div>
         )}
       </Modal>
-    </div>
+    </PageContainer>
   );
 };
 

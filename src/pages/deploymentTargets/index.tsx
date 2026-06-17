@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Checkbox, Collapse, Modal, Tabs, Spin, Input, Select, message } from 'antd'
 import { SearchOutlined, FilterOutlined, MoreOutlined, PlusOutlined, DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import {
   getMachineUpgradeInfo,
   getMachines,
@@ -1004,9 +1005,8 @@ const DeploymentTargets: React.FC = () => {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           {/* Page header */}
           <div className="px-6 pt-5 pb-5 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
@@ -1155,7 +1155,6 @@ const DeploymentTargets: React.FC = () => {
         </div>
           </div>
         </div>
-      </div>
 
       {/* Add Deployment Target Modal */}
       <Modal
@@ -1411,7 +1410,7 @@ const DeploymentTargets: React.FC = () => {
           </div>
         )}
       </Modal>
-    </div>
+    </PageContainer>
   )
 }
 

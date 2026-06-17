@@ -82,7 +82,7 @@ const routes = [
             name: "Variable Sets",
           },
           {
-            path: "library/variables/:id",
+            path: "library/variables/:id/:tab?",
             component: VariableSetDetail,
             name: "Variable Set Detail",
           },
@@ -122,7 +122,7 @@ const routes = [
             name: "Infrastructure Overview",
           },
           {
-            path: "infrastructure/machinepolicies/:policyId",
+            path: "infrastructure/machinepolicies/:policyId/:tab?",
             component: MachinePolicyDetail,
             name: "MachinePolicyDetail",
           },
@@ -132,7 +132,7 @@ const routes = [
             name: "MachinePoliciesInfrastructure",
           },
           {
-            path: "machine/policies/:policyId",
+            path: "machine/policies/:policyId/:tab?",
             component: MachinePolicyDetail,
             name: "MachinePolicyDetailLegacy",
           },
@@ -152,7 +152,7 @@ const routes = [
             name: "AccountsCreate",
           },
           {
-            path: "infrastructure/accounts/:accountSlug",
+            path: "infrastructure/accounts/:accountSlug/:tab?",
             component: AccountsDetailPage,
             name: "AccountsDetail",
           },
@@ -277,7 +277,7 @@ const routes = [
                 name: "ProjectVersionControl",
               },
               {
-                path: "variables",
+                path: "variables/:tab?",
                 component: ProjectVariables,
                 name: "ProjectVariables",
               },

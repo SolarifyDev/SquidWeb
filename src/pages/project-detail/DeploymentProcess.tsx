@@ -1943,7 +1943,7 @@ const Process: React.FC = () => {
         lifecycle={lifecycle}
         lifecycleOptions={lifecycleOptions}
         envMap={envMap}
-        onAddStep={() => setMode('editor')}
+        onAddStep={() => requestEditorNavigation({ type: 'showAddPanel' })}
         onCreateRelease={openCreateRelease}
         onStepClick={(step) => executeEditorNavigation({ type: 'selectStep', stepId: step.id, switchToEditor: true })}
         onLifecycleChange={handleLifecycleChange}

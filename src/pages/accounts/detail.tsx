@@ -3,6 +3,7 @@ import { Button, Dropdown, Input, Modal, message, Spin } from 'antd'
 import type { MenuProps } from 'antd'
 import { DownOutlined, MoreOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import PageContainer from 'components/PageContainer'
 import { useSpace } from 'contexts/SpaceContext'
 import { getEnvironments } from 'pages/apis/environment'
 import {
@@ -264,8 +265,11 @@ function matchAccount(account: DeploymentAccountLike, accountSlug: string): bool
 const AccountsDetailPage: React.FC = () => {
   const navigate = useNavigate()
   const { space } = useSpace()
-  const { accountSlug = '' } = useParams()
-  const [activeTab, setActiveTab] = useState<ActiveTab>('details')
+  const { accountSlug = '', tab } = useParams()
+  const activeTab: ActiveTab = tab === 'usage' ? 'usage' : 'details'
+  const handleTabChange = (next: ActiveTab) => {
+    navigate(`/${space.slug}/infrastructure/accounts/${encodeURIComponent(accountSlug)}${next === 'details' ? '' : `/${next}`}`, { replace: true })
+  }
   const [loading, setLoading] = useState(false)
   const [account, setAccount] = useState<AccountDetailViewModel | null>(null)
 
@@ -408,9 +412,8 @@ const AccountsDetailPage: React.FC = () => {
   const openClawGatewayCredentials = isOpenClawGatewayAccount ? account?.credentials as OpenClawGatewayCredentialsSummary : null
 
   return (
-    <div className="bg-white min-h-screen">
-      <div className="max-w-[1600px] mx-auto px-8 pt-4 pb-10">
-        <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
+    <PageContainer>
+        <div className="border border-slate-200/70 rounded-xl bg-white overflow-hidden shadow-card">
           <div className="px-6 pt-4 pb-3 border-b border-gray-200">
             <nav className="mb-2">
               <ol className="flex items-center gap-1 text-sm">
@@ -471,7 +474,7 @@ const AccountsDetailPage: React.FC = () => {
                     ? 'text-gray-900 border-b-2 border-squid-blue'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
-                onClick={() => setActiveTab('details')}
+                onClick={() => handleTabChange('details')}
               >
                 Details
               </button>
@@ -482,7 +485,7 @@ const AccountsDetailPage: React.FC = () => {
                     ? 'text-gray-900 border-b-2 border-squid-blue'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
-                onClick={() => setActiveTab('usage')}
+                onClick={() => handleTabChange('usage')}
               >
                 Usage
               </button>
@@ -760,8 +763,7 @@ const AccountsDetailPage: React.FC = () => {
             </>
           )}
         </div>
-      </div>
-    </div>
+    </PageContainer>
   )
 }
 

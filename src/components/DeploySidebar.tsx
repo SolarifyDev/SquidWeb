@@ -49,24 +49,18 @@ const DeploySidebar: React.FC = () => {
   const menu = buildMenu(space.slug);
 
   return (
-    <div className="h-full w-full border-r border-slate-200/55 bg-white/95 backdrop-blur flex flex-col overflow-y-auto">
-      <div className="px-5 pt-4 pb-2 border-b border-slate-100">
-        <div className="text-[11px] font-semibold tracking-[0.12em] text-slate-500 uppercase">
-          Deploy
-        </div>
-      </div>
-
-      <nav className="py-3">
+    <div className="h-full w-full bg-[#fbfcfd] border-r border-slate-200/70 flex flex-col overflow-y-auto">
+      <nav className="px-3 py-4">
         {menu.map((item, idx) => {
           if (item.type === 'divider') {
-            return <hr key={idx} className="my-3 border-slate-100 mx-4" />;
+            return <div key={idx} className="mx-3 my-3 h-px bg-slate-200/60" />;
           }
 
           if (item.type === 'group') {
             return (
               <div
                 key={idx}
-                className="px-5 pt-3 pb-1.5 text-[11px] uppercase tracking-[0.12em] text-slate-400 font-semibold"
+                className="px-3 pt-5 pb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400"
               >
                 {item.label}
               </div>
@@ -75,10 +69,7 @@ const DeploySidebar: React.FC = () => {
 
           if (item.type === 'disabled') {
             return (
-              <div
-                key={idx}
-                className="mx-3 rounded-lg px-3 py-2 text-sm text-slate-400 italic bg-slate-50"
-              >
+              <div key={idx} className="px-3 py-1.5 text-[13px] italic text-slate-400">
                 {item.label}
               </div>
             );
@@ -93,15 +84,12 @@ const DeploySidebar: React.FC = () => {
               key={idx}
               onClick={() => navigate(item.path)}
               className={[
-                'group relative mx-3 my-0.5 rounded-lg px-3 py-2 text-sm cursor-pointer transition-all select-none',
+                'my-0.5 flex items-center rounded-lg px-3 py-2 text-[14px] cursor-pointer transition-colors select-none',
                 isActive
-                  ? 'text-squid-blue bg-blue-50/80 font-semibold shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900',
+                  ? 'bg-blue-50 text-squid-blue font-medium'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
               ].join(' ')}
             >
-              {isActive && (
-                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-squid-blue" />
-              )}
               {item.label}
             </div>
           );
