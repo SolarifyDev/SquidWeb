@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Outlet, useLocation, useParams, Link } from "react-router-dom";
 import { getProjects, ProjectDto } from "pages/apis/project";
 import { getProjectGroups, ProjectGroupDto } from "pages/apis/projectGroup";
+import { addRecentProject } from "utils/recentProjects";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,11 @@ const ProjectDetail: React.FC = () => {
       })
       .catch(() => {});
   }, [projectName]);
+
+  useEffect(() => {
+    if (!project || !spaceId) return;
+    addRecentProject(spaceId, { name: project.name, group: projectGroup?.name });
+  }, [project, projectGroup, spaceId]);
 
   const encodedProjectName = encodeURIComponent(projectName ?? "");
   const base = `/${spaceId}/projects/${encodedProjectName}`;

@@ -1,4 +1,4 @@
-import { get, post } from 'utils/request'
+import { get, post, type RequestConfig } from 'utils/request'
 
 export interface ProjectDto {
   id: number
@@ -31,7 +31,7 @@ export interface GetProjectsResponseData {
   projects: ProjectDto[]
 }
 
-export function getProjects(params?: GetProjectsRequest) {
+export function getProjects(params?: GetProjectsRequest, config?: RequestConfig) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 50,
@@ -39,7 +39,7 @@ export function getProjects(params?: GetProjectsRequest) {
     ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
-  return get<GetProjectsResponseData>('/projects/list', { params: query })
+  return get<GetProjectsResponseData>('/projects/list', { params: query, ...config })
 }
 
 export function getProject(id: number) {

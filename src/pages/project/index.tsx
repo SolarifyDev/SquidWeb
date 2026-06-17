@@ -967,7 +967,7 @@ const Project: React.FC = () => {
               value={projectGroupDesc}
               onChange={(e) => setProjectGroupDesc(e.target.value)}
               disabled={creatingProjectGroup}
-              rows={6}
+              autoSize={{ minRows: 2, maxRows: 16 }}
               bordered={false}
               className="resize-none"
               style={{ padding: '12px' }}

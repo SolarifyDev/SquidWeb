@@ -1106,7 +1106,7 @@ const Lifecycles: React.FC = () => {
                   <MarkdownToolbar />
                   <Input.TextArea
                     placeholder="Lifecycle description"
-                    rows={4}
+                    autoSize={{ minRows: 2, maxRows: 16 }}
                     value={detailDescription}
                     onChange={(e) => setDetailDescription(e.target.value)}
                     className="rounded-t-none border-t-0 mb-2"
@@ -1439,7 +1439,7 @@ const Lifecycles: React.FC = () => {
               {showMarkdownControls && <MarkdownToolbar />}
               <Input.TextArea
                 placeholder="Lifecycle description"
-                rows={4}
+                autoSize={{ minRows: 2, maxRows: 16 }}
                 value={newLifecycleDescription}
                 onChange={(e) => setNewLifecycleDescription(e.target.value)}
                 className={showMarkdownControls ? 'rounded-t-none border-t-0' : ''}

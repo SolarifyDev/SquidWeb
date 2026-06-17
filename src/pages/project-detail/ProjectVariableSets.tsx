@@ -4,6 +4,7 @@ import { DownOutlined, FilterOutlined, MoreOutlined, SearchOutlined } from '@ant
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import { getProjects, updateProject, type ProjectDto } from 'pages/apis/project'
 import {
+  formatVariableSetRouteId,
   GetVariableSet,
   GetVariableSets,
   VariableSetDto,
@@ -352,7 +353,7 @@ const ProjectVariableSets: React.FC = () => {
                   {
                     key: 'edit',
                     label: (
-                      <RouterLink to={spaceId ? `/${spaceId}/library/variables/${section.id}` : '/'} target="_self">
+                      <RouterLink to={spaceId ? `/${spaceId}/library/variables/${formatVariableSetRouteId(section.id)}` : '/'} target="_self">
                         Edit Variable Set
                       </RouterLink>
                     ),
@@ -478,7 +479,7 @@ const ProjectVariableSets: React.FC = () => {
                                 </div>
                                 <div className="px-3 py-2 text-slate-500 break-all flex items-center">
                                   {spaceId ? (
-                                    <RouterLink className="text-squid-blue hover:underline" to={`/${spaceId}/library/variables/${section.id}`} target="_self">
+                                    <RouterLink className="text-squid-blue hover:underline" to={`/${spaceId}/library/variables/${formatVariableSetRouteId(section.id)}`} target="_self">
                                       {section.name}
                                     </RouterLink>
                                   ) : (

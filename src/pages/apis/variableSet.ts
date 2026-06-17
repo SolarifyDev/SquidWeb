@@ -284,6 +284,15 @@ export function getVariableSetDescription(variableSet: Pick<VariableSetDto, 'des
   return resolveVariableSetDescription(variableSet)
 }
 
+// Octopus-style route id for variable sets, e.g. "LibraryVariableSets-121" —
+// clearer in the URL than a bare number. parseVariableSetId reads the trailing
+// digits back out, so the detail route accepts both forms.
+export const LIBRARY_VARIABLE_SET_ID_PREFIX = 'LibraryVariableSets-'
+
+export function formatVariableSetRouteId(id: number | string): string {
+  return `${LIBRARY_VARIABLE_SET_ID_PREFIX}${id}`
+}
+
 export async function loadVariableSets(
   setLoading: React.Dispatch<React.SetStateAction<boolean>>,
   spaceId?: number,
