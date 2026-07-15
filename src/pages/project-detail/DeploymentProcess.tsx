@@ -22,6 +22,7 @@ import { ManualInterventionEditor } from './step-editors/manual/ManualInterventi
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
 import { DeployToIisEditor } from './step-editors/iis/DeployToIisEditor'
+import { DeployPackageEditor } from './step-editors/deploy-package/DeployPackageEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
 import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
 import {
@@ -55,6 +56,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.HealthCheck':                HealthCheckEditor,
   'Squid.DeployToIISWebSite':         DeployToIisEditor,
   'Squid.IIS':                        DeployToIisEditor,
+  'Squid.TentaclePackage':            DeployPackageEditor,
   'Squid.OpenClaw.InvokeTool':        OpenClawInvokeToolEditor,
   'Squid.OpenClaw.ChatCompletion':    OpenClawChatCompletionEditor,
   'Squid.OpenClaw.RunAgent':          OpenClawRunAgentEditor,
