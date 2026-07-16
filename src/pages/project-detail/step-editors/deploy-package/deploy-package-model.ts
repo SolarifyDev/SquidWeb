@@ -16,6 +16,20 @@ export const PackageProperties = {
   customInstallationDirectory: 'Squid.Action.Package.CustomInstallationDirectory',
 } as const
 
+export const PackageConfigProperties = {
+  configurationVariablesEnabled: 'Squid.Action.ConfigurationVariables.Enabled',
+  configurationTransformsEnabled: 'Squid.Action.ConfigurationTransforms.Enabled',
+  configurationTransformsEnvironmentName: 'Squid.Action.ConfigurationTransforms.EnvironmentName',
+  configurationTransformsAdditional: 'Squid.Action.ConfigurationTransforms.AdditionalTransforms',
+  substituteInFilesEnabled: 'Squid.Action.SubstituteInFiles.Enabled',
+  substituteInFilesTargetFiles: 'Squid.Action.SubstituteInFiles.TargetFiles',
+  substituteFailOnUnresolved: 'Squid.Action.SubstituteInFiles.ShouldFailDeploymentOnSubstitutionFails',
+  jsonConfigVariablesEnabled: 'Squid.Action.JsonConfigVariables.Enabled',
+  jsonConfigVariablesTargets: 'Squid.Action.JsonConfigVariables.Targets',
+} as const
+
+export const DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME = '#{Squid.Environment.Name}'
+
 export const StepControlProperties = {
   runOnServer: 'Squid.Action.RunOnServer',
   executionLocation: 'Squid.Action.Script.ExecutionLocation',
@@ -48,6 +62,15 @@ export interface DeployPackageFormState {
   retryCount: number // 1..3
   maxParallelism: number // 0 = off
   timeoutSeconds: number // 0 = never
+  configurationVariablesEnabled: boolean
+  configurationTransformsEnabled: boolean
+  configurationTransformsEnvironmentName: string
+  additionalTransforms: string
+  substituteInFilesEnabled: boolean
+  substituteInFilesTargetFiles: string
+  substituteFailOnUnresolved: boolean
+  structuredConfigEnabled: boolean
+  structuredConfigTargets: string
   conditions: StepConditionsValue
 }
 
@@ -154,6 +177,30 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
     retryCount,
     maxParallelism,
     timeoutSeconds,
+    configurationVariablesEnabled: normalizeBoolean(
+      getActionProperty(action, PackageConfigProperties.configurationVariablesEnabled),
+    ),
+    configurationTransformsEnabled: normalizeBoolean(
+      getActionProperty(action, PackageConfigProperties.configurationTransformsEnabled),
+    ),
+    configurationTransformsEnvironmentName:
+      getActionProperty(action, PackageConfigProperties.configurationTransformsEnvironmentName)
+      ?? DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
+    additionalTransforms:
+      getActionProperty(action, PackageConfigProperties.configurationTransformsAdditional) ?? '',
+    substituteInFilesEnabled: normalizeBoolean(
+      getActionProperty(action, PackageConfigProperties.substituteInFilesEnabled),
+    ),
+    substituteInFilesTargetFiles:
+      getActionProperty(action, PackageConfigProperties.substituteInFilesTargetFiles) ?? '',
+    substituteFailOnUnresolved: normalizeBoolean(
+      getActionProperty(action, PackageConfigProperties.substituteFailOnUnresolved),
+    ),
+    structuredConfigEnabled: normalizeBoolean(
+      getActionProperty(action, PackageConfigProperties.jsonConfigVariablesEnabled),
+    ),
+    structuredConfigTargets:
+      getActionProperty(action, PackageConfigProperties.jsonConfigVariablesTargets) ?? '',
     conditions: {
       environmentMode,
       environmentIds: environmentMode === 'exclude' ? excludeEnvironments : includeEnvironments,
@@ -203,6 +250,15 @@ export function buildDeployPackageStepDto(args: {
     PackageProperties.installationDirectoryMode,
     PackageProperties.customInstallationDirectory,
     StepControlProperties.executionLocation,
+    PackageConfigProperties.configurationVariablesEnabled,
+    PackageConfigProperties.configurationTransformsEnabled,
+    PackageConfigProperties.configurationTransformsEnvironmentName,
+    PackageConfigProperties.configurationTransformsAdditional,
+    PackageConfigProperties.substituteInFilesEnabled,
+    PackageConfigProperties.substituteInFilesTargetFiles,
+    PackageConfigProperties.substituteFailOnUnresolved,
+    PackageConfigProperties.jsonConfigVariablesEnabled,
+    PackageConfigProperties.jsonConfigVariablesTargets,
   ])
 
   const preserved = (existingAction?.properties ?? []).filter(
@@ -244,6 +300,53 @@ export function buildDeployPackageStepDto(args: {
       propertyName: PackageProperties.customInstallationDirectory,
       propertyValue: form.customInstallationDirectory.trim(),
     })
+  }
+
+  const actionId = existingAction?.id ?? 0
+  const pushActionProp = (propertyName: string, propertyValue: string) => {
+    nextProperties.push({ id: 0, actionId, propertyName, propertyValue })
+  }
+
+  if (form.configurationVariablesEnabled) {
+    pushActionProp(PackageConfigProperties.configurationVariablesEnabled, 'True')
+  }
+
+  if (form.configurationTransformsEnabled) {
+    pushActionProp(PackageConfigProperties.configurationTransformsEnabled, 'True')
+    pushActionProp(
+      PackageConfigProperties.configurationTransformsEnvironmentName,
+      form.configurationTransformsEnvironmentName.trim()
+        || DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
+    )
+    if (form.additionalTransforms.trim()) {
+      pushActionProp(
+        PackageConfigProperties.configurationTransformsAdditional,
+        form.additionalTransforms.trim(),
+      )
+    }
+  }
+
+  if (form.substituteInFilesEnabled) {
+    pushActionProp(PackageConfigProperties.substituteInFilesEnabled, 'True')
+    if (form.substituteInFilesTargetFiles.trim()) {
+      pushActionProp(
+        PackageConfigProperties.substituteInFilesTargetFiles,
+        form.substituteInFilesTargetFiles.trim(),
+      )
+    }
+    if (form.substituteFailOnUnresolved) {
+      pushActionProp(PackageConfigProperties.substituteFailOnUnresolved, 'True')
+    }
+  }
+
+  if (form.structuredConfigEnabled) {
+    pushActionProp(PackageConfigProperties.jsonConfigVariablesEnabled, 'True')
+    if (form.structuredConfigTargets.trim()) {
+      pushActionProp(
+        PackageConfigProperties.jsonConfigVariablesTargets,
+        form.structuredConfigTargets.trim(),
+      )
+    }
   }
 
   const actionEnvironments = form.conditions.environmentMode === 'include' ? form.conditions.environmentIds : []

@@ -32,6 +32,15 @@ describe('deploy-package-model', () => {
       retryCount: 1,
       maxParallelism: 0,
       timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -96,6 +105,15 @@ describe('deploy-package-model', () => {
       retryCount: 1,
       maxParallelism: 0,
       timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
       conditions: emptyConditions,
     }).ok).toBe(false)
   })
@@ -186,6 +204,15 @@ describe('deploy-package-model', () => {
       retryCount: 9,
       maxParallelism: 0,
       timeoutSeconds: -1,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
       conditions: emptyConditions,
     }
     expect(validateDeployPackageForm(base).ok).toBe(false)
@@ -205,6 +232,15 @@ describe('deploy-package-model', () => {
       retryCount: 1,
       maxParallelism: 0,
       timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -276,6 +312,15 @@ describe('deploy-package-model', () => {
       retryCount: 1,
       maxParallelism: 0,
       timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -286,5 +331,63 @@ describe('deploy-package-model', () => {
     expect(stepProps['Squid.Step.MaxParallelism']).toBeUndefined()
     expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
     expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('WorkerPoolForRoles')
+  })
+
+  it('normalizes and builds configuration rewrite properties', () => {
+    const existing = {
+      id: 9,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy Web',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: new Date().toISOString(),
+      properties: [
+        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+      ],
+      actions: [{
+        id: 1,
+        stepId: 9,
+        actionOrder: 0,
+        name: 'Deploy Web',
+        actionType: 'Squid.TentaclePackage',
+        workerPoolId: null,
+        isDisabled: false,
+        isRequired: false,
+        canBeUsedForProjectVersioning: true,
+        createdAt: new Date().toISOString(),
+        properties: [
+          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
+          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
+          { id: 3, actionId: 1, propertyName: 'Squid.Action.ConfigurationVariables.Enabled', propertyValue: 'True' },
+          { id: 4, actionId: 1, propertyName: 'Squid.Action.ConfigurationTransforms.Enabled', propertyValue: 'True' },
+          { id: 5, actionId: 1, propertyName: 'Squid.Action.ConfigurationTransforms.EnvironmentName', propertyValue: '#{Squid.Environment.Name}' },
+          { id: 6, actionId: 1, propertyName: 'Squid.Action.SubstituteInFiles.Enabled', propertyValue: 'True' },
+          { id: 7, actionId: 1, propertyName: 'Squid.Action.SubstituteInFiles.TargetFiles', propertyValue: 'appsettings.json' },
+          { id: 8, actionId: 1, propertyName: 'Squid.Action.JsonConfigVariables.Enabled', propertyValue: 'True' },
+          { id: 9, actionId: 1, propertyName: 'Squid.Action.JsonConfigVariables.Targets', propertyValue: '**/appsettings.json' },
+          { id: 10, actionId: 1, propertyName: 'Custom.Keep', propertyValue: 'yes' },
+        ],
+        environments: [],
+        excludedEnvironments: [],
+        channels: [],
+      }],
+    } as any
+
+    const form = normalizeDeployPackageForm(existing)
+    expect(form.configurationVariablesEnabled).toBe(true)
+    expect(form.configurationTransformsEnabled).toBe(true)
+    expect(form.substituteInFilesEnabled).toBe(true)
+    expect(form.structuredConfigEnabled).toBe(true)
+
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+    expect(actionProps['Squid.Action.ConfigurationVariables.Enabled']).toBe('True')
+    expect(actionProps['Squid.Action.JsonConfigVariables.Targets']).toBe('**/appsettings.json')
+    expect(actionProps['Custom.Keep']).toBe('yes')
   })
 })
