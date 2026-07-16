@@ -16,10 +16,24 @@ export const PackageProperties = {
   customInstallationDirectory: 'Squid.Action.Package.CustomInstallationDirectory',
 } as const
 
-const TARGET_ROLE_PROPERTY = 'Squid.Action.TargetRoles'
-const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'
+export const StepControlProperties = {
+  runOnServer: 'Squid.Action.RunOnServer',
+  executionLocation: 'Squid.Action.Script.ExecutionLocation',
+  retriesEnabled: 'Squid.Step.RetriesEnabled',
+  retriesCount: 'Squid.Step.RetriesCount',
+  timeout: 'Squid.Step.Timeout',
+  timeoutMinutesLegacy: 'Squid.Step.TimeoutInMinutes',
+  maxParallelism: 'Squid.Step.MaxParallelism',
+  targetRoles: 'Squid.Action.TargetRoles',
+  conditionExpression: 'Squid.Step.ConditionExpression',
+} as const
+
+const TARGET_ROLE_PROPERTY = StepControlProperties.targetRoles
+const STEP_CONDITION_EXPRESSION_PROPERTY = StepControlProperties.conditionExpression
 
 export type InstallationDirectoryMode = 'Versioned' | 'Custom'
+export type ExecutionLocationMode = 'WorkerPool' | 'WorkerPoolForRoles' | 'DeploymentTarget'
+export type StartTriggerMode = 'StartAfterPrevious' | 'StartWithPrevious'
 
 export interface DeployPackageFormState {
   stepName: string
@@ -28,8 +42,13 @@ export interface DeployPackageFormState {
   targetRoles: string[]
   installationDirectoryMode: InstallationDirectoryMode
   customInstallationDirectory: string
+  executionLocation: ExecutionLocationMode
+  startTrigger: StartTriggerMode
+  retriesEnabled: boolean
+  retryCount: number // 1..3
+  maxParallelism: number // 0 = off
+  timeoutSeconds: number // 0 = never
   conditions: StepConditionsValue
-  startTrigger: 'StartAfterPrevious' | 'StartWithPrevious'
 }
 
 export interface ValidateResult {
@@ -39,6 +58,24 @@ export interface ValidateResult {
 
 export function normalizeInstallationDirectoryMode(value?: string | null): InstallationDirectoryMode {
   return value?.toLowerCase() === 'custom' ? 'Custom' : 'Versioned'
+}
+
+export function normalizeBoolean(value?: string): boolean {
+  if (!value?.trim()) return false
+  const n = value.trim().toLowerCase()
+  return n === 'true' || n === '1' || n === 'yes'
+}
+
+export function normalizeExecutionLocation(value?: string, runOnServer = false): ExecutionLocationMode {
+  if (runOnServer) return 'WorkerPool'
+  if (value === 'WorkerPool') return 'WorkerPool'
+  if (value === 'WorkerPoolForRoles') return 'WorkerPoolForRoles'
+  return 'DeploymentTarget'
+}
+
+export function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const n = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(n) ? n : fallback
 }
 
 export function getActionProperty(
@@ -76,6 +113,31 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
       ? 'include'
       : 'all'
 
+  const runOnServer = normalizeBoolean(getStepProperty(step?.properties, StepControlProperties.runOnServer))
+  const retriesEnabled = normalizeBoolean(getStepProperty(step?.properties, StepControlProperties.retriesEnabled))
+  const retryCountRaw = parsePositiveInt(getStepProperty(step?.properties, StepControlProperties.retriesCount), 1)
+  const retryCount = retryCountRaw > 0 ? Math.min(Math.max(retryCountRaw, 1), 3) : 1
+
+  const timeoutSecondsRaw = parsePositiveInt(getStepProperty(step?.properties, StepControlProperties.timeout), NaN)
+  let timeoutSeconds = 0
+  if (Number.isFinite(timeoutSecondsRaw) && timeoutSecondsRaw > 0) {
+    timeoutSeconds = timeoutSecondsRaw
+  } else {
+    const legacyMinutes = parsePositiveInt(
+      getStepProperty(step?.properties, StepControlProperties.timeoutMinutesLegacy),
+      NaN,
+    )
+    if (Number.isFinite(legacyMinutes) && legacyMinutes > 0) {
+      timeoutSeconds = legacyMinutes * 60
+    }
+  }
+
+  const maxParallelismRaw = parsePositiveInt(
+    getStepProperty(step?.properties, StepControlProperties.maxParallelism),
+    0,
+  )
+  const maxParallelism = maxParallelismRaw > 0 ? maxParallelismRaw : 0
+
   return {
     stepName: step?.name ?? DEFAULT_STEP_NAME,
     feedId: Number.parseInt(getActionProperty(action, PackageProperties.feedId) ?? '', 10) || null,
@@ -85,7 +147,15 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
       getActionProperty(action, PackageProperties.installationDirectoryMode),
     ),
     customInstallationDirectory: getActionProperty(action, PackageProperties.customInstallationDirectory) ?? '',
+    executionLocation: normalizeExecutionLocation(
+      getActionProperty(action, StepControlProperties.executionLocation),
+      runOnServer,
+    ),
     startTrigger: step?.startTrigger === 'StartWithPrevious' ? 'StartWithPrevious' : 'StartAfterPrevious',
+    retriesEnabled,
+    retryCount,
+    maxParallelism,
+    timeoutSeconds,
     conditions: {
       environmentMode,
       environmentIds: environmentMode === 'exclude' ? excludeEnvironments : includeEnvironments,
@@ -107,6 +177,15 @@ export function validateDeployPackageForm(form: DeployPackageFormState): Validat
   if (form.installationDirectoryMode === 'Custom' && !form.customInstallationDirectory.trim()) {
     return { ok: false, message: 'Custom installation directory is required' }
   }
+  if (form.retriesEnabled && (form.retryCount < 1 || form.retryCount > 3)) {
+    return { ok: false, message: 'Retries must be between 1 and 3' }
+  }
+  if (!Number.isFinite(form.timeoutSeconds) || form.timeoutSeconds < 0) {
+    return { ok: false, message: 'Timeout must be zero or a positive integer' }
+  }
+  if (!Number.isFinite(form.maxParallelism) || (form.maxParallelism !== 0 && form.maxParallelism < 1)) {
+    return { ok: false, message: 'Max parallelism must be zero or a positive integer' }
+  }
   return { ok: true }
 }
 
@@ -118,16 +197,18 @@ export function buildDeployPackageStepDto(args: {
   const { form, processId, existingStep } = args
   const existingAction = existingStep?.actions[0]
   const normalizedName = form.stepName.trim() || DEFAULT_STEP_NAME
+  const runOnServer = form.executionLocation === 'WorkerPool' || form.executionLocation === 'WorkerPoolForRoles'
 
-  const knownPropertyNames = new Set<string>([
+  const knownActionPropertyNames = new Set<string>([
     PackageProperties.feedId,
     PackageProperties.packageId,
     PackageProperties.installationDirectoryMode,
     PackageProperties.customInstallationDirectory,
+    StepControlProperties.executionLocation,
   ])
 
   const preserved = (existingAction?.properties ?? []).filter(
-    (p) => !knownPropertyNames.has(p.propertyName),
+    (p) => !knownActionPropertyNames.has(p.propertyName),
   )
 
   const nextProperties: DeploymentActionPropertyDto[] = [
@@ -149,6 +230,12 @@ export function buildDeployPackageStepDto(args: {
       actionId: existingAction?.id ?? 0,
       propertyName: PackageProperties.installationDirectoryMode,
       propertyValue: form.installationDirectoryMode,
+    },
+    {
+      id: 0,
+      actionId: existingAction?.id ?? 0,
+      propertyName: StepControlProperties.executionLocation,
+      propertyValue: form.executionLocation,
     },
   ]
 
@@ -181,7 +268,17 @@ export function buildDeployPackageStepDto(args: {
     channels: form.conditions.channelIds,
   }
 
-  const knownStepPropertyNames = new Set([TARGET_ROLE_PROPERTY, 'TargetRoles', STEP_CONDITION_EXPRESSION_PROPERTY])
+  const knownStepPropertyNames = new Set([
+    TARGET_ROLE_PROPERTY,
+    'TargetRoles',
+    STEP_CONDITION_EXPRESSION_PROPERTY,
+    StepControlProperties.runOnServer,
+    StepControlProperties.retriesEnabled,
+    StepControlProperties.retriesCount,
+    StepControlProperties.timeout,
+    StepControlProperties.timeoutMinutesLegacy,
+    StepControlProperties.maxParallelism,
+  ])
   const preservedStepProperties = (existingStep?.properties ?? []).filter(
     (p) => !knownStepPropertyNames.has(p.propertyName),
   )
@@ -194,7 +291,48 @@ export function buildDeployPackageStepDto(args: {
       propertyName: TARGET_ROLE_PROPERTY,
       propertyValue: form.targetRoles.join(','),
     },
+    {
+      id: 0,
+      stepId: existingStep?.id ?? 0,
+      propertyName: StepControlProperties.runOnServer,
+      propertyValue: runOnServer ? 'true' : 'false',
+    },
   ]
+
+  if (form.retriesEnabled) {
+    stepProperties.push(
+      {
+        id: 0,
+        stepId: existingStep?.id ?? 0,
+        propertyName: StepControlProperties.retriesEnabled,
+        propertyValue: 'true',
+      },
+      {
+        id: 0,
+        stepId: existingStep?.id ?? 0,
+        propertyName: StepControlProperties.retriesCount,
+        propertyValue: String(Math.min(Math.max(form.retryCount, 1), 3)),
+      },
+    )
+  }
+
+  if (form.timeoutSeconds > 0) {
+    stepProperties.push({
+      id: 0,
+      stepId: existingStep?.id ?? 0,
+      propertyName: StepControlProperties.timeout,
+      propertyValue: String(form.timeoutSeconds),
+    })
+  }
+
+  if (form.maxParallelism > 0) {
+    stepProperties.push({
+      id: 0,
+      stepId: existingStep?.id ?? 0,
+      propertyName: StepControlProperties.maxParallelism,
+      propertyValue: String(form.maxParallelism),
+    })
+  }
 
   if (form.conditions.conditionExpression?.trim()) {
     stepProperties.push({

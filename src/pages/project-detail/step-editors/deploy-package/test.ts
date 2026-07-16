@@ -26,8 +26,13 @@ describe('deploy-package-model', () => {
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
-      conditions: emptyConditions,
+      executionLocation: 'DeploymentTarget',
       startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
     const props = dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue])
@@ -85,8 +90,125 @@ describe('deploy-package-model', () => {
       targetRoles: [],
       installationDirectoryMode: 'Custom',
       customInstallationDirectory: '',
-      conditions: emptyConditions,
+      executionLocation: 'DeploymentTarget',
       startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      conditions: emptyConditions,
     }).ok).toBe(false)
+  })
+
+  it('normalizes and builds full step control properties', () => {
+    const existing = {
+      id: 9,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy Web',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartWithPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: true,
+      createdAt: new Date().toISOString(),
+      properties: [
+        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+        { id: 2, stepId: 9, propertyName: 'Squid.Action.RunOnServer', propertyValue: 'false' },
+        { id: 3, stepId: 9, propertyName: 'Squid.Step.RetriesEnabled', propertyValue: 'true' },
+        { id: 4, stepId: 9, propertyName: 'Squid.Step.RetriesCount', propertyValue: '2' },
+        { id: 5, stepId: 9, propertyName: 'Squid.Step.Timeout', propertyValue: '45' },
+        { id: 6, stepId: 9, propertyName: 'Squid.Step.MaxParallelism', propertyValue: '3' },
+      ],
+      actions: [{
+        id: 1,
+        stepId: 9,
+        actionOrder: 0,
+        name: 'Deploy Web',
+        actionType: 'Squid.TentaclePackage',
+        workerPoolId: null,
+        isDisabled: false,
+        isRequired: true,
+        canBeUsedForProjectVersioning: true,
+        createdAt: new Date().toISOString(),
+        properties: [
+          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
+          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
+          { id: 3, actionId: 1, propertyName: 'Squid.Action.Script.ExecutionLocation', propertyValue: 'DeploymentTarget' },
+          { id: 4, actionId: 1, propertyName: 'Custom.Unknown', propertyValue: 'keep-me' },
+        ],
+        environments: [],
+        excludedEnvironments: [],
+        channels: [],
+      }],
+    } as any
+
+    const form = normalizeDeployPackageForm(existing)
+    expect(form.executionLocation).toBe('DeploymentTarget')
+    expect(form.startTrigger).toBe('StartWithPrevious')
+    expect(form.retriesEnabled).toBe(true)
+    expect(form.retryCount).toBe(2)
+    expect(form.timeoutSeconds).toBe(45)
+    expect(form.maxParallelism).toBe(3)
+
+    form.executionLocation = 'DeploymentTarget'
+    form.retriesEnabled = true
+    form.retryCount = 3
+    form.timeoutSeconds = 90
+    form.maxParallelism = 2
+
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+
+    expect(dto.startTrigger).toBe('StartWithPrevious')
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
+    expect(stepProps['Squid.Step.RetriesEnabled']).toBe('true')
+    expect(stepProps['Squid.Step.RetriesCount']).toBe('3')
+    expect(stepProps['Squid.Step.Timeout']).toBe('90')
+    expect(stepProps['Squid.Step.MaxParallelism']).toBe('2')
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('DeploymentTarget')
+    expect(actionProps['Custom.Unknown']).toBe('keep-me')
+  })
+
+  it('validates retries/timeout/rolling ranges', () => {
+    const base: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      packageId: 'Acme.Web',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'DeploymentTarget',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: true,
+      retryCount: 9,
+      maxParallelism: 0,
+      timeoutSeconds: -1,
+      conditions: emptyConditions,
+    }
+    expect(validateDeployPackageForm(base).ok).toBe(false)
+  })
+
+  it('maps WorkerPool execution location to RunOnServer=true', () => {
+    const form: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      packageId: 'Acme.Web',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'WorkerPool',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      conditions: emptyConditions,
+    }
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
   })
 })
