@@ -211,4 +211,80 @@ describe('deploy-package-model', () => {
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
   })
+
+  it('preserves WorkerPoolForRoles when RunOnServer=true on normalize and build', () => {
+    const existing = {
+      id: 9,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy Web',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: new Date().toISOString(),
+      properties: [
+        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+        { id: 2, stepId: 9, propertyName: 'Squid.Action.RunOnServer', propertyValue: 'true' },
+      ],
+      actions: [{
+        id: 1,
+        stepId: 9,
+        actionOrder: 0,
+        name: 'Deploy Web',
+        actionType: 'Squid.TentaclePackage',
+        workerPoolId: null,
+        isDisabled: false,
+        isRequired: false,
+        canBeUsedForProjectVersioning: true,
+        createdAt: new Date().toISOString(),
+        properties: [
+          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
+          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
+          { id: 3, actionId: 1, propertyName: 'Squid.Action.Script.ExecutionLocation', propertyValue: 'WorkerPoolForRoles' },
+        ],
+        environments: [],
+        excludedEnvironments: [],
+        channels: [],
+      }],
+    } as any
+
+    const form = normalizeDeployPackageForm(existing)
+    expect(form.executionLocation).toBe('WorkerPoolForRoles')
+
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('WorkerPoolForRoles')
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
+  })
+
+  it('omits timeout and maxParallelism properties when zero', () => {
+    const form: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      packageId: 'Acme.Web',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'WorkerPoolForRoles',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      conditions: emptyConditions,
+    }
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+
+    expect(stepProps['Squid.Step.Timeout']).toBeUndefined()
+    expect(stepProps['Squid.Step.MaxParallelism']).toBeUndefined()
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('WorkerPoolForRoles')
+  })
 })

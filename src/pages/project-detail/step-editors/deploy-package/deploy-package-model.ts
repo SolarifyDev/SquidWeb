@@ -67,10 +67,8 @@ export function normalizeBoolean(value?: string): boolean {
 }
 
 export function normalizeExecutionLocation(value?: string, runOnServer = false): ExecutionLocationMode {
-  if (runOnServer) return 'WorkerPool'
-  if (value === 'WorkerPool') return 'WorkerPool'
-  if (value === 'WorkerPoolForRoles') return 'WorkerPoolForRoles'
-  return 'DeploymentTarget'
+  if (value === 'WorkerPool' || value === 'WorkerPoolForRoles' || value === 'DeploymentTarget') return value
+  return runOnServer ? 'WorkerPool' : 'DeploymentTarget'
 }
 
 export function parsePositiveInt(value: string | undefined, fallback: number): number {
