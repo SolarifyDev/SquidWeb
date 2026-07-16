@@ -67,6 +67,12 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     )
     const [structuredConfigEnabled, setStructuredConfigEnabled] = useState(initial.structuredConfigEnabled)
     const [structuredConfigTargets, setStructuredConfigTargets] = useState(initial.structuredConfigTargets)
+    const [purgeBeforeInstall, setPurgeBeforeInstall] = useState(initial.purgeBeforeInstall)
+    const [preservePaths, setPreservePaths] = useState(initial.preservePaths)
+    const [skipIfAlreadyInstalled, setSkipIfAlreadyInstalled] = useState(initial.skipIfAlreadyInstalled)
+    const [retentionCount, setRetentionCount] = useState(initial.retentionCount)
+    const [useCurrentPointer, setUseCurrentPointer] = useState(initial.useCurrentPointer)
+    const [rollbackOnFailure, setRollbackOnFailure] = useState(initial.rollbackOnFailure)
 
     const [feeds, setFeeds] = useState<ExternalFeedDto[]>([])
     const [packageOptions, setPackageOptions] = useState<string[]>([])
@@ -132,6 +138,12 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
         substituteFailOnUnresolved,
         structuredConfigEnabled,
         structuredConfigTargets,
+        purgeBeforeInstall,
+        preservePaths,
+        skipIfAlreadyInstalled,
+        retentionCount,
+        useCurrentPointer,
+        rollbackOnFailure,
       }
       const validation = validateDeployPackageForm(form)
       if (!validation.ok) {
@@ -177,6 +189,12 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
       substituteFailOnUnresolved,
       structuredConfigEnabled,
       structuredConfigTargets,
+      purgeBeforeInstall,
+      preservePaths,
+      skipIfAlreadyInstalled,
+      retentionCount,
+      useCurrentPointer,
+      rollbackOnFailure,
       processId,
       step,
       onSave,
@@ -444,6 +462,94 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                   </p>
                 </div>
               ) : null}
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Installation Options"
+            subtitle="Control purge, skip, retention, current pointer and rollback behavior."
+            defaultOpen
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <Checkbox
+                checked={skipIfAlreadyInstalled}
+                onChange={(event) => setSkipIfAlreadyInstalled(event.target.checked)}
+              >
+                <span className="text-sm">Skip if already installed</span>
+              </Checkbox>
+
+              <div className="space-y-2">
+                <Checkbox
+                  checked={purgeBeforeInstall}
+                  onChange={(event) => setPurgeBeforeInstall(event.target.checked)}
+                >
+                  <span className="text-sm">Purge files not in package</span>
+                </Checkbox>
+                {purgeBeforeInstall ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">Preserve paths</label>
+                    <Input.TextArea
+                      value={preservePaths}
+                      onChange={(event) => setPreservePaths(event.target.value)}
+                      autoSize={{ minRows: 3, maxRows: 8 }}
+                      placeholder={'App_Data/**\nlogs/**'}
+                    />
+                    <p className="mb-0 mt-1 text-xs text-slate-500">
+                      Newline-separated paths or globs to keep when purging files not present in the package.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Keep N previous versions</label>
+                <Input
+                  size="small"
+                  type="number"
+                  min={0}
+                  className="max-w-[180px]"
+                  value={String(retentionCount)}
+                  onChange={(event) => {
+                    const parsed = Number.parseInt(event.target.value, 10)
+                    if (!Number.isFinite(parsed) || parsed < 0) {
+                      setRetentionCount(0)
+                      return
+                    }
+                    setRetentionCount(parsed)
+                  }}
+                />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  {installationDirectoryMode === 'Custom'
+                    ? 'No-op for Custom installation directory; the value is still saved for later Versioned use.'
+                    : '0 means do not clean previous versioned directories.'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Checkbox
+                  checked={useCurrentPointer}
+                  onChange={(event) => setUseCurrentPointer(event.target.checked)}
+                >
+                  <span className="text-sm">Maintain current pointer</span>
+                </Checkbox>
+                {installationDirectoryMode === 'Custom' ? (
+                  <p className="mb-0 text-xs text-slate-500">
+                    No-op for Custom installation directory; the value is still saved for later Versioned use.
+                  </p>
+                ) : (
+                  <p className="mb-0 text-xs text-slate-500">
+                    Keep a stable <code>current</code> pointer to the active versioned install.
+                  </p>
+                )}
+              </div>
+
+              <Checkbox
+                checked={rollbackOnFailure}
+                onChange={(event) => setRollbackOnFailure(event.target.checked)}
+              >
+                <span className="text-sm">Rollback on failure</span>
+              </Checkbox>
             </div>
           </CollapsibleSection>
 

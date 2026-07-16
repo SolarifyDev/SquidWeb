@@ -28,6 +28,15 @@ export const PackageConfigProperties = {
   jsonConfigVariablesTargets: 'Squid.Action.JsonConfigVariables.Targets',
 } as const
 
+export const PackageInstallOptionProperties = {
+  purgeBeforeInstall: 'Squid.Action.Package.PurgeBeforeInstall',
+  preservePaths: 'Squid.Action.Package.PreservePaths',
+  skipIfAlreadyInstalled: 'Squid.Action.Package.SkipIfAlreadyInstalled',
+  retentionCount: 'Squid.Action.Package.RetentionCount',
+  useCurrentPointer: 'Squid.Action.Package.UseCurrentPointer',
+  rollbackOnFailure: 'Squid.Action.Package.RollbackOnFailure',
+} as const
+
 export const DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME = '#{Squid.Environment.Name}'
 
 export const StepControlProperties = {
@@ -71,6 +80,12 @@ export interface DeployPackageFormState {
   substituteFailOnUnresolved: boolean
   structuredConfigEnabled: boolean
   structuredConfigTargets: string
+  purgeBeforeInstall: boolean
+  preservePaths: string
+  skipIfAlreadyInstalled: boolean
+  retentionCount: number
+  useCurrentPointer: boolean
+  rollbackOnFailure: boolean
   conditions: StepConditionsValue
 }
 
@@ -201,6 +216,24 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
     ),
     structuredConfigTargets:
       getActionProperty(action, PackageConfigProperties.jsonConfigVariablesTargets) ?? '',
+    purgeBeforeInstall: normalizeBoolean(
+      getActionProperty(action, PackageInstallOptionProperties.purgeBeforeInstall),
+    ),
+    preservePaths:
+      getActionProperty(action, PackageInstallOptionProperties.preservePaths) ?? '',
+    skipIfAlreadyInstalled: normalizeBoolean(
+      getActionProperty(action, PackageInstallOptionProperties.skipIfAlreadyInstalled),
+    ),
+    retentionCount: Math.max(
+      0,
+      parsePositiveInt(getActionProperty(action, PackageInstallOptionProperties.retentionCount), 0),
+    ),
+    useCurrentPointer: normalizeBoolean(
+      getActionProperty(action, PackageInstallOptionProperties.useCurrentPointer),
+    ),
+    rollbackOnFailure: normalizeBoolean(
+      getActionProperty(action, PackageInstallOptionProperties.rollbackOnFailure),
+    ),
     conditions: {
       environmentMode,
       environmentIds: environmentMode === 'exclude' ? excludeEnvironments : includeEnvironments,
@@ -259,6 +292,12 @@ export function buildDeployPackageStepDto(args: {
     PackageConfigProperties.substituteFailOnUnresolved,
     PackageConfigProperties.jsonConfigVariablesEnabled,
     PackageConfigProperties.jsonConfigVariablesTargets,
+    PackageInstallOptionProperties.purgeBeforeInstall,
+    PackageInstallOptionProperties.preservePaths,
+    PackageInstallOptionProperties.skipIfAlreadyInstalled,
+    PackageInstallOptionProperties.retentionCount,
+    PackageInstallOptionProperties.useCurrentPointer,
+    PackageInstallOptionProperties.rollbackOnFailure,
   ])
 
   const preserved = (existingAction?.properties ?? []).filter(
@@ -347,6 +386,25 @@ export function buildDeployPackageStepDto(args: {
         form.structuredConfigTargets.trim(),
       )
     }
+  }
+
+  if (form.purgeBeforeInstall) {
+    pushActionProp(PackageInstallOptionProperties.purgeBeforeInstall, 'True')
+  }
+  if (form.preservePaths.trim()) {
+    pushActionProp(PackageInstallOptionProperties.preservePaths, form.preservePaths.trim())
+  }
+  if (form.skipIfAlreadyInstalled) {
+    pushActionProp(PackageInstallOptionProperties.skipIfAlreadyInstalled, 'True')
+  }
+  if (form.retentionCount > 0) {
+    pushActionProp(PackageInstallOptionProperties.retentionCount, String(form.retentionCount))
+  }
+  if (form.useCurrentPointer) {
+    pushActionProp(PackageInstallOptionProperties.useCurrentPointer, 'True')
+  }
+  if (form.rollbackOnFailure) {
+    pushActionProp(PackageInstallOptionProperties.rollbackOnFailure, 'True')
   }
 
   const actionEnvironments = form.conditions.environmentMode === 'include' ? form.conditions.environmentIds : []

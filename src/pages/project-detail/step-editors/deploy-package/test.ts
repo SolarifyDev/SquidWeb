@@ -41,6 +41,12 @@ describe('deploy-package-model', () => {
       substituteFailOnUnresolved: false,
       structuredConfigEnabled: false,
       structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -114,6 +120,12 @@ describe('deploy-package-model', () => {
       substituteFailOnUnresolved: false,
       structuredConfigEnabled: false,
       structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
       conditions: emptyConditions,
     }).ok).toBe(false)
   })
@@ -213,6 +225,12 @@ describe('deploy-package-model', () => {
       substituteFailOnUnresolved: false,
       structuredConfigEnabled: false,
       structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
       conditions: emptyConditions,
     }
     expect(validateDeployPackageForm(base).ok).toBe(false)
@@ -241,6 +259,12 @@ describe('deploy-package-model', () => {
       substituteFailOnUnresolved: false,
       structuredConfigEnabled: false,
       structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -321,6 +345,12 @@ describe('deploy-package-model', () => {
       substituteFailOnUnresolved: false,
       structuredConfigEnabled: false,
       structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
       conditions: emptyConditions,
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
@@ -388,6 +418,69 @@ describe('deploy-package-model', () => {
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
     expect(actionProps['Squid.Action.ConfigurationVariables.Enabled']).toBe('True')
     expect(actionProps['Squid.Action.JsonConfigVariables.Targets']).toBe('**/appsettings.json')
+    expect(actionProps['Custom.Keep']).toBe('yes')
+  })
+
+  it('normalizes and builds installation option properties', () => {
+    const existing = {
+      id: 9,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy Web',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: new Date().toISOString(),
+      properties: [
+        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+      ],
+      actions: [{
+        id: 1,
+        stepId: 9,
+        actionOrder: 0,
+        name: 'Deploy Web',
+        actionType: 'Squid.TentaclePackage',
+        workerPoolId: null,
+        isDisabled: false,
+        isRequired: false,
+        canBeUsedForProjectVersioning: true,
+        createdAt: new Date().toISOString(),
+        properties: [
+          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
+          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
+          { id: 3, actionId: 1, propertyName: 'Squid.Action.Package.PurgeBeforeInstall', propertyValue: 'True' },
+          { id: 4, actionId: 1, propertyName: 'Squid.Action.Package.PreservePaths', propertyValue: 'App_Data/**\nlogs/**' },
+          { id: 5, actionId: 1, propertyName: 'Squid.Action.Package.SkipIfAlreadyInstalled', propertyValue: 'True' },
+          { id: 6, actionId: 1, propertyName: 'Squid.Action.Package.RetentionCount', propertyValue: '3' },
+          { id: 7, actionId: 1, propertyName: 'Squid.Action.Package.UseCurrentPointer', propertyValue: 'True' },
+          { id: 8, actionId: 1, propertyName: 'Squid.Action.Package.RollbackOnFailure', propertyValue: 'True' },
+          { id: 9, actionId: 1, propertyName: 'Custom.Keep', propertyValue: 'yes' },
+        ],
+        environments: [],
+        excludedEnvironments: [],
+        channels: [],
+      }],
+    } as any
+
+    const form = normalizeDeployPackageForm(existing)
+    expect(form.purgeBeforeInstall).toBe(true)
+    expect(form.preservePaths).toBe('App_Data/**\nlogs/**')
+    expect(form.skipIfAlreadyInstalled).toBe(true)
+    expect(form.retentionCount).toBe(3)
+    expect(form.useCurrentPointer).toBe(true)
+    expect(form.rollbackOnFailure).toBe(true)
+
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+    expect(actionProps['Squid.Action.Package.PurgeBeforeInstall']).toBe('True')
+    expect(actionProps['Squid.Action.Package.PreservePaths']).toBe('App_Data/**\nlogs/**')
+    expect(actionProps['Squid.Action.Package.SkipIfAlreadyInstalled']).toBe('True')
+    expect(actionProps['Squid.Action.Package.RetentionCount']).toBe('3')
+    expect(actionProps['Squid.Action.Package.UseCurrentPointer']).toBe('True')
+    expect(actionProps['Squid.Action.Package.RollbackOnFailure']).toBe('True')
     expect(actionProps['Custom.Keep']).toBe('yes')
   })
 })
