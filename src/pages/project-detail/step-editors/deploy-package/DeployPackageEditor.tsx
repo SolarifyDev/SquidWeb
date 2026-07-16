@@ -33,6 +33,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     const initial = useMemo(() => normalizeDeployPackageForm(step), [step])
     const [stepName, setStepName] = useState(initial.stepName)
     const [feedId, setFeedId] = useState<number | null>(initial.feedId)
+    const [feedType, setFeedType] = useState<string | null>(initial.feedType ?? null)
     const [packageId, setPackageId] = useState(initial.packageId)
     const [targetRoles, setTargetRoles] = useState<string[]>(initial.targetRoles)
     const [installationDirectoryMode, setInstallationDirectoryMode] = useState<InstallationDirectoryMode>(
@@ -81,9 +82,23 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     useEffect(() => {
       getExternalFeeds({ pageSize: 1000 })
-        .then((res) => setFeeds(res.externalFeeds ?? []))
+        .then((res) => {
+          const next = res.externalFeeds ?? []
+          setFeeds(next)
+        })
         .catch(() => setFeeds([]))
     }, [])
+
+    useEffect(() => {
+      if (!feedId) {
+        setFeedType(null)
+        return
+      }
+      const matched = feeds.find((f) => f.id === feedId)
+      if (matched) {
+        setFeedType(matched.feedType ?? null)
+      }
+    }, [feedId, feeds])
 
     useEffect(() => {
       onStepNameChange?.(stepName)
@@ -115,11 +130,10 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     }, [feedId, packageQuery])
 
     const handleSave = useCallback(async () => {
-      const selectedFeedType = feeds.find((f) => f.id === feedId)?.feedType ?? null
       const form = {
         stepName,
         feedId,
-        feedType: selectedFeedType,
+        feedType,
         packageId,
         targetRoles,
         installationDirectoryMode,
@@ -171,7 +185,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     }, [
       stepName,
       feedId,
-      feeds,
+      feedType,
       packageId,
       targetRoles,
       installationDirectoryMode,
@@ -269,12 +283,14 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                   options={feeds.map((f) => ({ value: f.id, label: f.name }))}
                   onChange={(value) => {
                     setFeedId(value)
+                    const selected = feeds.find((f) => f.id === value)
+                    setFeedType(selected?.feedType ?? null)
                     setPackageId('')
                     setPackageQuery('')
                     setPackageOptions([])
                   }}
                 />
-                {feedId && isUnsupportedDeployPackageFeedType(feeds.find((f) => f.id === feedId)?.feedType) ? (
+                {feedId && isUnsupportedDeployPackageFeedType(feedType) ? (
                   <div className="mt-1 text-xs text-amber-600">
                     This feed type cannot be installed by Deploy a Package. Use an archive-capable feed (NuGet/GitHub/HTTP).
                   </div>

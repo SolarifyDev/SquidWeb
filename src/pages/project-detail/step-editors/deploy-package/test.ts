@@ -541,4 +541,54 @@ describe('deploy-package-model', () => {
     expect(github.ok).toBe(true)
   })
 
+  it('fails closed when feedId is set but feedType is unavailable', () => {
+    const base: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      feedType: null,
+      packageId: 'Acme.Web',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'DeploymentTarget',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
+      conditions: emptyConditions,
+    }
+
+    const missing = validateDeployPackageForm(base)
+    expect(missing.ok).toBe(false)
+    expect((missing.message ?? '').toLowerCase()).toMatch(/feed type.*(required|loading)/)
+
+    const empty = validateDeployPackageForm({ ...base, feedType: '' })
+    expect(empty.ok).toBe(false)
+    expect((empty.message ?? '').toLowerCase()).toMatch(/feed type.*(required|loading)/)
+
+    const whitespace = validateDeployPackageForm({ ...base, feedType: '   ' })
+    expect(whitespace.ok).toBe(false)
+
+    // still reject unsupported when type is present
+    const docker = validateDeployPackageForm({ ...base, feedType: 'Docker' })
+    expect(docker.ok).toBe(false)
+    expect(docker.message).toContain('cannot be installed by Deploy a Package')
+  })
+
 })

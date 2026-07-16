@@ -251,6 +251,12 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
 export function validateDeployPackageForm(form: DeployPackageFormState): ValidateResult {
   if (!form.stepName.trim()) return { ok: false, message: 'Step name is required' }
   if (!form.feedId || form.feedId <= 0) return { ok: false, message: 'Feed is required' }
+  if (form.feedId > 0 && !form.feedType?.trim()) {
+    return {
+      ok: false,
+      message: 'Feed type is required / still loading. Wait for feeds to load or re-select the feed.',
+    }
+  }
   if (isUnsupportedDeployPackageFeedType(form.feedType)) {
     return {
       ok: false,
