@@ -13,6 +13,7 @@ import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorType
 import {
   ACTION_TYPE,
   DEFAULT_STEP_NAME,
+  DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
   buildDeployPackageStepDto,
   isNuGetFeedType,
   normalizeDeployPackageForm,
@@ -47,6 +48,25 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     const [retryCount, setRetryCount] = useState(initial.retryCount)
     const [maxParallelism, setMaxParallelism] = useState(initial.maxParallelism)
     const [timeoutSeconds, setTimeoutSeconds] = useState(initial.timeoutSeconds)
+    const [configurationVariablesEnabled, setConfigurationVariablesEnabled] = useState(
+      initial.configurationVariablesEnabled,
+    )
+    const [configurationTransformsEnabled, setConfigurationTransformsEnabled] = useState(
+      initial.configurationTransformsEnabled,
+    )
+    const [configurationTransformsEnvironmentName, setConfigurationTransformsEnvironmentName] = useState(
+      initial.configurationTransformsEnvironmentName,
+    )
+    const [additionalTransforms, setAdditionalTransforms] = useState(initial.additionalTransforms)
+    const [substituteInFilesEnabled, setSubstituteInFilesEnabled] = useState(initial.substituteInFilesEnabled)
+    const [substituteInFilesTargetFiles, setSubstituteInFilesTargetFiles] = useState(
+      initial.substituteInFilesTargetFiles,
+    )
+    const [substituteFailOnUnresolved, setSubstituteFailOnUnresolved] = useState(
+      initial.substituteFailOnUnresolved,
+    )
+    const [structuredConfigEnabled, setStructuredConfigEnabled] = useState(initial.structuredConfigEnabled)
+    const [structuredConfigTargets, setStructuredConfigTargets] = useState(initial.structuredConfigTargets)
 
     const [feeds, setFeeds] = useState<ExternalFeedDto[]>([])
     const [packageOptions, setPackageOptions] = useState<string[]>([])
@@ -103,6 +123,15 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
         maxParallelism,
         timeoutSeconds,
         conditions,
+        configurationVariablesEnabled,
+        configurationTransformsEnabled,
+        configurationTransformsEnvironmentName,
+        additionalTransforms,
+        substituteInFilesEnabled,
+        substituteInFilesTargetFiles,
+        substituteFailOnUnresolved,
+        structuredConfigEnabled,
+        structuredConfigTargets,
       }
       const validation = validateDeployPackageForm(form)
       if (!validation.ok) {
@@ -139,6 +168,15 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
       maxParallelism,
       timeoutSeconds,
       conditions,
+      configurationVariablesEnabled,
+      configurationTransformsEnabled,
+      configurationTransformsEnvironmentName,
+      additionalTransforms,
+      substituteInFilesEnabled,
+      substituteInFilesTargetFiles,
+      substituteFailOnUnresolved,
+      structuredConfigEnabled,
+      structuredConfigTargets,
       processId,
       step,
       onSave,
@@ -264,6 +302,149 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                 <div className="text-xs text-slate-500">V1 不会删除包中不存在的旧文件。</div>
               </div>
             ) : null}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title=".NET Configuration Variables"
+            subtitle="If set, replace appSettings and connectionString entries in any .config files."
+            defaultOpen
+          >
+            <Checkbox
+              checked={configurationVariablesEnabled}
+              onChange={(event) => setConfigurationVariablesEnabled(event.target.checked)}
+            >
+              <span className="text-sm">Replace entries in .config files</span>
+            </Checkbox>
+            <p className="mb-0 mt-1 text-xs text-slate-500">
+              Squid will scan <code>.config</code> files and replace matching keys using step variables.
+            </p>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title=".NET Configuration Transforms"
+            subtitle="Configure .NET XML configuration transforms."
+            defaultOpen
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <div>
+                <Checkbox
+                  checked={configurationTransformsEnabled}
+                  onChange={(event) => setConfigurationTransformsEnabled(event.target.checked)}
+                >
+                  <span className="text-sm">Run default XML transforms</span>
+                </Checkbox>
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  Squid can run configuration transformation files. By default Squid looks for <em>*.Release.config</em>{' '}
+                  and <em>*.&lt;EnvironmentName&gt;.config</em>.
+                </p>
+              </div>
+
+              {configurationTransformsEnabled ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Environment name token</label>
+                  <Input
+                    size="small"
+                    value={configurationTransformsEnvironmentName}
+                    onChange={(event) => setConfigurationTransformsEnvironmentName(event.target.value)}
+                    placeholder={DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME}
+                  />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Picks the <code>*.&lt;name&gt;.config</code> overlay. Leave empty to apply only the Release transform.
+                  </p>
+                </div>
+              ) : null}
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Additional transforms</label>
+                <Input.TextArea
+                  value={additionalTransforms}
+                  onChange={(event) => setAdditionalTransforms(event.target.value)}
+                  autoSize={{ minRows: 3, maxRows: 8 }}
+                  placeholder="Web.Release.config => Web.config"
+                />
+                <div className="mt-2 space-y-2 text-xs leading-relaxed text-slate-500">
+                  <p className="mb-0">A comma- or newline-separated list of additional configuration transformation file rules. Example:</p>
+                  <pre className="mb-0 whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-600">
+                    {
+                      'Web.Release.config => Web.config\n*.Foo.config => *.config\ncrossdomainpolicy.#{Squid.Environment.Name}.xml => crossdomainpolicy.xml'
+                    }
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Substitute Variables in Files"
+            subtitle="Replace #{Variable} tokens inside any text file (JSON / YAML / properties / .config / .txt)."
+            defaultOpen
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <Checkbox
+                checked={substituteInFilesEnabled}
+                onChange={(event) => setSubstituteInFilesEnabled(event.target.checked)}
+              >
+                <span className="text-sm">Enable variable token replacement in files</span>
+              </Checkbox>
+
+              {substituteInFilesEnabled ? (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">Target files</label>
+                    <Input.TextArea
+                      value={substituteInFilesTargetFiles}
+                      onChange={(event) => setSubstituteInFilesTargetFiles(event.target.value)}
+                      autoSize={{ minRows: 3, maxRows: 8 }}
+                      placeholder={'appsettings.json\nappsettings.#{Squid.Environment.Name}.json\n*.yml'}
+                    />
+                    <p className="mb-0 mt-1 text-xs text-slate-500">
+                      Newline-separated globs relative to the installation directory (or absolute paths). Every{' '}
+                      <code>#{'{VariableName}'}</code> token is replaced with the matching Squid variable.
+                    </p>
+                  </div>
+                  <Checkbox
+                    checked={substituteFailOnUnresolved}
+                    onChange={(event) => setSubstituteFailOnUnresolved(event.target.checked)}
+                  >
+                    <span className="text-sm">Fail deployment if any tokens cannot be resolved</span>
+                  </Checkbox>
+                </>
+              ) : null}
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Structured Configuration Variables"
+            subtitle="Replace JSON leaves where the path matches a Squid variable (e.g. Logging:LogLevel:Default)."
+            defaultOpen
+            fullWidth
+          >
+            <div className="ml-[216px] w-2/3 max-w-[760px] space-y-4">
+              <Checkbox
+                checked={structuredConfigEnabled}
+                onChange={(event) => setStructuredConfigEnabled(event.target.checked)}
+              >
+                <span className="text-sm">Enable JSON leaf replacement</span>
+              </Checkbox>
+
+              {structuredConfigEnabled ? (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Target files</label>
+                  <Input.TextArea
+                    value={structuredConfigTargets}
+                    onChange={(event) => setStructuredConfigTargets(event.target.value)}
+                    autoSize={{ minRows: 3, maxRows: 8 }}
+                    placeholder={'appsettings.json\nappsettings.Production.json'}
+                  />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Newline-separated globs relative to the installation directory. Path forms{' '}
+                    <code>Logging.LogLevel.Default</code> and <code>Logging:LogLevel:Default</code> are both supported.
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection title="Execution Location" subtitle="Where will Squid run this step?" defaultOpen fullWidth>
