@@ -502,6 +502,7 @@ const STEP_TEMPLATES: StepTemplate[] = [
     actionType: 'Squid.TentaclePackage',
     bullets: ['Deploy the contents of a package to one or more deployment targets.'],
     categoryIds: ['package'],
+    featured: true,
   },
   {
     id: 'azure-app',

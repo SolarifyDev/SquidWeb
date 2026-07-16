@@ -1,5 +1,6 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Input, Radio, Select, message } from 'antd'
+import { Checkbox, Input, Radio, Select, message } from 'antd'
+import { MoreOutlined } from '@ant-design/icons'
 import {
   createDeploymentStep,
   updateDeploymentStep,
@@ -16,13 +17,18 @@ import {
   isNuGetFeedType,
   normalizeDeployPackageForm,
   validateDeployPackageForm,
+  type ExecutionLocationMode,
   type InstallationDirectoryMode,
+  type StartTriggerMode,
 } from './deploy-package-model'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
+const WORKER_EXECUTION_WARNING =
+  'Worker execution for package deploy is experimental; ensure worker targets support package installation.'
+
 export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>(
-  function DeployPackageEditor({ step, processId, spaceId, onSave, onStepNameChange }, ref) {
+  function DeployPackageEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
     const initial = useMemo(() => normalizeDeployPackageForm(step), [step])
     const [stepName, setStepName] = useState(initial.stepName)
     const [feedId, setFeedId] = useState<number | null>(initial.feedId)
@@ -34,8 +40,13 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     const [customInstallationDirectory, setCustomInstallationDirectory] = useState(
       initial.customInstallationDirectory,
     )
+    const [executionLocation, setExecutionLocation] = useState<ExecutionLocationMode>(initial.executionLocation)
+    const [startTrigger, setStartTrigger] = useState<StartTriggerMode>(initial.startTrigger)
     const [conditions, setConditions] = useState(initial.conditions)
-    const [startTrigger] = useState(initial.startTrigger)
+    const [retriesEnabled, setRetriesEnabled] = useState(initial.retriesEnabled)
+    const [retryCount, setRetryCount] = useState(initial.retryCount)
+    const [maxParallelism, setMaxParallelism] = useState(initial.maxParallelism)
+    const [timeoutSeconds, setTimeoutSeconds] = useState(initial.timeoutSeconds)
 
     const [feeds, setFeeds] = useState<ExternalFeedDto[]>([])
     const [packageOptions, setPackageOptions] = useState<string[]>([])
@@ -85,8 +96,13 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
         targetRoles,
         installationDirectoryMode,
         customInstallationDirectory,
-        conditions,
+        executionLocation,
         startTrigger,
+        retriesEnabled,
+        retryCount,
+        maxParallelism,
+        timeoutSeconds,
+        conditions,
       }
       const validation = validateDeployPackageForm(form)
       if (!validation.ok) {
@@ -116,8 +132,13 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
       targetRoles,
       installationDirectoryMode,
       customInstallationDirectory,
-      conditions,
+      executionLocation,
       startTrigger,
+      retriesEnabled,
+      retryCount,
+      maxParallelism,
+      timeoutSeconds,
+      conditions,
       processId,
       step,
       onSave,
@@ -127,6 +148,12 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
     const displayName = stepName.trim() || DEFAULT_STEP_NAME
+    const showWorkerWarning = executionLocation === 'WorkerPool' || executionLocation === 'WorkerPoolForRoles'
+    const executionLocationDescription = executionLocation === 'DeploymentTarget'
+      ? 'Execute on each deployment target with the selected target roles.'
+      : executionLocation === 'WorkerPoolForRoles'
+        ? 'Execute on a worker on behalf of each deployment target with selected target roles.'
+        : 'Execute once on a worker.'
 
     return (
       <div className="flex h-full flex-col">
@@ -143,18 +170,34 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
               />
             </div>
             <div className="min-w-0">
-              <div className="truncate text-base font-semibold text-slate-900">{displayName}</div>
-              <div className="text-xs text-slate-500">Deploy a Package</div>
+              <div className="text-xs leading-tight text-slate-400">Deploy a Package</div>
+              <div className="flex items-center gap-1.5">
+                {stepIndex != null ? <span className="text-sm font-medium text-slate-400">{stepIndex + 1}.</span> : null}
+                <span className="truncate text-sm font-semibold text-slate-800">{displayName}</span>
+              </div>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex items-center rounded border border-slate-300 px-3 py-[5px] text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              onClick={() => message.info('Package features are not available in V2.')}
+            >
+              Configure features
+            </button>
+            <button className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-100" aria-label="More Step Actions">
+              <MoreOutlined style={{ fontSize: 18 }} />
+            </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <CollapsibleSection title="Step Name" defaultOpen>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          <CollapsibleSection title="Step Name" subtitle="A short, memorable, unique name for this step." defaultOpen>
             <Input value={stepName} onChange={(e) => setStepName(e.target.value)} placeholder={DEFAULT_STEP_NAME} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Package" defaultOpen>
+          <CollapsibleSection title="Package" subtitle="Choose the NuGet package to deploy." defaultOpen>
             <div className="space-y-4">
               <div>
                 <div className="mb-1 text-sm text-slate-700">NuGet Feed</div>
@@ -194,18 +237,22 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
             </div>
           </CollapsibleSection>
 
-          <CollapsibleSection title="Target Roles" defaultOpen>
+          <CollapsibleSection title="Target Roles" subtitle="This step will deploy to deployment targets with any of these matching roles." defaultOpen>
             <TargetTagSelect value={targetRoles} onChange={setTargetRoles} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Installation Directory" defaultOpen>
+          <CollapsibleSection title="Installation Directory" subtitle="Choose where package contents are installed on the target." defaultOpen>
             <Radio.Group
               value={installationDirectoryMode}
               onChange={(e) => setInstallationDirectoryMode(e.target.value)}
-              className="mb-3"
+              className="mb-3 flex flex-col gap-2"
             >
-              <Radio value="Versioned">Use default versioned directory</Radio>
-              <Radio value="Custom">Use custom absolute directory</Radio>
+              <Radio value="Versioned">
+                <span className="text-sm">Use default versioned directory</span>
+              </Radio>
+              <Radio value="Custom">
+                <span className="text-sm">Use custom absolute directory</span>
+              </Radio>
             </Radio.Group>
             {installationDirectoryMode === 'Custom' ? (
               <div className="space-y-2">
@@ -219,8 +266,137 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
             ) : null}
           </CollapsibleSection>
 
-          <CollapsibleSection title="Conditions" defaultOpen>
-            <StepConditionsSection value={conditions} onChange={setConditions} />
+          <CollapsibleSection title="Execution Location" subtitle="Where will Squid run this step?" defaultOpen fullWidth>
+            <div className="ml-[216px] space-y-3">
+              <Radio.Group
+                value={executionLocation}
+                onChange={(event) => setExecutionLocation(event.target.value as ExecutionLocationMode)}
+                className="flex flex-col gap-2"
+              >
+                <Radio value="WorkerPool">
+                  <span className="text-sm">Run once on a worker</span>
+                </Radio>
+                <Radio value="WorkerPoolForRoles">
+                  <span className="text-sm">Run on a worker on behalf of each deployment target</span>
+                </Radio>
+                <Radio value="DeploymentTarget">
+                  <span className="text-sm">Run on each deployment target</span>
+                </Radio>
+              </Radio.Group>
+              <p className="m-0 text-xs text-slate-500">{executionLocationDescription}</p>
+              {showWorkerWarning ? (
+                <p className="m-0 text-xs text-amber-600">{WORKER_EXECUTION_WARNING}</p>
+              ) : null}
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Conditions" subtitle="Configure when and where this step should run." defaultOpen fullWidth>
+            <StepConditionsSection
+              value={conditions}
+              onChange={setConditions}
+              projectId={projectId}
+              hideRootSection
+              afterRunCondition={(
+                <CollapsibleSection
+                  title="Start Trigger"
+                  subtitle="Control whether this step waits for the previous step to complete, or runs in parallel with it."
+                  defaultOpen
+                >
+                  <Radio.Group
+                    value={startTrigger}
+                    onChange={(event) => setStartTrigger(event.target.value as StartTriggerMode)}
+                    className="flex flex-col gap-2"
+                  >
+                    <Radio value="StartWithPrevious">
+                      <span className="text-sm">Run in parallel with the previous step</span>
+                    </Radio>
+                    <Radio value="StartAfterPrevious">
+                      <span className="text-sm">Wait for all previous steps to complete, then start</span>
+                    </Radio>
+                  </Radio.Group>
+                </CollapsibleSection>
+              )}
+            />
+
+            <CollapsibleSection title="Retries" subtitle="Upon failure, this step will automatically retry." defaultOpen>
+              <Checkbox checked={retriesEnabled} onChange={(event) => setRetriesEnabled(event.target.checked)}>
+                <span className="text-sm">Allow retries (max. 3)</span>
+              </Checkbox>
+              {retriesEnabled ? (
+                <div className="max-w-[180px]">
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Retries</label>
+                  <Input
+                    size="small"
+                    type="number"
+                    min={1}
+                    max={3}
+                    value={String(retryCount)}
+                    onChange={(event) => {
+                      const parsed = Number.parseInt(event.target.value, 10)
+                      if (!Number.isFinite(parsed)) {
+                        setRetryCount(1)
+                        return
+                      }
+                      setRetryCount(Math.min(Math.max(parsed, 1), 3))
+                    }}
+                  />
+                </div>
+              ) : null}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Rolling Deployment"
+              subtitle="Configure a rolling deployment to control the number of deployment targets this step can deploy to at once."
+              defaultOpen
+            >
+              <Checkbox
+                checked={maxParallelism > 0}
+                onChange={(event) => setMaxParallelism(event.target.checked ? Math.max(maxParallelism, 1) : 0)}
+              >
+                <span className="text-sm">Configure a rolling deployment</span>
+              </Checkbox>
+              {maxParallelism > 0 ? (
+                <div className="mt-2 max-w-[220px]">
+                  <label className="mb-1 block text-xs font-medium text-slate-600">Maximum parallel targets</label>
+                  <Input
+                    size="small"
+                    type="number"
+                    min={1}
+                    value={String(maxParallelism)}
+                    onChange={(event) => {
+                      const parsed = Number.parseInt(event.target.value, 10)
+                      if (!Number.isFinite(parsed) || parsed < 1) {
+                        setMaxParallelism(1)
+                        return
+                      }
+                      setMaxParallelism(parsed)
+                    }}
+                  />
+                </div>
+              ) : null}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              title="Time out"
+              subtitle="If this step is still running after the set time has lapsed, the task will fail."
+              defaultOpen
+            >
+              <label className="mb-1 block text-xs font-medium text-slate-600">Time out after seconds (0 means never time out)</label>
+              <Input
+                size="small"
+                type="number"
+                min={0}
+                value={String(timeoutSeconds)}
+                onChange={(event) => {
+                  const parsed = Number.parseInt(event.target.value, 10)
+                  if (!Number.isFinite(parsed) || parsed < 0) {
+                    setTimeoutSeconds(0)
+                    return
+                  }
+                  setTimeoutSeconds(parsed)
+                }}
+              />
+            </CollapsibleSection>
           </CollapsibleSection>
         </div>
       </div>
