@@ -61,6 +61,7 @@ export type StartTriggerMode = 'StartAfterPrevious' | 'StartWithPrevious'
 export interface DeployPackageFormState {
   stepName: string
   feedId: number | null
+  feedType?: string | null
   packageId: string
   targetRoles: string[]
   installationDirectoryMode: InstallationDirectoryMode
@@ -249,7 +250,13 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
 
 export function validateDeployPackageForm(form: DeployPackageFormState): ValidateResult {
   if (!form.stepName.trim()) return { ok: false, message: 'Step name is required' }
-  if (!form.feedId || form.feedId <= 0) return { ok: false, message: 'NuGet feed is required' }
+  if (!form.feedId || form.feedId <= 0) return { ok: false, message: 'Feed is required' }
+  if (isUnsupportedDeployPackageFeedType(form.feedType)) {
+    return {
+      ok: false,
+      message: `Feed type '${form.feedType}' cannot be installed by Deploy a Package. Use an archive-capable feed (NuGet/GitHub/HTTP).`,
+    }
+  }
   if (!form.packageId.trim()) return { ok: false, message: 'Package is required' }
   if (form.targetRoles.length === 0) return { ok: false, message: 'At least one target role is required' }
   if (form.installationDirectoryMode === 'Custom' && !form.customInstallationDirectory.trim()) {
@@ -517,6 +524,11 @@ export function buildDeployPackageStepDto(args: {
     properties: stepProperties,
     actions: [nextAction],
   }
+}
+
+export function isUnsupportedDeployPackageFeedType(feedType?: string | null): boolean {
+  const t = (feedType ?? '').toLowerCase()
+  return t.includes('docker') || t.includes('helm') || t.includes('container')
 }
 
 export function isNuGetFeedType(feedType?: string | null): boolean {

@@ -15,7 +15,7 @@ import {
   DEFAULT_STEP_NAME,
   DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
   buildDeployPackageStepDto,
-  isNuGetFeedType,
+  isUnsupportedDeployPackageFeedType,
   normalizeDeployPackageForm,
   validateDeployPackageForm,
   type ExecutionLocationMode,
@@ -81,7 +81,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     useEffect(() => {
       getExternalFeeds({ pageSize: 1000 })
-        .then((res) => setFeeds((res.externalFeeds ?? []).filter((f) => isNuGetFeedType(f.feedType))))
+        .then((res) => setFeeds(res.externalFeeds ?? []))
         .catch(() => setFeeds([]))
     }, [])
 
@@ -115,9 +115,11 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     }, [feedId, packageQuery])
 
     const handleSave = useCallback(async () => {
+      const selectedFeedType = feeds.find((f) => f.id === feedId)?.feedType ?? null
       const form = {
         stepName,
         feedId,
+        feedType: selectedFeedType,
         packageId,
         targetRoles,
         installationDirectoryMode,
@@ -169,6 +171,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     }, [
       stepName,
       feedId,
+      feeds,
       packageId,
       targetRoles,
       installationDirectoryMode,
@@ -253,15 +256,15 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
             <Input value={stepName} onChange={(e) => setStepName(e.target.value)} placeholder={DEFAULT_STEP_NAME} />
           </CollapsibleSection>
 
-          <CollapsibleSection title="Package" subtitle="Choose the NuGet package to deploy." defaultOpen>
+          <CollapsibleSection title="Package" subtitle="Choose the package to deploy." defaultOpen>
             <div className="space-y-4">
               <div>
-                <div className="mb-1 text-sm text-slate-700">NuGet Feed</div>
+                <div className="mb-1 text-sm text-slate-700">Package Feed</div>
                 <Select
                   className="w-full"
                   showSearch
                   optionFilterProp="label"
-                  placeholder="Select a NuGet feed"
+                  placeholder="Select a feed"
                   value={feedId ?? undefined}
                   options={feeds.map((f) => ({ value: f.id, label: f.name }))}
                   onChange={(value) => {
@@ -271,6 +274,11 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                     setPackageOptions([])
                   }}
                 />
+                {feedId && isUnsupportedDeployPackageFeedType(feeds.find((f) => f.id === feedId)?.feedType) ? (
+                  <div className="mt-1 text-xs text-amber-600">
+                    This feed type cannot be installed by Deploy a Package. Use an archive-capable feed (NuGet/GitHub/HTTP).
+                  </div>
+                ) : null}
               </div>
               <div>
                 <div className="mb-1 text-sm text-slate-700">Package ID</div>

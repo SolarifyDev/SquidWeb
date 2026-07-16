@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDeployPackageStepDto,
+  isUnsupportedDeployPackageFeedType,
   normalizeDeployPackageForm,
   validateDeployPackageForm,
   type DeployPackageFormState,
@@ -483,4 +484,61 @@ describe('deploy-package-model', () => {
     expect(actionProps['Squid.Action.Package.RollbackOnFailure']).toBe('True')
     expect(actionProps['Custom.Keep']).toBe('yes')
   })
+
+  it('detects unsupported deploy package feed types', () => {
+    expect(isUnsupportedDeployPackageFeedType('Docker')).toBe(true)
+    expect(isUnsupportedDeployPackageFeedType('Docker Container Registry')).toBe(true)
+    expect(isUnsupportedDeployPackageFeedType('Helm')).toBe(true)
+    expect(isUnsupportedDeployPackageFeedType('AWS Elastic Container Registry')).toBe(true)
+    expect(isUnsupportedDeployPackageFeedType('NuGet')).toBe(false)
+    expect(isUnsupportedDeployPackageFeedType('GitHub')).toBe(false)
+    expect(isUnsupportedDeployPackageFeedType('Maven')).toBe(false)
+  })
+
+  it('rejects unsupported docker/helm feed types on validate', () => {
+    const base: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      feedType: 'Docker',
+      packageId: 'Acme.Web',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'DeploymentTarget',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutSeconds: 0,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
+      conditions: emptyConditions,
+    }
+    const docker = validateDeployPackageForm(base)
+    expect(docker.ok).toBe(false)
+    expect(docker.message).toContain('cannot be installed by Deploy a Package')
+
+    const helm = validateDeployPackageForm({ ...base, feedType: 'Helm' })
+    expect(helm.ok).toBe(false)
+
+    const nuget = validateDeployPackageForm({ ...base, feedType: 'NuGet' })
+    expect(nuget.ok).toBe(true)
+
+    const github = validateDeployPackageForm({ ...base, feedType: 'GitHub' })
+    expect(github.ok).toBe(true)
+  })
+
 })
