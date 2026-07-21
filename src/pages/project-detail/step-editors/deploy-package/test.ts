@@ -366,7 +366,7 @@ describe('deploy-package-model', () => {
     expect(validateDeployPackageForm(base).ok).toBe(false)
   })
 
-  it('maps WorkerPool execution location to RunOnServer=true', () => {
+  it('forces DeploymentTarget execution location and RunOnServer=false', () => {
     const form: DeployPackageFormState = {
       stepName: 'Deploy Web',
       feedId: 3,
@@ -375,7 +375,8 @@ describe('deploy-package-model', () => {
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
-      executionLocation: 'WorkerPool',
+      // historical/legacy form values must still serialize as DeploymentTarget
+      executionLocation: 'DeploymentTarget',
       startTrigger: 'StartAfterPrevious',
       retriesEnabled: false,
       retryCount: 1,
@@ -400,10 +401,12 @@ describe('deploy-package-model', () => {
     }
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
-    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
+    const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('DeploymentTarget')
   })
 
-  it('preserves WorkerPoolForRoles when RunOnServer=true on normalize and build', () => {
+  it('normalizes legacy worker execution locations to DeploymentTarget', () => {
     const existing = {
       id: 9,
       processId: 1,
@@ -443,14 +446,14 @@ describe('deploy-package-model', () => {
     } as any
 
     const form = normalizeDeployPackageForm(existing)
-    expect(form.executionLocation).toBe('WorkerPoolForRoles')
+    expect(form.executionLocation).toBe('DeploymentTarget')
 
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
 
-    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('WorkerPoolForRoles')
-    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('DeploymentTarget')
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
   })
 
   it('omits timeout and maxParallelism properties when zero', () => {
@@ -462,7 +465,7 @@ describe('deploy-package-model', () => {
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
-      executionLocation: 'WorkerPoolForRoles',
+      executionLocation: 'DeploymentTarget',
       startTrigger: 'StartAfterPrevious',
       retriesEnabled: false,
       retryCount: 1,
@@ -491,8 +494,8 @@ describe('deploy-package-model', () => {
 
     expect(stepProps['Squid.Step.Timeout']).toBeUndefined()
     expect(stepProps['Squid.Step.MaxParallelism']).toBeUndefined()
-    expect(stepProps['Squid.Action.RunOnServer']).toBe('true')
-    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('WorkerPoolForRoles')
+    expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
+    expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('DeploymentTarget')
   })
 
   it('normalizes and builds configuration rewrite properties', () => {

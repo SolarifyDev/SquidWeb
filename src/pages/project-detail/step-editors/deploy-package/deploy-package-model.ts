@@ -56,7 +56,7 @@ const TARGET_ROLE_PROPERTY = StepControlProperties.targetRoles
 const STEP_CONDITION_EXPRESSION_PROPERTY = StepControlProperties.conditionExpression
 
 export type InstallationDirectoryMode = 'Versioned' | 'Custom'
-export type ExecutionLocationMode = 'WorkerPool' | 'WorkerPoolForRoles' | 'DeploymentTarget'
+export type ExecutionLocationMode = 'DeploymentTarget'
 export type StartTriggerMode = 'StartAfterPrevious' | 'StartWithPrevious'
 
 export interface DeployPackageFormState {
@@ -107,9 +107,10 @@ export function normalizeBoolean(value?: string): boolean {
   return n === 'true' || n === '1' || n === 'yes'
 }
 
-export function normalizeExecutionLocation(value?: string, runOnServer = false): ExecutionLocationMode {
-  if (value === 'WorkerPool' || value === 'WorkerPoolForRoles' || value === 'DeploymentTarget') return value
-  return runOnServer ? 'WorkerPool' : 'DeploymentTarget'
+export function normalizeExecutionLocation(_value?: string, _runOnServer = false): ExecutionLocationMode {
+  // Deploy a Package always installs on each matched deployment target.
+  // Worker/server execution locations are not supported for this step type.
+  return 'DeploymentTarget'
 }
 
 export function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -302,7 +303,9 @@ export function buildDeployPackageStepDto(args: {
   const { form, processId, existingStep } = args
   const existingAction = existingStep?.actions[0]
   const normalizedName = form.stepName.trim() || DEFAULT_STEP_NAME
-  const runOnServer = form.executionLocation === 'WorkerPool' || form.executionLocation === 'WorkerPoolForRoles'
+  // Deploy a Package always runs on each matched deployment target.
+  const runOnServer = false
+  const executionLocation: ExecutionLocationMode = 'DeploymentTarget'
 
   const knownActionPropertyNames = new Set<string>([
     PackageProperties.feedId,
@@ -364,7 +367,7 @@ export function buildDeployPackageStepDto(args: {
       id: 0,
       actionId: existingAction?.id ?? 0,
       propertyName: StepControlProperties.executionLocation,
-      propertyValue: form.executionLocation,
+      propertyValue: executionLocation,
     },
   ]
 

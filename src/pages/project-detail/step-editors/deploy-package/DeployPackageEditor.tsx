@@ -18,15 +18,11 @@ import {
   isUnsupportedDeployPackageFeedType,
   normalizeDeployPackageForm,
   validateDeployPackageForm,
-  type ExecutionLocationMode,
   type InstallationDirectoryMode,
   type StartTriggerMode,
 } from './deploy-package-model'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
-
-const WORKER_EXECUTION_WARNING =
-  'Worker execution for package deploy is experimental; ensure worker targets support package installation.'
 
 export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>(
   function DeployPackageEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
@@ -42,7 +38,6 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     const [customInstallationDirectory, setCustomInstallationDirectory] = useState(
       initial.customInstallationDirectory,
     )
-    const [executionLocation, setExecutionLocation] = useState<ExecutionLocationMode>(initial.executionLocation)
     const [startTrigger, setStartTrigger] = useState<StartTriggerMode>(initial.startTrigger)
     const [conditions, setConditions] = useState(initial.conditions)
     const [retriesEnabled, setRetriesEnabled] = useState(initial.retriesEnabled)
@@ -140,7 +135,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
         targetRoles,
         installationDirectoryMode,
         customInstallationDirectory,
-        executionLocation,
+        executionLocation: 'DeploymentTarget' as const,
         startTrigger,
         retriesEnabled,
         retryCount,
@@ -193,7 +188,6 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
       targetRoles,
       installationDirectoryMode,
       customInstallationDirectory,
-      executionLocation,
       startTrigger,
       retriesEnabled,
       retryCount,
@@ -224,13 +218,6 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
     const displayName = stepName.trim() || DEFAULT_STEP_NAME
-    const showWorkerWarning = executionLocation === 'WorkerPool' || executionLocation === 'WorkerPoolForRoles'
-    const executionLocationDescription = executionLocation === 'DeploymentTarget'
-      ? 'Execute on each deployment target with the selected target roles.'
-      : executionLocation === 'WorkerPoolForRoles'
-        ? 'Execute on a worker on behalf of each deployment target with selected target roles.'
-        : 'Execute once on a worker.'
-
     return (
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4">
@@ -274,26 +261,13 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                               </CollapsibleSection>
 
           <CollapsibleSection title="Execution Location" subtitle="Where will Squid run this step?" defaultOpen fullWidth>
-                                <div className="ml-[216px] space-y-3">
-                                  <Radio.Group
-                                    value={executionLocation}
-                                    onChange={(event) => setExecutionLocation(event.target.value as ExecutionLocationMode)}
-                                    className="flex flex-col gap-2"
-                                  >
-                                    <Radio value="WorkerPool">
-                                      <span className="text-sm">Run once on a worker</span>
-                                    </Radio>
-                                    <Radio value="WorkerPoolForRoles">
-                                      <span className="text-sm">Run on a worker on behalf of each deployment target</span>
-                                    </Radio>
-                                    <Radio value="DeploymentTarget">
-                                      <span className="text-sm">Run on each deployment target</span>
-                                    </Radio>
-                                  </Radio.Group>
-                                  <p className="m-0 text-xs text-slate-500">{executionLocationDescription}</p>
-                                  {showWorkerWarning ? (
-                                    <p className="m-0 text-xs text-amber-600">{WORKER_EXECUTION_WARNING}</p>
-                                  ) : null}
+                                <div className="ml-[216px] space-y-2">
+                                  <p className="m-0 text-sm text-slate-700">
+                                    Run on each deployment target
+                                  </p>
+                                  <p className="m-0 text-xs text-slate-500">
+                                    This step always runs on each deployment target matched by Target Tags.
+                                  </p>
                                 </div>
                               </CollapsibleSection>
 
