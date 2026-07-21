@@ -12,6 +12,7 @@ export const DEFAULT_STEP_NAME = 'Deploy a Package'
 export const PackageProperties = {
   feedId: 'Squid.Action.Package.FeedId',
   packageId: 'Squid.Action.Package.PackageId',
+  packageVersion: 'Squid.Action.Package.PackageVersion',
   installationDirectoryMode: 'Squid.Action.Package.InstallationDirectoryMode',
   customInstallationDirectory: 'Squid.Action.Package.CustomInstallationDirectory',
 } as const
@@ -63,6 +64,7 @@ export interface DeployPackageFormState {
   feedId: number | null
   feedType?: string | null
   packageId: string
+  packageVersion: string
   targetRoles: string[]
   installationDirectoryMode: InstallationDirectoryMode
   customInstallationDirectory: string
@@ -71,7 +73,7 @@ export interface DeployPackageFormState {
   retriesEnabled: boolean
   retryCount: number // 1..3
   maxParallelism: number // 0 = off
-  timeoutSeconds: number // 0 = never
+  timeoutMinutes: number // 0 = never
   configurationVariablesEnabled: boolean
   configurationTransformsEnabled: boolean
   configurationTransformsEnvironmentName: string
@@ -140,6 +142,17 @@ export function getTargetRoles(step: DeploymentStepDto | null | undefined): stri
     : []
 }
 
+
+export function secondsToTimeoutMinutes(seconds: number): number {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0
+  return Math.ceil(seconds / 60)
+}
+
+export function timeoutMinutesToSeconds(minutes: number): number {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 0
+  return Math.floor(minutes) * 60
+}
+
 export function normalizeDeployPackageForm(step: DeploymentStepDto | null): DeployPackageFormState {
   const action = step?.actions[0]
   const includeEnvironments = action?.environments ?? []
@@ -156,16 +169,16 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
   const retryCount = retryCountRaw > 0 ? Math.min(Math.max(retryCountRaw, 1), 3) : 1
 
   const timeoutSecondsRaw = parsePositiveInt(getStepProperty(step?.properties, StepControlProperties.timeout), NaN)
-  let timeoutSeconds = 0
+  let timeoutMinutes = 0
   if (Number.isFinite(timeoutSecondsRaw) && timeoutSecondsRaw > 0) {
-    timeoutSeconds = timeoutSecondsRaw
+    timeoutMinutes = secondsToTimeoutMinutes(timeoutSecondsRaw)
   } else {
     const legacyMinutes = parsePositiveInt(
       getStepProperty(step?.properties, StepControlProperties.timeoutMinutesLegacy),
       NaN,
     )
     if (Number.isFinite(legacyMinutes) && legacyMinutes > 0) {
-      timeoutSeconds = legacyMinutes * 60
+      timeoutMinutes = legacyMinutes
     }
   }
 
@@ -179,6 +192,7 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
     stepName: step?.name ?? DEFAULT_STEP_NAME,
     feedId: Number.parseInt(getActionProperty(action, PackageProperties.feedId) ?? '', 10) || null,
     packageId: getActionProperty(action, PackageProperties.packageId) ?? '',
+    packageVersion: getActionProperty(action, PackageProperties.packageVersion) ?? '',
     targetRoles: getTargetRoles(step),
     installationDirectoryMode: normalizeInstallationDirectoryMode(
       getActionProperty(action, PackageProperties.installationDirectoryMode),
@@ -192,7 +206,7 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
     retriesEnabled,
     retryCount,
     maxParallelism,
-    timeoutSeconds,
+    timeoutMinutes,
     configurationVariablesEnabled: normalizeBoolean(
       getActionProperty(action, PackageConfigProperties.configurationVariablesEnabled),
     ),
@@ -271,7 +285,7 @@ export function validateDeployPackageForm(form: DeployPackageFormState): Validat
   if (form.retriesEnabled && (form.retryCount < 1 || form.retryCount > 3)) {
     return { ok: false, message: 'Retries must be between 1 and 3' }
   }
-  if (!Number.isFinite(form.timeoutSeconds) || form.timeoutSeconds < 0) {
+  if (!Number.isFinite(form.timeoutMinutes) || form.timeoutMinutes < 0) {
     return { ok: false, message: 'Timeout must be zero or a positive integer' }
   }
   if (!Number.isFinite(form.maxParallelism) || (form.maxParallelism !== 0 && form.maxParallelism < 1)) {
@@ -293,6 +307,7 @@ export function buildDeployPackageStepDto(args: {
   const knownActionPropertyNames = new Set<string>([
     PackageProperties.feedId,
     PackageProperties.packageId,
+    PackageProperties.packageVersion,
     PackageProperties.installationDirectoryMode,
     PackageProperties.customInstallationDirectory,
     StepControlProperties.executionLocation,
@@ -331,6 +346,14 @@ export function buildDeployPackageStepDto(args: {
       propertyName: PackageProperties.packageId,
       propertyValue: form.packageId.trim(),
     },
+    ...(form.packageVersion.trim()
+      ? [{
+          id: 0,
+          actionId: existingAction?.id ?? 0,
+          propertyName: PackageProperties.packageVersion,
+          propertyValue: form.packageVersion.trim(),
+        }]
+      : []),
     {
       id: 0,
       actionId: existingAction?.id ?? 0,
@@ -488,12 +511,13 @@ export function buildDeployPackageStepDto(args: {
     )
   }
 
-  if (form.timeoutSeconds > 0) {
+  const timeoutSeconds = timeoutMinutesToSeconds(form.timeoutMinutes)
+  if (timeoutSeconds > 0) {
     stepProperties.push({
       id: 0,
       stepId: existingStep?.id ?? 0,
       propertyName: StepControlProperties.timeout,
-      propertyValue: String(form.timeoutSeconds),
+      propertyValue: String(timeoutSeconds),
     })
   }
 

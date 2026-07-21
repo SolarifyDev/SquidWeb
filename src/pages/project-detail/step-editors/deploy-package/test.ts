@@ -18,12 +18,90 @@ const emptyConditions = {
   disabled: false,
 }
 
+const validBaseForm = {
+  stepName: 'Deploy Web',
+  feedId: 3,
+  feedType: 'NuGet',
+  packageId: 'Acme.Web',
+  packageVersion: '',
+  targetRoles: ['web'],
+  installationDirectoryMode: 'Versioned' as const,
+  customInstallationDirectory: '',
+  executionLocation: 'DeploymentTarget' as const,
+  startTrigger: 'StartAfterPrevious' as const,
+  retriesEnabled: false,
+  retryCount: 1,
+  maxParallelism: 0,
+  timeoutMinutes: 0,
+  configurationVariablesEnabled: false,
+  configurationTransformsEnabled: false,
+  configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+  additionalTransforms: '',
+  substituteInFilesEnabled: false,
+  substituteInFilesTargetFiles: '',
+  substituteFailOnUnresolved: false,
+  structuredConfigEnabled: false,
+  structuredConfigTargets: '',
+  purgeBeforeInstall: false,
+  preservePaths: '',
+  skipIfAlreadyInstalled: false,
+  retentionCount: 0,
+  useCurrentPointer: false,
+  rollbackOnFailure: false,
+  conditions: emptyConditions,
+} satisfies DeployPackageFormState
+
 describe('deploy-package-model', () => {
-  it('builds create dto with required properties', () => {
+  it('normalizes optional package version and timeout minutes', () => {
+    const form = normalizeDeployPackageForm({
+      id: 1,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy a Package',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: new Date().toISOString(),
+      properties: [
+        { id: 1, stepId: 1, propertyName: 'Squid.Step.Timeout', propertyValue: '120' },
+        { id: 2, stepId: 1, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+      ],
+      actions: [{
+        id: 13,
+        stepId: 1,
+        actionOrder: 0,
+        name: 'Deploy a Package',
+        actionType: 'Squid.TentaclePackage',
+        workerPoolId: null,
+        isDisabled: false,
+        isRequired: false,
+        canBeUsedForProjectVersioning: true,
+        createdAt: new Date().toISOString(),
+        properties: [
+          { id: 1, actionId: 13, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '1' },
+          { id: 2, actionId: 13, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Newtonsoft.Json' },
+          { id: 3, actionId: 13, propertyName: 'Squid.Action.Package.PackageVersion', propertyValue: '13.0.3' },
+        ],
+        environments: [],
+        excludedEnvironments: [],
+        channels: [],
+      }],
+    })
+
+    expect(form.packageVersion).toBe('13.0.3')
+    expect(form.timeoutMinutes).toBe(2)
+  })
+
+  it('builds package version property and stores timeout as seconds', () => {
     const form: DeployPackageFormState = {
       stepName: 'Deploy Web',
       feedId: 3,
+      feedType: 'NuGet',
       packageId: 'Acme.Web',
+      packageVersion: '1.2.3',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -32,7 +110,56 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 5,
+      configurationVariablesEnabled: false,
+      configurationTransformsEnabled: false,
+      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+      additionalTransforms: '',
+      substituteInFilesEnabled: false,
+      substituteInFilesTargetFiles: '',
+      substituteFailOnUnresolved: false,
+      structuredConfigEnabled: false,
+      structuredConfigTargets: '',
+      purgeBeforeInstall: false,
+      preservePaths: '',
+      skipIfAlreadyInstalled: false,
+      retentionCount: 0,
+      useCurrentPointer: false,
+      rollbackOnFailure: false,
+      conditions: emptyConditions,
+    }
+
+    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const actionProps = dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue])
+    const stepProps = dto.properties.map((p) => [p.propertyName, p.propertyValue])
+
+    expect(actionProps).toContainEqual(['Squid.Action.Package.PackageVersion', '1.2.3'])
+    expect(stepProps).toContainEqual(['Squid.Step.Timeout', '300'])
+  })
+
+  it('rejects negative timeout minutes', () => {
+    const form = {
+      ...validBaseForm,
+      timeoutMinutes: -1,
+    }
+    expect(validateDeployPackageForm(form).ok).toBe(false)
+  })
+
+  it('builds create dto with required properties', () => {
+    const form: DeployPackageFormState = {
+      stepName: 'Deploy Web',
+      feedId: 3,
+      packageId: 'Acme.Web',
+      packageVersion: '',
+      targetRoles: ['web'],
+      installationDirectoryMode: 'Versioned',
+      customInstallationDirectory: '',
+      executionLocation: 'DeploymentTarget',
+      startTrigger: 'StartAfterPrevious',
+      retriesEnabled: false,
+      retryCount: 1,
+      maxParallelism: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -103,6 +230,7 @@ describe('deploy-package-model', () => {
       stepName: '',
       feedId: null,
       packageId: '',
+      packageVersion: '',
       targetRoles: [],
       installationDirectoryMode: 'Custom',
       customInstallationDirectory: '',
@@ -111,7 +239,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -180,13 +308,13 @@ describe('deploy-package-model', () => {
     expect(form.startTrigger).toBe('StartWithPrevious')
     expect(form.retriesEnabled).toBe(true)
     expect(form.retryCount).toBe(2)
-    expect(form.timeoutSeconds).toBe(45)
+    expect(form.timeoutMinutes).toBe(1)
     expect(form.maxParallelism).toBe(3)
 
     form.executionLocation = 'DeploymentTarget'
     form.retriesEnabled = true
     form.retryCount = 3
-    form.timeoutSeconds = 90
+    form.timeoutMinutes = 2
     form.maxParallelism = 2
 
     const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
@@ -197,7 +325,7 @@ describe('deploy-package-model', () => {
     expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
     expect(stepProps['Squid.Step.RetriesEnabled']).toBe('true')
     expect(stepProps['Squid.Step.RetriesCount']).toBe('3')
-    expect(stepProps['Squid.Step.Timeout']).toBe('90')
+    expect(stepProps['Squid.Step.Timeout']).toBe('120')
     expect(stepProps['Squid.Step.MaxParallelism']).toBe('2')
     expect(actionProps['Squid.Action.Script.ExecutionLocation']).toBe('DeploymentTarget')
     expect(actionProps['Custom.Unknown']).toBe('keep-me')
@@ -208,6 +336,7 @@ describe('deploy-package-model', () => {
       stepName: 'Deploy Web',
       feedId: 3,
       packageId: 'Acme.Web',
+      packageVersion: '',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -216,7 +345,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: true,
       retryCount: 9,
       maxParallelism: 0,
-      timeoutSeconds: -1,
+      timeoutMinutes: -1,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -242,6 +371,7 @@ describe('deploy-package-model', () => {
       stepName: 'Deploy Web',
       feedId: 3,
       packageId: 'Acme.Web',
+      packageVersion: '',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -250,7 +380,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -328,6 +458,7 @@ describe('deploy-package-model', () => {
       stepName: 'Deploy Web',
       feedId: 3,
       packageId: 'Acme.Web',
+      packageVersion: '',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -336,7 +467,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -501,6 +632,7 @@ describe('deploy-package-model', () => {
       feedId: 3,
       feedType: 'Docker',
       packageId: 'Acme.Web',
+      packageVersion: '',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -509,7 +641,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
@@ -547,6 +679,7 @@ describe('deploy-package-model', () => {
       feedId: 3,
       feedType: null,
       packageId: 'Acme.Web',
+      packageVersion: '',
       targetRoles: ['web'],
       installationDirectoryMode: 'Versioned',
       customInstallationDirectory: '',
@@ -555,7 +688,7 @@ describe('deploy-package-model', () => {
       retriesEnabled: false,
       retryCount: 1,
       maxParallelism: 0,
-      timeoutSeconds: 0,
+      timeoutMinutes: 0,
       configurationVariablesEnabled: false,
       configurationTransformsEnabled: false,
       configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
