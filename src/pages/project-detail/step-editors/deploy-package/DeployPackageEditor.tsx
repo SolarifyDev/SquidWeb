@@ -633,59 +633,60 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
             hideRootSection
             hidePackageRequirement
             hideDisabled
+            afterChannels={(
+              <CollapsibleSection
+                title="Rolling Deployment"
+                subtitle="Configure a rolling deployment to control the number of deployment targets this step can deploy to at once."
+                defaultOpen
+              >
+                <Checkbox
+                  checked={maxParallelism > 0}
+                  onChange={(event) => setMaxParallelism(event.target.checked ? Math.max(maxParallelism, 1) : 0)}
+                >
+                  <span className="text-sm">Configure a rolling deployment</span>
+                </Checkbox>
+                {maxParallelism > 0 ? (
+                  <div className="mt-2 max-w-[220px]">
+                    <label className="mb-1 block text-xs font-medium text-slate-600">Maximum parallel targets</label>
+                    <Input
+                      size="small"
+                      type="number"
+                      min={1}
+                      value={String(maxParallelism)}
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10)
+                        if (!Number.isFinite(parsed) || parsed < 1) {
+                          setMaxParallelism(1)
+                          return
+                        }
+                        setMaxParallelism(parsed)
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </CollapsibleSection>
+            )}
             afterRunCondition={(
-          <CollapsibleSection
-                                      title="Start Trigger"
-                                      subtitle="Control whether this step waits for the previous step to complete, or runs in parallel with it."
-                                      defaultOpen
-                                    >
-                                      <Radio.Group
-                                        value={startTrigger}
-                                        onChange={(event) => setStartTrigger(event.target.value as StartTriggerMode)}
-                                        className="flex flex-col gap-2"
-                                      >
-                                        <Radio value="StartWithPrevious">
-                                          <span className="text-sm">Run in parallel with the previous step</span>
-                                        </Radio>
-                                        <Radio value="StartAfterPrevious">
-                                          <span className="text-sm">Wait for all previous steps to complete, then start</span>
-                                        </Radio>
-                                      </Radio.Group>
-                                    </CollapsibleSection>
+              <CollapsibleSection
+                title="Start Trigger"
+                subtitle="Control whether this step waits for the previous step to complete, or runs in parallel with it."
+                defaultOpen
+              >
+                <Radio.Group
+                  value={startTrigger}
+                  onChange={(event) => setStartTrigger(event.target.value as StartTriggerMode)}
+                  className="flex flex-col gap-2"
+                >
+                  <Radio value="StartWithPrevious">
+                    <span className="text-sm">Run in parallel with the previous step</span>
+                  </Radio>
+                  <Radio value="StartAfterPrevious">
+                    <span className="text-sm">Wait for all previous steps to complete, then start</span>
+                  </Radio>
+                </Radio.Group>
+              </CollapsibleSection>
             )}
           />
-
-          <CollapsibleSection
-                                  title="Rolling Deployment"
-                                  subtitle="Configure a rolling deployment to control the number of deployment targets this step can deploy to at once."
-                                  defaultOpen
-                                >
-                                  <Checkbox
-                                    checked={maxParallelism > 0}
-                                    onChange={(event) => setMaxParallelism(event.target.checked ? Math.max(maxParallelism, 1) : 0)}
-                                  >
-                                    <span className="text-sm">Configure a rolling deployment</span>
-                                  </Checkbox>
-                                  {maxParallelism > 0 ? (
-                                    <div className="mt-2 max-w-[220px]">
-                                      <label className="mb-1 block text-xs font-medium text-slate-600">Maximum parallel targets</label>
-                                      <Input
-                                        size="small"
-                                        type="number"
-                                        min={1}
-                                        value={String(maxParallelism)}
-                                        onChange={(event) => {
-                                          const parsed = Number.parseInt(event.target.value, 10)
-                                          if (!Number.isFinite(parsed) || parsed < 1) {
-                                            setMaxParallelism(1)
-                                            return
-                                          }
-                                          setMaxParallelism(parsed)
-                                        }}
-                                      />
-                                    </div>
-                                  ) : null}
-                                </CollapsibleSection>
 
           <CollapsibleSection title="Retries" subtitle="Upon failure, this step will automatically retry." defaultOpen>
                                   <Checkbox checked={retriesEnabled} onChange={(event) => setRetriesEnabled(event.target.checked)}>

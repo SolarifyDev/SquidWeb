@@ -23,6 +23,7 @@ interface StepConditionsSectionProps {
   projectId?: number | null
   requiredLocked?: boolean
   requiredLockedReason?: React.ReactNode
+  afterChannels?: React.ReactNode
   afterRunCondition?: React.ReactNode
   hideRootSection?: boolean
   hidePackageRequirement?: boolean
@@ -82,6 +83,7 @@ export function StepConditionsSection({
   projectId,
   requiredLocked = false,
   requiredLockedReason,
+  afterChannels,
   afterRunCondition,
   hideRootSection = false,
   hidePackageRequirement = false,
@@ -216,6 +218,8 @@ export function StepConditionsSection({
           </>
         )}
       </CollapsibleSection>
+
+      {afterChannels}
 
       <CollapsibleSection title="Run Condition" subtitle="Limit when this step runs by setting a condition." defaultOpen>
         <Radio.Group

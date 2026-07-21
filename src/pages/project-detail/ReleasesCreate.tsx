@@ -351,14 +351,9 @@ const buildDefaultPackageVersionLookup = (steps: DeploymentStepDto[]) => {
       if (!packageVersion) continue
       const packageId = normalizePackageVersion(getActionProperty(action, 'Squid.Action.Package.PackageId'))
       const actionName = normalizeText(action.name)
-      if (actionName) {
-        lookup.set(`action:${actionName}`, packageVersion)
-      }
+      // Prefer exact action + package keys only, to avoid cross-matching multi-package steps.
       if (actionName && packageId) {
         lookup.set(`action-package:${actionName}::${normalizeText(packageId)}`, packageVersion)
-      }
-      if (packageId) {
-        lookup.set(`package:${normalizeText(packageId)}`, packageVersion)
       }
     }
   }
@@ -375,6 +370,7 @@ const resolveDefaultPackageVersion = (
   const actionName = normalizeText(target.actionName)
   const packageReferenceName = normalizeText(target.packageReferenceName)
   const packageId = normalizeText(target.packageId)
+  // packageReferenceName == packageId for Deploy a Package; try both exact keys.
   return (
     (actionName && packageReferenceName
       ? read(`action-package:${actionName}::${packageReferenceName}`)
@@ -382,9 +378,6 @@ const resolveDefaultPackageVersion = (
     || (actionName && packageId
       ? read(`action-package:${actionName}::${packageId}`)
       : undefined)
-    || (actionName ? read(`action:${actionName}`) : undefined)
-    || (packageReferenceName ? read(`package:${packageReferenceName}`) : undefined)
-    || (packageId ? read(`package:${packageId}`) : undefined)
     || ''
   )
 }
