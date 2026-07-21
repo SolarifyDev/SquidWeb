@@ -611,6 +611,7 @@ const ReleasesCreate: React.FC = () => {
 
   useEffect(() => {
     packageTargets.forEach((target) => {
+      if (!Number.isFinite(target.feedId) || target.feedId <= 0) return
       const defaultQueryKey = buildPackageVersionsCacheKey(target.key, true)
       if (packageVersionsByKey[defaultQueryKey]) return
       if (packageVersionsLoadingByKey[defaultQueryKey]) return
@@ -767,6 +768,12 @@ const ReleasesCreate: React.FC = () => {
       return
     }
 
+    const invalidFeedPackage = selectedPackages.find((pkg) => !Number.isFinite(pkg.feedId) || pkg.feedId <= 0)
+    if (invalidFeedPackage) {
+      message.error(`Package feed is missing or invalid for ${invalidFeedPackage.packageReferenceName}.`)
+      return
+    }
+
     if (hasEmptySpecificVersion) {
       message.error('Specific package version cannot be empty.')
       return
@@ -781,12 +788,6 @@ const ReleasesCreate: React.FC = () => {
     }
     if (canForceVersionSelection && !ignoreChannelRules) {
       message.warning('請勾選 Force Version Selection 以繼續')
-      return
-    }
-
-    const invalidFeedPackage = selectedPackages.find((pkg) => !Number.isFinite(pkg.feedId) || pkg.feedId <= 0)
-    if (invalidFeedPackage) {
-      message.error(`Package feed is missing or invalid for ${invalidFeedPackage.packageReferenceName}.`)
       return
     }
 
