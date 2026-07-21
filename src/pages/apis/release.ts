@@ -56,6 +56,7 @@ export interface CreateReleaseSelectedPackageDto {
   actionName: string
   version: string
   packageReferenceName: string
+  feedId: number
 }
 
 export interface CreateReleaseCommand {

@@ -25,6 +25,7 @@ interface PackageSelection {
   actionName: string
   packageReferenceName: string
   packageId: string
+  feedId: number
   version: string
 }
 
@@ -661,6 +662,7 @@ const ReleasesCreate: React.FC = () => {
           actionName: target.actionName,
           packageReferenceName: target.packageReferenceName,
           packageId: target.packageId,
+          feedId: target.feedId,
           version: value,
         }
       }),
@@ -782,6 +784,12 @@ const ReleasesCreate: React.FC = () => {
       return
     }
 
+    const invalidFeedPackage = selectedPackages.find((pkg) => !Number.isFinite(pkg.feedId) || pkg.feedId <= 0)
+    if (invalidFeedPackage) {
+      message.error(`Package feed is missing or invalid for ${invalidFeedPackage.packageReferenceName}.`)
+      return
+    }
+
     setSaving(true)
     try {
       const createdRelease = await createRelease({
@@ -792,6 +800,7 @@ const ReleasesCreate: React.FC = () => {
         selectedPackages: selectedPackages.map((item) => ({
           actionName: item.actionName,
           packageReferenceName: item.packageReferenceName,
+          feedId: item.feedId,
           version: item.version,
         })),
         ...(canForceVersionSelection && ignoreChannelRules
