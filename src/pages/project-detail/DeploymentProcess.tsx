@@ -23,6 +23,7 @@ import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
 import { DeployToIisEditor } from './step-editors/iis/DeployToIisEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
+import { WindowsServiceEditor } from './step-editors/windows-service/WindowsServiceEditor'
 import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
 import {
   OpenClawInvokeToolEditor,
@@ -55,6 +56,8 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.HealthCheck':                HealthCheckEditor,
   'Squid.DeployToIISWebSite':         DeployToIisEditor,
   'Squid.IIS':                        DeployToIisEditor,
+  'Octopus.WindowsService':           WindowsServiceEditor,
+  'Squid.WindowsService':             WindowsServiceEditor,
   'Squid.OpenClaw.InvokeTool':        OpenClawInvokeToolEditor,
   'Squid.OpenClaw.ChatCompletion':    OpenClawChatCompletionEditor,
   'Squid.OpenClaw.RunAgent':          OpenClawRunAgentEditor,
@@ -86,6 +89,8 @@ function actionSummary(actionType: string): string {
     'Squid.Kubernetes.Kustomize': 'Deploy with Kustomize',
     'Squid.DeployToIISWebSite': 'Deploy to IIS',
     'Squid.IIS': 'Deploy to IIS',
+    'Octopus.WindowsService': 'Deploy a Windows Service',
+    'Squid.WindowsService': 'Deploy a Windows Service',
     'Squid.TentaclePackage': 'Deploy a Package',
     'Squid.AzureAppService': 'Deploy an Azure App Service',
     'Squid.AzurePowerShell': 'Run an Azure Script',
@@ -493,6 +498,13 @@ const STEP_TEMPLATES: StepTemplate[] = [
     actionType: 'Squid.DeployToIISWebSite',
     bullets: ['Deploy the contents of a package to a Website, a Web Application or a Virtual Directory.'],
     categoryIds: ['package', 'windows'],
+  },
+  {
+    id: 'windows-service',
+    title: 'Deploy a Windows Service',
+    actionType: 'Octopus.WindowsService',
+    bullets: ['Deploy the contents of a package and configure a Windows Service.'],
+    categoryIds: ['windows'],
   },
   {
     id: 'package',

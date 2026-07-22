@@ -23,8 +23,10 @@ interface StepConditionsSectionProps {
   projectId?: number | null
   requiredLocked?: boolean
   requiredLockedReason?: React.ReactNode
+  afterEnvironments?: React.ReactNode
   afterRunCondition?: React.ReactNode
   hideRootSection?: boolean
+  hideChannels?: boolean
   hidePackageRequirement?: boolean
   hideDisabled?: boolean
 }
@@ -82,8 +84,10 @@ export function StepConditionsSection({
   projectId,
   requiredLocked = false,
   requiredLockedReason,
+  afterEnvironments,
   afterRunCondition,
   hideRootSection = false,
+  hideChannels = false,
   hidePackageRequirement = false,
   hideDisabled = false,
 }: StepConditionsSectionProps) {
@@ -190,32 +194,36 @@ export function StepConditionsSection({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="Channels" subtitle="Choose which channels this step applies to." defaultOpen>
-        {loading ? (
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Spin size="small" />
-            <span>Loading channels...</span>
-          </div>
-        ) : (
-          <>
-            <p className="text-xs text-slate-500 m-0">
-              If nothing is selected this step will run for releases in any channel, otherwise it will only run for releases belonging to the selected channels.
-            </p>
-            <Select
-              mode="multiple"
-              value={value.channelIds}
-              options={channelOptions}
-              onChange={(ids) => {
-                const unique = Array.from(new Set((ids as number[]).map(Number)))
-                onChange({ ...value, channelIds: unique })
-              }}
-              placeholder="Select channels"
-              size="small"
-              className="w-full"
-            />
-          </>
-        )}
-      </CollapsibleSection>
+      {afterEnvironments}
+
+      {!hideChannels ? (
+        <CollapsibleSection title="Channels" subtitle="Choose which channels this step applies to." defaultOpen>
+          {loading ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Spin size="small" />
+              <span>Loading channels...</span>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 m-0">
+                If nothing is selected this step will run for releases in any channel, otherwise it will only run for releases belonging to the selected channels.
+              </p>
+              <Select
+                mode="multiple"
+                value={value.channelIds}
+                options={channelOptions}
+                onChange={(ids) => {
+                  const unique = Array.from(new Set((ids as number[]).map(Number)))
+                  onChange({ ...value, channelIds: unique })
+                }}
+                placeholder="Select channels"
+                size="small"
+                className="w-full"
+              />
+            </>
+          )}
+        </CollapsibleSection>
+      ) : null}
 
       <CollapsibleSection title="Run Condition" subtitle="Limit when this step runs by setting a condition." defaultOpen>
         <Radio.Group
