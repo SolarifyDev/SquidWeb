@@ -45,11 +45,7 @@ import type {
 } from "../shared/StepEditorTypes";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
-const ACTION_TYPE = "Octopus.WindowsService";
-const WINDOWS_SERVICE_ACTION_TYPES = [
-  "Octopus.WindowsService",
-  "Squid.WindowsService",
-] as const;
+const ACTION_TYPE = "Squid.WindowsService";
 const DEFAULT_STEP_NAME = "Deploy a Windows Service";
 const FEATURES_PROPERTY = "Squid.Action.EnabledFeatures";
 const STEP_CONDITION_EXPRESSION_PROPERTY = "Squid.Step.ConditionExpression";
@@ -1003,20 +999,12 @@ export const WindowsServiceEditor = forwardRef<
       conditions.environmentMode === "include" ? conditions.environmentIds : [];
     const actionExcludedEnvironments =
       conditions.environmentMode === "exclude" ? conditions.environmentIds : [];
-    const actionType =
-      action?.actionType &&
-      WINDOWS_SERVICE_ACTION_TYPES.includes(
-        action.actionType as (typeof WINDOWS_SERVICE_ACTION_TYPES)[number]
-      )
-        ? action.actionType
-        : ACTION_TYPE;
-
     const nextAction: DeploymentActionDto = {
       id: action?.id ?? 0,
       stepId: step?.id ?? 0,
       actionOrder: action?.actionOrder ?? 0,
       name: normalizedStepName,
-      actionType,
+      actionType: ACTION_TYPE,
       workerPoolId: action?.workerPoolId ?? null,
       isDisabled: conditions.disabled,
       isRequired: action?.isRequired ?? false,
@@ -1096,14 +1084,7 @@ export const WindowsServiceEditor = forwardRef<
     step,
   ]);
 
-  const logoActionType =
-    action?.actionType &&
-    WINDOWS_SERVICE_ACTION_TYPES.includes(
-      action.actionType as (typeof WINDOWS_SERVICE_ACTION_TYPES)[number]
-    )
-      ? action.actionType
-      : ACTION_TYPE;
-  const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${logoActionType}/logo`;
+  const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`;
   const displayStepName = stepName.trim() || DEFAULT_STEP_NAME;
 
   return (
