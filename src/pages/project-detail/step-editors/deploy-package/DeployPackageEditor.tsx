@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Checkbox, Input, Radio, Select, message } from 'antd'
+import { AutoComplete, Checkbox, Input, Radio, Select, message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import {
   createDeploymentStep,
@@ -74,6 +74,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     const [feeds, setFeeds] = useState<ExternalFeedDto[]>([])
     const [packageOptions, setPackageOptions] = useState<string[]>([])
     const [packageQuery, setPackageQuery] = useState(initial.packageId)
+    const [packageSearchLoading, setPackageSearchLoading] = useState(false)
     const searchSeq = useRef(0)
 
     useEffect(() => {
@@ -103,23 +104,29 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     useEffect(() => {
       if (!feedId) {
         setPackageOptions([])
+        setPackageSearchLoading(false)
         return
       }
       const query = packageQuery.trim()
       if (!query) {
         setPackageOptions([])
+        setPackageSearchLoading(false)
         return
       }
       const seq = ++searchSeq.current
       const timer = window.setTimeout(() => {
+        setPackageSearchLoading(true)
         searchExternalFeedPackages({ feedId, query, take: 20 })
-          .then((res: any) => {
+          .then((res) => {
             if (seq !== searchSeq.current) return
-            const names = (res.packages ?? []).map((p: any) => p.packageId || p.id || p.name).filter(Boolean)
-            setPackageOptions(Array.from(new Set(names as string[])))
+            const names = (res.packages ?? []).filter((p): p is string => typeof p === 'string' && p.length > 0)
+            setPackageOptions(Array.from(new Set(names)))
           })
           .catch(() => {
             if (seq === searchSeq.current) setPackageOptions([])
+          })
+          .finally(() => {
+            if (seq === searchSeq.current) setPackageSearchLoading(false)
           })
       }, 250)
       return () => window.clearTimeout(timer)
@@ -312,21 +319,33 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                                   </div>
                                   <div>
                                     <div className="mb-1 text-sm text-slate-700">Package ID</div>
-                                    <Select
+                                    <AutoComplete
                                       className="w-full"
-                                      showSearch
                                       disabled={!feedId}
                                       placeholder={feedId ? 'Search package' : 'Select a feed first'}
-                                      value={packageId || undefined}
-                                      searchValue={packageQuery}
+                                      value={packageId}
+                                      options={packageOptions.map((value) => ({ value }))}
                                       onSearch={setPackageQuery}
-                                      onChange={(value) => {
-                                        setPackageId(value)
+                                      onSelect={(value) => {
                                         setPackageQuery(value)
+                                        setPackageId(value)
+                                      }}
+                                      onChange={(value) => {
+                                        setPackageQuery(value)
+                                        setPackageId(value)
                                         if (!value) setPackageVersion('')
                                       }}
-                                      options={packageOptions.map((name) => ({ value: name, label: name }))}
-                                      notFoundContent={feedId ? 'No packages' : 'Select a feed first'}
+                                      filterOption={false}
+                                      allowClear
+                                      notFoundContent={
+                                        feedId && packageQuery.trim()
+                                          ? packageSearchLoading
+                                            ? 'Searching packages...'
+                                            : 'No packages found'
+                                          : feedId
+                                            ? null
+                                            : 'Select a feed first'
+                                      }
                                     />
                                   </div>
                                   <div>
