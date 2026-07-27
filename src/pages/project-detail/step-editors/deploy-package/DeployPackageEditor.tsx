@@ -103,12 +103,14 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     useEffect(() => {
       if (!feedId) {
+        searchSeq.current += 1
         setPackageOptions([])
         setPackageSearchLoading(false)
         return
       }
       const query = packageQuery.trim()
       if (!query) {
+        searchSeq.current += 1
         setPackageOptions([])
         setPackageSearchLoading(false)
         return
@@ -305,6 +307,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
                                         setFeedId(value)
                                         const selected = feeds.find((f) => f.id === value)
                                         setFeedType(selected?.feedType ?? null)
+                                        searchSeq.current += 1
                                         setPackageId('')
                                         setPackageVersion('')
                                         setPackageQuery('')

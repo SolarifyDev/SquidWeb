@@ -265,4 +265,64 @@ describe('DeployPackageEditor package search contract', () => {
     })
     await expectOptionVisible('Latest.Only')
   })
+
+  it('ignores in-flight package search after feed switch', async () => {
+    mockGetExternalFeeds.mockResolvedValue({
+      count: 2,
+      externalFeeds: [
+        {
+          id: 7,
+          feedType: 'NuGet',
+          feedUri: 'https://feed.example',
+          username: '',
+          name: 'NuGet Feed',
+          slug: 'nuget-feed',
+          packageAcquisitionLocationOptions: [],
+          spaceId: 1,
+        },
+        {
+          id: 8,
+          feedType: 'NuGet',
+          feedUri: 'https://feed-b.example',
+          username: '',
+          name: 'Other Feed',
+          slug: 'other-feed',
+          packageAcquisitionLocationOptions: [],
+          spaceId: 1,
+        },
+      ],
+    })
+
+    let resolveFirst: ((value: { packages: string[] }) => void) | undefined
+    const firstPromise = new Promise<{ packages: string[] }>((resolve) => {
+      resolveFirst = resolve
+    })
+    mockSearchExternalFeedPackages.mockImplementationOnce(() => firstPromise)
+
+    renderEditor()
+    await selectFeed('NuGet Feed')
+    await typePackageQuery('Acme')
+
+    await waitFor(() => expect(mockSearchExternalFeedPackages).toHaveBeenCalledTimes(1))
+
+    await selectFeed('Other Feed')
+
+    await act(async () => {
+      resolveFirst?.({ packages: ['Stale.From.FeedA'] })
+    })
+
+    // Give a microtask turn for the stale response to apply if the guard is broken.
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const packageInput = getPackageInput()
+    expect(packageInput.value).toBe('')
+    fireEvent.mouseDown(packageInput)
+    fireEvent.focus(packageInput)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Stale.From.FeedA')).not.toBeInTheDocument()
+    })
+  })
 })
