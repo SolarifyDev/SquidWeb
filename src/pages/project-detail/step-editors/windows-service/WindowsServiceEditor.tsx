@@ -45,7 +45,7 @@ import type {
 } from "../shared/StepEditorTypes";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
-const ACTION_TYPE = "Squid.WindowsService";
+const ACTION_TYPE = "Squid.DeployWindowsService";
 const DEFAULT_STEP_NAME = "Deploy a Windows Service";
 const FEATURES_PROPERTY = "Squid.Action.EnabledFeatures";
 const STEP_CONDITION_EXPRESSION_PROPERTY = "Squid.Step.ConditionExpression";
@@ -144,8 +144,13 @@ const PackageProperties = {
     "Octopus.Action.Package.PackageVersion",
   ],
   customInstallationDirectory: [
+    "Squid.Action.WindowsService.Package.ExtractTo",
     "Squid.Action.Package.CustomInstallationDirectory",
     "Octopus.Action.Package.CustomInstallationDirectory",
+  ],
+  packageSourcePath: ["Squid.Action.WindowsService.Package.SourcePath"],
+  packagePurgeBeforeExtract: [
+    "Squid.Action.WindowsService.Package.PurgeBeforeExtract",
   ],
 } as const;
 
@@ -191,6 +196,7 @@ const WindowsServiceProperties = {
     "Octopus.Action.WindowsService.StartMode",
   ],
   state: [
+    "Squid.Action.WindowsService.DesiredStatus",
     "Squid.Action.WindowsService.State",
     "Octopus.Action.WindowsService.State",
   ],
@@ -259,6 +265,8 @@ interface WindowsServiceValues {
   packageFeedId: string;
   packageId: string;
   packageVersion: string;
+  packageSourcePath: string;
+  packagePurgeBeforeExtract: boolean;
   customInstallationDirectory: string;
   serviceName: string;
   displayName: string;
@@ -354,6 +362,10 @@ function normalizeBoolean(
   return fallback;
 }
 
+function boolPropertyValue(value: boolean): string {
+  return value ? "True" : "False";
+}
+
 function normalizeStartMode(
   value: string | undefined
 ): WindowsServiceStartMode {
@@ -376,6 +388,42 @@ function normalizeState(value: string | undefined): WindowsServiceState {
   if (normalized === "stopped") return "Stopped";
   if (normalized === "unchanged") return "Unchanged";
   return "Default";
+}
+
+function serializeStartMode(
+  value: WindowsServiceStartMode,
+  existingAction: DeploymentActionDto | undefined
+): string {
+  switch (value) {
+    case "demand":
+      return "Manual";
+    case "disabled":
+      return "Disabled";
+    case "unchanged": {
+      const existing = normalizeStartMode(
+        getActionProperty(existingAction, WindowsServiceProperties.startMode)
+      );
+      if (existing === "demand") return "Manual";
+      if (existing === "disabled") return "Disabled";
+      return "Automatic";
+    }
+    case "delayed-auto":
+    case "auto":
+    default:
+      return "Automatic";
+  }
+}
+
+function serializeDesiredStatus(value: WindowsServiceState): string {
+  switch (value) {
+    case "Stopped":
+      return "Stopped";
+    case "Started":
+    case "Unchanged":
+    case "Default":
+    default:
+      return "Started";
+  }
 }
 
 function normalizeServiceAccount(
@@ -403,10 +451,15 @@ function buildActionProperties(
       !property.propertyName.startsWith("Octopus.")
   );
 
-  const next: DeploymentActionPropertyDto[] = [...preserved];
+  const next = new Map<string, DeploymentActionPropertyDto>();
+
+  for (const property of preserved) {
+    next.set(property.propertyName, property);
+  }
+
   const pushProperty = (name: string, value: string, allowEmpty = false) => {
     if (!allowEmpty && value.trim() === "") return;
-    next.push({
+    next.set(name, {
       id: 0,
       actionId: existingAction?.id ?? 0,
       propertyName: name,
@@ -417,6 +470,11 @@ function buildActionProperties(
   pushProperty(PackageProperties.feedId[0], values.packageFeedId);
   pushProperty(PackageProperties.packageId[0], values.packageId);
   pushProperty(PackageProperties.version[0], values.packageVersion);
+  pushProperty(
+    PackageProperties.packageSourcePath[0],
+    values.packageSourcePath,
+    true
+  );
   if (values.enabledFeatures.has("Squid.Features.CustomDirectory")) {
     pushProperty(
       PackageProperties.customInstallationDirectory[0],
@@ -424,8 +482,12 @@ function buildActionProperties(
       true
     );
   }
+  pushProperty(
+    PackageProperties.packagePurgeBeforeExtract[0],
+    boolPropertyValue(values.packagePurgeBeforeExtract)
+  );
 
-  pushProperty(WindowsServiceProperties.createOrUpdateService[0], "true");
+  pushProperty(WindowsServiceProperties.createOrUpdateService[0], "True");
   pushProperty(WindowsServiceProperties.serviceName[0], values.serviceName);
   pushProperty(
     WindowsServiceProperties.displayName[0],
@@ -457,8 +519,14 @@ function buildActionProperties(
       true
     );
   }
-  pushProperty(WindowsServiceProperties.startMode[0], values.startMode);
-  pushProperty(WindowsServiceProperties.state[0], values.state);
+  pushProperty(
+    WindowsServiceProperties.startMode[0],
+    serializeStartMode(values.startMode, existingAction)
+  );
+  pushProperty(
+    WindowsServiceProperties.state[0],
+    serializeDesiredStatus(values.state)
+  );
   pushProperty(
     WindowsServiceProperties.dependencies[0],
     values.dependencies,
@@ -467,13 +535,13 @@ function buildActionProperties(
   if (values.enabledFeatures.has("Squid.Features.ConfigurationVariables")) {
     pushProperty(
       WindowsServiceProperties.replaceConfigVariables[0],
-      values.replaceConfigVariables ? "True" : "False"
+      boolPropertyValue(values.replaceConfigVariables)
     );
   }
   if (values.enabledFeatures.has("Squid.Features.ConfigurationTransforms")) {
     pushProperty(
       WindowsServiceProperties.runConfigTransforms[0],
-      values.runConfigTransforms ? "True" : "False"
+      boolPropertyValue(values.runConfigTransforms)
     );
     pushProperty(
       WindowsServiceProperties.configTransformsEnvironmentName[0],
@@ -489,7 +557,7 @@ function buildActionProperties(
   if (values.enabledFeatures.has("Squid.Features.JsonConfigurationVariables")) {
     pushProperty(
       WindowsServiceProperties.structuredConfigEnabled[0],
-      values.structuredConfigEnabled ? "True" : "False"
+      boolPropertyValue(values.structuredConfigEnabled)
     );
     pushProperty(
       WindowsServiceProperties.structuredConfigTargets[0],
@@ -533,7 +601,7 @@ function buildActionProperties(
     true
   );
 
-  return next;
+  return Array.from(next.values());
 }
 
 function buildStepProperties(
@@ -655,6 +723,15 @@ export const WindowsServiceEditor = forwardRef<
   );
   const [packageVersion, setPackageVersion] = useState(
     getActionProperty(action, PackageProperties.version) ?? ""
+  );
+  const [packageSourcePath] = useState(
+    getActionProperty(action, PackageProperties.packageSourcePath) ?? ""
+  );
+  const [packagePurgeBeforeExtract] = useState(
+    normalizeBoolean(
+      getActionProperty(action, PackageProperties.packagePurgeBeforeExtract),
+      false
+    )
   );
   const [customInstallationDirectory, setCustomInstallationDirectory] =
     useState(
@@ -961,6 +1038,8 @@ export const WindowsServiceEditor = forwardRef<
       packageFeedId,
       packageId,
       packageVersion,
+      packageSourcePath,
+      packagePurgeBeforeExtract,
       customInstallationDirectory,
       serviceName,
       displayName,
@@ -1056,6 +1135,8 @@ export const WindowsServiceEditor = forwardRef<
     packageFeedId,
     packageId,
     packageVersion,
+    packageSourcePath,
+    packagePurgeBeforeExtract,
     customInstallationDirectory,
     serviceName,
     displayName,
