@@ -22,9 +22,11 @@ interface PackageTarget {
 }
 
 interface PackageSelection {
+  key: string
   actionName: string
   packageReferenceName: string
   packageId: string
+  feedId: number
   version: string
 }
 
@@ -336,6 +338,8 @@ const normalizePackageVersion = (value?: string | null) => (value ?? '').trim()
 const normalizePackageVersionFilter = (value?: string | null) => (value ?? '').trim()
 const buildPackageVersionsCacheKey = (targetKey: string, includePreRelease: boolean, filter?: string) =>
   `${targetKey}|${includePreRelease ? '1' : '0'}|${normalizeText(filter)}`
+const normalizePackageReferenceName = (packageReferenceName?: string | null, packageId?: string | null) =>
+  (packageReferenceName ?? '').trim() || (packageId ?? '').trim()
 
 const withDockerLatestTagLabel = (version: string) => (
   normalizeText(version) === 'latest' ? `${version} (tag)` : version
@@ -517,9 +521,9 @@ const ReleasesCreate: React.FC = () => {
 
   const packageTargets = useMemo<PackageTarget[]>(() => {
     return packageReferences.map((ref, index) => ({
-      key: `${ref.actionName}-${ref.packageReferenceName}-${ref.feedId}-${index}`,
+      key: `${ref.actionName}-${normalizePackageReferenceName(ref.packageReferenceName, ref.packageId)}-${ref.feedId}-${index}`,
       actionName: ref.actionName,
-      packageReferenceName: ref.packageReferenceName,
+      packageReferenceName: normalizePackageReferenceName(ref.packageReferenceName, ref.packageId),
       packageId: ref.packageId,
       feedId: ref.feedId,
       feedName: ref.feedName ?? `Feed #${ref.feedId}`,
@@ -658,9 +662,11 @@ const ReleasesCreate: React.FC = () => {
               : latestVersion
 
         return {
+          key: target.key,
           actionName: target.actionName,
           packageReferenceName: target.packageReferenceName,
           packageId: target.packageId,
+          feedId: target.feedId,
           version: value,
         }
       }),
@@ -792,6 +798,7 @@ const ReleasesCreate: React.FC = () => {
         selectedPackages: selectedPackages.map((item) => ({
           actionName: item.actionName,
           packageReferenceName: item.packageReferenceName,
+          feedId: item.feedId,
           version: item.version,
         })),
         ...(canForceVersionSelection && ignoreChannelRules
