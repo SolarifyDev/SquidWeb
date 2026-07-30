@@ -5,6 +5,8 @@ import { DeployPackageEditor } from '../DeployPackageEditor'
 import type { StepEditorHandle } from '../../shared/StepEditorTypes'
 import { getExternalFeeds, searchExternalFeedPackages } from 'pages/apis/externalFeed'
 import { createDeploymentStep, updateDeploymentStep } from 'pages/apis/deploymentProcess'
+import { getChannels } from 'pages/apis/channel'
+import { getEnvironments } from 'pages/apis/environment'
 
 vi.mock('pages/apis/externalFeed', async (importOriginal) => {
   const actual = await importOriginal<typeof import('pages/apis/externalFeed')>()
@@ -21,6 +23,22 @@ vi.mock('pages/apis/deploymentProcess', async (importOriginal) => {
     ...actual,
     createDeploymentStep: vi.fn(),
     updateDeploymentStep: vi.fn(),
+  }
+})
+
+vi.mock('pages/apis/channel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('pages/apis/channel')>()
+  return {
+    ...actual,
+    getChannels: vi.fn(),
+  }
+})
+
+vi.mock('pages/apis/environment', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('pages/apis/environment')>()
+  return {
+    ...actual,
+    getEnvironments: vi.fn(),
   }
 })
 
@@ -59,6 +77,8 @@ const mockGetExternalFeeds = getExternalFeeds as unknown as Mock
 const mockSearchExternalFeedPackages = searchExternalFeedPackages as unknown as Mock
 const mockCreateDeploymentStep = createDeploymentStep as unknown as Mock
 const mockUpdateDeploymentStep = updateDeploymentStep as unknown as Mock
+const mockGetChannels = getChannels as unknown as Mock
+const mockGetEnvironments = getEnvironments as unknown as Mock
 
 function renderEditor(onSave = vi.fn()) {
   const ref = createRef<StepEditorHandle>()
@@ -93,8 +113,8 @@ function getPackageInput() {
 async function selectFeed(feedName = 'NuGet Feed') {
   await waitFor(() => expect(mockGetExternalFeeds).toHaveBeenCalled())
 
-  const packageSection = screen.getByText('Package Feed').parentElement
-  if (!packageSection) throw new Error('Package Feed section missing')
+  const packageSection = screen.getByText('Package feed').parentElement
+  if (!packageSection) throw new Error('Package feed section missing')
 
   const feedCombobox = within(packageSection).getByRole('combobox')
   fireEvent.mouseDown(feedCombobox)
@@ -143,6 +163,8 @@ beforeEach(() => {
   mockSearchExternalFeedPackages.mockReset()
   mockCreateDeploymentStep.mockReset()
   mockUpdateDeploymentStep.mockReset()
+  mockGetChannels.mockReset()
+  mockGetEnvironments.mockReset()
 
   mockGetExternalFeeds.mockResolvedValue({
     count: 1,
@@ -165,6 +187,8 @@ beforeEach(() => {
     id: 99,
     createdAt: '2026-01-01T00:00:00Z',
   }))
+  mockGetChannels.mockResolvedValue({ count: 0, channels: [] })
+  mockGetEnvironments.mockResolvedValue({ count: 0, environments: [] })
 })
 
 describe('DeployPackageEditor package search contract', () => {
