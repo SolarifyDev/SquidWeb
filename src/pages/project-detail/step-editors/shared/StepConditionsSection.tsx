@@ -24,6 +24,7 @@ interface StepConditionsSectionProps {
   requiredLocked?: boolean
   requiredLockedReason?: React.ReactNode
   afterChannels?: React.ReactNode
+  afterEnvironments?: React.ReactNode
   afterRunCondition?: React.ReactNode
   hideRootSection?: boolean
   hideChannels?: boolean
@@ -85,6 +86,7 @@ export function StepConditionsSection({
   requiredLocked = false,
   requiredLockedReason,
   afterChannels,
+  afterEnvironments,
   afterRunCondition,
   hideRootSection = false,
   hideChannels = false,
@@ -209,7 +211,9 @@ export function StepConditionsSection({
         )}
       </CollapsibleSection>
 
-      {hideChannels ? null : (
+      {afterEnvironments}
+
+      {!hideChannels ? (
         <CollapsibleSection title='Channels' subtitle='Choose which channels this step applies to.' defaultOpen>
           {loading ? (
             <div className='flex items-center gap-2 text-xs text-slate-500'>
@@ -237,7 +241,7 @@ export function StepConditionsSection({
             </>
           )}
         </CollapsibleSection>
-      )}
+      ) : null}
 
       {afterChannels}
 
