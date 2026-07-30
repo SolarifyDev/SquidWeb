@@ -8,6 +8,52 @@ import type { StepConditionsValue } from '../shared/StepConditionsSection'
 
 export const ACTION_TYPE = 'Squid.TentaclePackage'
 export const DEFAULT_STEP_NAME = 'Deploy a Package'
+export const FEATURES_PROPERTY = 'Squid.Action.EnabledFeatures'
+
+export const DEPLOY_PACKAGE_FEATURES = [
+  {
+    id: 'Squid.Features.ConfigurationVariables',
+    name: '.NET Configuration Variables',
+    description: 'Replace settings in any .config files with variables defined in Squid.',
+  },
+  {
+    id: 'Squid.Features.ConfigurationTransforms',
+    name: '.NET Configuration Transforms',
+    description: 'Runs configuration file transforms, such as Web.Release.config.',
+  },
+  {
+    id: 'Squid.Features.CustomDirectory',
+    name: 'Installation Directory',
+    description: 'Change where Squid extracts and installs your package.',
+  },
+  {
+    id: 'Squid.Features.InstallationOptions',
+    name: 'Installation Options',
+    description: 'Control purge, skip, retention, current pointer, and rollback behavior.',
+  },
+  {
+    id: 'Squid.Features.SubstituteInFiles',
+    name: 'Substitute Variables in Files',
+    description: 'Transforms files using the Squid #{Variable} substitution syntax.',
+  },
+  {
+    id: 'Squid.Features.JsonConfigurationVariables',
+    name: 'Structured Configuration Variables',
+    description: 'Replace settings in structured files with variables defined in Squid.',
+  },
+  {
+    id: 'Squid.Features.Channels',
+    name: 'Channels',
+    description: 'Choose which release channels this step applies to.',
+  },
+] as const
+
+export type DeployPackageFeatureId = (typeof DEPLOY_PACKAGE_FEATURES)[number]['id']
+
+export const DEFAULT_DEPLOY_PACKAGE_FEATURES: readonly DeployPackageFeatureId[] = [
+  'Squid.Features.ConfigurationVariables',
+  'Squid.Features.ConfigurationTransforms',
+]
 
 export const PackageProperties = {
   feedId: 'Squid.Action.Package.FeedId',
@@ -89,6 +135,7 @@ export interface DeployPackageFormState {
   retentionCount: number
   useCurrentPointer: boolean
   rollbackOnFailure: boolean
+  enabledFeatures: DeployPackageFeatureId[]
   conditions: StepConditionsValue
 }
 
@@ -107,6 +154,73 @@ export function normalizeBoolean(value?: string): boolean {
   return n === 'true' || n === '1' || n === 'yes'
 }
 
+const DEPLOY_PACKAGE_FEATURE_ID_SET = new Set<string>(DEPLOY_PACKAGE_FEATURES.map((feature) => feature.id))
+
+function isDeployPackageFeatureId(value: string): value is DeployPackageFeatureId {
+  return DEPLOY_PACKAGE_FEATURE_ID_SET.has(value)
+}
+
+export function serializeDeployPackageFeatures(features: readonly DeployPackageFeatureId[]): string {
+  return Array.from(new Set(features)).sort().join(',')
+}
+
+function hasActionProperty(action: DeploymentActionDto | null | undefined, name: string): boolean {
+  return action?.properties.some((property) => property.propertyName === name) ?? false
+}
+
+function inferDeployPackageFeatures(action: DeploymentActionDto | null | undefined): DeployPackageFeatureId[] {
+  const raw = getActionProperty(action, FEATURES_PROPERTY)
+  if (raw != null) {
+    return raw
+      .split(',')
+      .map((token) => token.trim())
+      .filter(isDeployPackageFeatureId)
+  }
+
+  const features = new Set<DeployPackageFeatureId>(DEFAULT_DEPLOY_PACKAGE_FEATURES)
+  if (!action) return Array.from(features)
+
+  if (
+    normalizeInstallationDirectoryMode(getActionProperty(action, PackageProperties.installationDirectoryMode)) ===
+      'Custom' ||
+    hasActionProperty(action, PackageProperties.customInstallationDirectory)
+  ) {
+    features.add('Squid.Features.CustomDirectory')
+  }
+
+  if (Object.values(PackageInstallOptionProperties).some((name) => hasActionProperty(action, name))) {
+    features.add('Squid.Features.InstallationOptions')
+  }
+
+  if (
+    hasActionProperty(action, PackageConfigProperties.substituteInFilesEnabled) ||
+    hasActionProperty(action, PackageConfigProperties.substituteInFilesTargetFiles) ||
+    hasActionProperty(action, PackageConfigProperties.substituteFailOnUnresolved)
+  ) {
+    features.add('Squid.Features.SubstituteInFiles')
+  }
+
+  if (
+    hasActionProperty(action, PackageConfigProperties.jsonConfigVariablesEnabled) ||
+    hasActionProperty(action, PackageConfigProperties.jsonConfigVariablesTargets)
+  ) {
+    features.add('Squid.Features.JsonConfigurationVariables')
+  }
+
+  if ((action.channels ?? []).length > 0) {
+    features.add('Squid.Features.Channels')
+  }
+
+  return Array.from(features)
+}
+
+export function hasDeployPackageFeature(
+  features: readonly DeployPackageFeatureId[],
+  featureId: DeployPackageFeatureId,
+): boolean {
+  return features.includes(featureId)
+}
+
 export function normalizeExecutionLocation(_value?: string, _runOnServer = false): ExecutionLocationMode {
   // Deploy a Package always installs on each matched deployment target.
   // Worker/server execution locations are not supported for this step type.
@@ -118,23 +232,18 @@ export function parsePositiveInt(value: string | undefined, fallback: number): n
   return Number.isFinite(n) ? n : fallback
 }
 
-export function getActionProperty(
-  action: DeploymentActionDto | null | undefined,
-  name: string,
-): string | undefined {
+export function getActionProperty(action: DeploymentActionDto | null | undefined, name: string): string | undefined {
   return action?.properties.find((p) => p.propertyName === name)?.propertyValue
 }
 
-export function getStepProperty(
-  properties: DeploymentStepPropertyDto[] | undefined,
-  name: string,
-): string {
+export function getStepProperty(properties: DeploymentStepPropertyDto[] | undefined, name: string): string {
   return properties?.find((p) => p.propertyName === name)?.propertyValue ?? ''
 }
 
 export function getTargetRoles(step: DeploymentStepDto | null | undefined): string[] {
   if (!step) return []
-  const value = getStepProperty(step.properties, TARGET_ROLE_PROPERTY) || getStepProperty(step.properties, 'TargetRoles')
+  const value =
+    getStepProperty(step.properties, TARGET_ROLE_PROPERTY) || getStepProperty(step.properties, 'TargetRoles')
   return value
     ? value
         .split(',')
@@ -142,7 +251,6 @@ export function getTargetRoles(step: DeploymentStepDto | null | undefined): stri
         .filter(Boolean)
     : []
 }
-
 
 export function secondsToTimeoutMinutes(seconds: number): number {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0
@@ -158,11 +266,8 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
   const action = step?.actions[0]
   const includeEnvironments = action?.environments ?? []
   const excludeEnvironments = action?.excludedEnvironments ?? []
-  const environmentMode = excludeEnvironments.length > 0
-    ? 'exclude'
-    : includeEnvironments.length > 0
-      ? 'include'
-      : 'all'
+  const environmentMode =
+    excludeEnvironments.length > 0 ? 'exclude' : includeEnvironments.length > 0 ? 'include' : 'all'
 
   const runOnServer = normalizeBoolean(getStepProperty(step?.properties, StepControlProperties.runOnServer))
   const retriesEnabled = normalizeBoolean(getStepProperty(step?.properties, StepControlProperties.retriesEnabled))
@@ -183,10 +288,7 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
     }
   }
 
-  const maxParallelismRaw = parsePositiveInt(
-    getStepProperty(step?.properties, StepControlProperties.maxParallelism),
-    0,
-  )
+  const maxParallelismRaw = parsePositiveInt(getStepProperty(step?.properties, StepControlProperties.maxParallelism), 0)
   const maxParallelism = maxParallelismRaw > 0 ? maxParallelismRaw : 0
 
   return {
@@ -215,28 +317,22 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
       getActionProperty(action, PackageConfigProperties.configurationTransformsEnabled),
     ),
     configurationTransformsEnvironmentName:
-      getActionProperty(action, PackageConfigProperties.configurationTransformsEnvironmentName)
-      ?? DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
-    additionalTransforms:
-      getActionProperty(action, PackageConfigProperties.configurationTransformsAdditional) ?? '',
+      getActionProperty(action, PackageConfigProperties.configurationTransformsEnvironmentName) ??
+      DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
+    additionalTransforms: getActionProperty(action, PackageConfigProperties.configurationTransformsAdditional) ?? '',
     substituteInFilesEnabled: normalizeBoolean(
       getActionProperty(action, PackageConfigProperties.substituteInFilesEnabled),
     ),
-    substituteInFilesTargetFiles:
-      getActionProperty(action, PackageConfigProperties.substituteInFilesTargetFiles) ?? '',
+    substituteInFilesTargetFiles: getActionProperty(action, PackageConfigProperties.substituteInFilesTargetFiles) ?? '',
     substituteFailOnUnresolved: normalizeBoolean(
       getActionProperty(action, PackageConfigProperties.substituteFailOnUnresolved),
     ),
     structuredConfigEnabled: normalizeBoolean(
       getActionProperty(action, PackageConfigProperties.jsonConfigVariablesEnabled),
     ),
-    structuredConfigTargets:
-      getActionProperty(action, PackageConfigProperties.jsonConfigVariablesTargets) ?? '',
-    purgeBeforeInstall: normalizeBoolean(
-      getActionProperty(action, PackageInstallOptionProperties.purgeBeforeInstall),
-    ),
-    preservePaths:
-      getActionProperty(action, PackageInstallOptionProperties.preservePaths) ?? '',
+    structuredConfigTargets: getActionProperty(action, PackageConfigProperties.jsonConfigVariablesTargets) ?? '',
+    purgeBeforeInstall: normalizeBoolean(getActionProperty(action, PackageInstallOptionProperties.purgeBeforeInstall)),
+    preservePaths: getActionProperty(action, PackageInstallOptionProperties.preservePaths) ?? '',
     skipIfAlreadyInstalled: normalizeBoolean(
       getActionProperty(action, PackageInstallOptionProperties.skipIfAlreadyInstalled),
     ),
@@ -244,12 +340,9 @@ export function normalizeDeployPackageForm(step: DeploymentStepDto | null): Depl
       0,
       parsePositiveInt(getActionProperty(action, PackageInstallOptionProperties.retentionCount), 0),
     ),
-    useCurrentPointer: normalizeBoolean(
-      getActionProperty(action, PackageInstallOptionProperties.useCurrentPointer),
-    ),
-    rollbackOnFailure: normalizeBoolean(
-      getActionProperty(action, PackageInstallOptionProperties.rollbackOnFailure),
-    ),
+    useCurrentPointer: normalizeBoolean(getActionProperty(action, PackageInstallOptionProperties.useCurrentPointer)),
+    rollbackOnFailure: normalizeBoolean(getActionProperty(action, PackageInstallOptionProperties.rollbackOnFailure)),
+    enabledFeatures: inferDeployPackageFeatures(action),
     conditions: {
       environmentMode,
       environmentIds: environmentMode === 'exclude' ? excludeEnvironments : includeEnvironments,
@@ -280,7 +373,11 @@ export function validateDeployPackageForm(form: DeployPackageFormState): Validat
   }
   if (!form.packageId.trim()) return { ok: false, message: 'Package is required' }
   if (form.targetRoles.length === 0) return { ok: false, message: 'At least one target role is required' }
-  if (form.installationDirectoryMode === 'Custom' && !form.customInstallationDirectory.trim()) {
+  if (
+    hasDeployPackageFeature(form.enabledFeatures, 'Squid.Features.CustomDirectory') &&
+    form.installationDirectoryMode === 'Custom' &&
+    !form.customInstallationDirectory.trim()
+  ) {
     return { ok: false, message: 'Custom installation directory is required' }
   }
   if (form.retriesEnabled && (form.retryCount < 1 || form.retryCount > 3)) {
@@ -290,7 +387,10 @@ export function validateDeployPackageForm(form: DeployPackageFormState): Validat
     return { ok: false, message: 'Timeout must be zero or a positive integer' }
   }
   if (!Number.isFinite(form.maxParallelism) || (form.maxParallelism !== 0 && form.maxParallelism < 1)) {
-    return { ok: false, message: 'Max parallelism must be zero or a positive integer' }
+    return {
+      ok: false,
+      message: 'Max parallelism must be zero or a positive integer',
+    }
   }
   return { ok: true }
 }
@@ -306,6 +406,31 @@ export function buildDeployPackageStepDto(args: {
   // Deploy a Package always runs on each matched deployment target.
   const runOnServer = false
   const executionLocation: ExecutionLocationMode = 'DeploymentTarget'
+  const customDirectoryFeatureEnabled = hasDeployPackageFeature(form.enabledFeatures, 'Squid.Features.CustomDirectory')
+  const installationOptionsFeatureEnabled = hasDeployPackageFeature(
+    form.enabledFeatures,
+    'Squid.Features.InstallationOptions',
+  )
+  const configurationVariablesFeatureEnabled = hasDeployPackageFeature(
+    form.enabledFeatures,
+    'Squid.Features.ConfigurationVariables',
+  )
+  const configurationTransformsFeatureEnabled = hasDeployPackageFeature(
+    form.enabledFeatures,
+    'Squid.Features.ConfigurationTransforms',
+  )
+  const substituteInFilesFeatureEnabled = hasDeployPackageFeature(
+    form.enabledFeatures,
+    'Squid.Features.SubstituteInFiles',
+  )
+  const structuredConfigFeatureEnabled = hasDeployPackageFeature(
+    form.enabledFeatures,
+    'Squid.Features.JsonConfigurationVariables',
+  )
+  const channelsFeatureEnabled = hasDeployPackageFeature(form.enabledFeatures, 'Squid.Features.Channels')
+  const effectiveInstallationDirectoryMode = customDirectoryFeatureEnabled
+    ? form.installationDirectoryMode
+    : 'Versioned'
 
   const knownActionPropertyNames = new Set<string>([
     PackageProperties.feedId,
@@ -313,6 +438,7 @@ export function buildDeployPackageStepDto(args: {
     PackageProperties.packageVersion,
     PackageProperties.installationDirectoryMode,
     PackageProperties.customInstallationDirectory,
+    FEATURES_PROPERTY,
     StepControlProperties.executionLocation,
     PackageConfigProperties.configurationVariablesEnabled,
     PackageConfigProperties.configurationTransformsEnabled,
@@ -331,9 +457,7 @@ export function buildDeployPackageStepDto(args: {
     PackageInstallOptionProperties.rollbackOnFailure,
   ])
 
-  const preserved = (existingAction?.properties ?? []).filter(
-    (p) => !knownActionPropertyNames.has(p.propertyName),
-  )
+  const preserved = (existingAction?.properties ?? []).filter((p) => !knownActionPropertyNames.has(p.propertyName))
 
   const nextProperties: DeploymentActionPropertyDto[] = [
     ...preserved.map((p) => ({ ...p })),
@@ -350,18 +474,26 @@ export function buildDeployPackageStepDto(args: {
       propertyValue: form.packageId.trim(),
     },
     ...(form.packageVersion.trim()
-      ? [{
-          id: 0,
-          actionId: existingAction?.id ?? 0,
-          propertyName: PackageProperties.packageVersion,
-          propertyValue: form.packageVersion.trim(),
-        }]
+      ? [
+          {
+            id: 0,
+            actionId: existingAction?.id ?? 0,
+            propertyName: PackageProperties.packageVersion,
+            propertyValue: form.packageVersion.trim(),
+          },
+        ]
       : []),
     {
       id: 0,
       actionId: existingAction?.id ?? 0,
       propertyName: PackageProperties.installationDirectoryMode,
-      propertyValue: form.installationDirectoryMode,
+      propertyValue: effectiveInstallationDirectoryMode,
+    },
+    {
+      id: 0,
+      actionId: existingAction?.id ?? 0,
+      propertyName: FEATURES_PROPERTY,
+      propertyValue: serializeDeployPackageFeatures(form.enabledFeatures),
     },
     {
       id: 0,
@@ -371,7 +503,7 @@ export function buildDeployPackageStepDto(args: {
     },
   ]
 
-  if (form.installationDirectoryMode === 'Custom') {
+  if (effectiveInstallationDirectoryMode === 'Custom') {
     nextProperties.push({
       id: 0,
       actionId: existingAction?.id ?? 0,
@@ -385,64 +517,54 @@ export function buildDeployPackageStepDto(args: {
     nextProperties.push({ id: 0, actionId, propertyName, propertyValue })
   }
 
-  if (form.configurationVariablesEnabled) {
+  if (configurationVariablesFeatureEnabled && form.configurationVariablesEnabled) {
     pushActionProp(PackageConfigProperties.configurationVariablesEnabled, 'True')
   }
 
-  if (form.configurationTransformsEnabled) {
+  if (configurationTransformsFeatureEnabled && form.configurationTransformsEnabled) {
     pushActionProp(PackageConfigProperties.configurationTransformsEnabled, 'True')
     pushActionProp(
       PackageConfigProperties.configurationTransformsEnvironmentName,
-      form.configurationTransformsEnvironmentName.trim()
-        || DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
+      form.configurationTransformsEnvironmentName.trim() || DEFAULT_CONFIGURATION_TRANSFORMS_ENVIRONMENT_NAME,
     )
     if (form.additionalTransforms.trim()) {
-      pushActionProp(
-        PackageConfigProperties.configurationTransformsAdditional,
-        form.additionalTransforms.trim(),
-      )
+      pushActionProp(PackageConfigProperties.configurationTransformsAdditional, form.additionalTransforms.trim())
     }
   }
 
-  if (form.substituteInFilesEnabled) {
+  if (substituteInFilesFeatureEnabled && form.substituteInFilesEnabled) {
     pushActionProp(PackageConfigProperties.substituteInFilesEnabled, 'True')
     if (form.substituteInFilesTargetFiles.trim()) {
-      pushActionProp(
-        PackageConfigProperties.substituteInFilesTargetFiles,
-        form.substituteInFilesTargetFiles.trim(),
-      )
+      pushActionProp(PackageConfigProperties.substituteInFilesTargetFiles, form.substituteInFilesTargetFiles.trim())
     }
     if (form.substituteFailOnUnresolved) {
       pushActionProp(PackageConfigProperties.substituteFailOnUnresolved, 'True')
     }
   }
 
-  if (form.structuredConfigEnabled) {
+  if (structuredConfigFeatureEnabled && form.structuredConfigEnabled) {
     pushActionProp(PackageConfigProperties.jsonConfigVariablesEnabled, 'True')
     if (form.structuredConfigTargets.trim()) {
-      pushActionProp(
-        PackageConfigProperties.jsonConfigVariablesTargets,
-        form.structuredConfigTargets.trim(),
-      )
+      pushActionProp(PackageConfigProperties.jsonConfigVariablesTargets, form.structuredConfigTargets.trim())
     }
   }
 
-  if (form.purgeBeforeInstall) {
+  if (installationOptionsFeatureEnabled && form.purgeBeforeInstall) {
     pushActionProp(PackageInstallOptionProperties.purgeBeforeInstall, 'True')
   }
-  if (form.preservePaths.trim()) {
+  if (installationOptionsFeatureEnabled && form.preservePaths.trim()) {
     pushActionProp(PackageInstallOptionProperties.preservePaths, form.preservePaths.trim())
   }
-  if (form.skipIfAlreadyInstalled) {
+  if (installationOptionsFeatureEnabled && form.skipIfAlreadyInstalled) {
     pushActionProp(PackageInstallOptionProperties.skipIfAlreadyInstalled, 'True')
   }
-  if (form.retentionCount > 0) {
+  if (installationOptionsFeatureEnabled && form.retentionCount > 0) {
     pushActionProp(PackageInstallOptionProperties.retentionCount, String(form.retentionCount))
   }
-  if (form.useCurrentPointer) {
+  if (installationOptionsFeatureEnabled && form.useCurrentPointer) {
     pushActionProp(PackageInstallOptionProperties.useCurrentPointer, 'True')
   }
-  if (form.rollbackOnFailure) {
+  if (installationOptionsFeatureEnabled && form.rollbackOnFailure) {
     pushActionProp(PackageInstallOptionProperties.rollbackOnFailure, 'True')
   }
 
@@ -463,7 +585,7 @@ export function buildDeployPackageStepDto(args: {
     properties: nextProperties,
     environments: actionEnvironments,
     excludedEnvironments: actionExcludedEnvironments,
-    channels: form.conditions.channelIds,
+    channels: channelsFeatureEnabled ? form.conditions.channelIds : [],
   }
 
   const knownStepPropertyNames = new Set([

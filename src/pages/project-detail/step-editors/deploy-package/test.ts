@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDeployPackageStepDto,
+  DEFAULT_DEPLOY_PACKAGE_FEATURES,
   isUnsupportedDeployPackageFeedType,
   normalizeDeployPackageForm,
   validateDeployPackageForm,
@@ -48,6 +49,7 @@ const validBaseForm = {
   retentionCount: 0,
   useCurrentPointer: false,
   rollbackOnFailure: false,
+  enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
   conditions: emptyConditions,
 } satisfies DeployPackageFormState
 
@@ -66,29 +68,56 @@ describe('deploy-package-model', () => {
       isRequired: false,
       createdAt: new Date().toISOString(),
       properties: [
-        { id: 1, stepId: 1, propertyName: 'Squid.Step.Timeout', propertyValue: '120' },
-        { id: 2, stepId: 1, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+        {
+          id: 1,
+          stepId: 1,
+          propertyName: 'Squid.Step.Timeout',
+          propertyValue: '120',
+        },
+        {
+          id: 2,
+          stepId: 1,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
       ],
-      actions: [{
-        id: 13,
-        stepId: 1,
-        actionOrder: 0,
-        name: 'Deploy a Package',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: false,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 13, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '1' },
-          { id: 2, actionId: 13, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Newtonsoft.Json' },
-          { id: 3, actionId: 13, propertyName: 'Squid.Action.Package.PackageVersion', propertyValue: '13.0.3' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 13,
+          stepId: 1,
+          actionOrder: 0,
+          name: 'Deploy a Package',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '1',
+            },
+            {
+              id: 2,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Newtonsoft.Json',
+            },
+            {
+              id: 3,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.PackageVersion',
+              propertyValue: '13.0.3',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
     })
 
     expect(form.packageVersion).toBe('13.0.3')
@@ -126,10 +155,15 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
 
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
     const actionProps = dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue])
     const stepProps = dto.properties.map((p) => [p.propertyName, p.propertyValue])
 
@@ -175,9 +209,14 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
     const props = dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue])
     expect(props).toContainEqual(['Squid.Action.Package.FeedId', '3'])
     expect(props).toContainEqual(['Squid.Action.Package.PackageId', 'Acme.Web'])
@@ -197,66 +236,92 @@ describe('deploy-package-model', () => {
       isDisabled: false,
       isRequired: false,
       createdAt: new Date().toISOString(),
-      actions: [{
-        id: 1,
-        stepId: 9,
-        actionOrder: 0,
-        name: 'Deploy Web',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: false,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
-          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
-          { id: 3, actionId: 1, propertyName: 'Custom.Unknown', propertyValue: 'keep-me' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 1,
+          stepId: 9,
+          actionOrder: 0,
+          name: 'Deploy Web',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '3',
+            },
+            {
+              id: 2,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 1,
+              propertyName: 'Custom.Unknown',
+              propertyValue: 'keep-me',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
       properties: [],
     } as any
     const form = normalizeDeployPackageForm(existing)
     form.packageId = 'Acme.Web'
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
-    expect(dto.actions[0].properties.some((p) => p.propertyName === 'Custom.Unknown' && p.propertyValue === 'keep-me')).toBe(true)
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: existing,
+    })
+    expect(
+      dto.actions[0].properties.some((p) => p.propertyName === 'Custom.Unknown' && p.propertyValue === 'keep-me'),
+    ).toBe(true)
   })
 
   it('validates required fields and custom path', () => {
-    expect(validateDeployPackageForm({
-      stepName: '',
-      feedId: null,
-      packageId: '',
-      packageVersion: '',
-      targetRoles: [],
-      installationDirectoryMode: 'Custom',
-      customInstallationDirectory: '',
-      executionLocation: 'DeploymentTarget',
-      startTrigger: 'StartAfterPrevious',
-      retriesEnabled: false,
-      retryCount: 1,
-      maxParallelism: 0,
-      timeoutMinutes: 0,
-      configurationVariablesEnabled: false,
-      configurationTransformsEnabled: false,
-      configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
-      additionalTransforms: '',
-      substituteInFilesEnabled: false,
-      substituteInFilesTargetFiles: '',
-      substituteFailOnUnresolved: false,
-      structuredConfigEnabled: false,
-      structuredConfigTargets: '',
-      purgeBeforeInstall: false,
-      preservePaths: '',
-      skipIfAlreadyInstalled: false,
-      retentionCount: 0,
-      useCurrentPointer: false,
-      rollbackOnFailure: false,
-      conditions: emptyConditions,
-    }).ok).toBe(false)
+    expect(
+      validateDeployPackageForm({
+        stepName: '',
+        feedId: null,
+        packageId: '',
+        packageVersion: '',
+        targetRoles: [],
+        installationDirectoryMode: 'Custom',
+        customInstallationDirectory: '',
+        executionLocation: 'DeploymentTarget',
+        startTrigger: 'StartAfterPrevious',
+        retriesEnabled: false,
+        retryCount: 1,
+        maxParallelism: 0,
+        timeoutMinutes: 0,
+        configurationVariablesEnabled: false,
+        configurationTransformsEnabled: false,
+        configurationTransformsEnvironmentName: '#{Squid.Environment.Name}',
+        additionalTransforms: '',
+        substituteInFilesEnabled: false,
+        substituteInFilesTargetFiles: '',
+        substituteFailOnUnresolved: false,
+        structuredConfigEnabled: false,
+        structuredConfigTargets: '',
+        purgeBeforeInstall: false,
+        preservePaths: '',
+        skipIfAlreadyInstalled: false,
+        retentionCount: 0,
+        useCurrentPointer: false,
+        rollbackOnFailure: false,
+        enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
+        conditions: emptyConditions,
+      }).ok,
+    ).toBe(false)
   })
 
   it('normalizes and builds full step control properties', () => {
@@ -273,34 +338,86 @@ describe('deploy-package-model', () => {
       isRequired: true,
       createdAt: new Date().toISOString(),
       properties: [
-        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
-        { id: 2, stepId: 9, propertyName: 'Squid.Action.RunOnServer', propertyValue: 'false' },
-        { id: 3, stepId: 9, propertyName: 'Squid.Step.RetriesEnabled', propertyValue: 'true' },
-        { id: 4, stepId: 9, propertyName: 'Squid.Step.RetriesCount', propertyValue: '2' },
-        { id: 5, stepId: 9, propertyName: 'Squid.Step.Timeout', propertyValue: '45' },
-        { id: 6, stepId: 9, propertyName: 'Squid.Step.MaxParallelism', propertyValue: '3' },
+        {
+          id: 1,
+          stepId: 9,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
+        {
+          id: 2,
+          stepId: 9,
+          propertyName: 'Squid.Action.RunOnServer',
+          propertyValue: 'false',
+        },
+        {
+          id: 3,
+          stepId: 9,
+          propertyName: 'Squid.Step.RetriesEnabled',
+          propertyValue: 'true',
+        },
+        {
+          id: 4,
+          stepId: 9,
+          propertyName: 'Squid.Step.RetriesCount',
+          propertyValue: '2',
+        },
+        {
+          id: 5,
+          stepId: 9,
+          propertyName: 'Squid.Step.Timeout',
+          propertyValue: '45',
+        },
+        {
+          id: 6,
+          stepId: 9,
+          propertyName: 'Squid.Step.MaxParallelism',
+          propertyValue: '3',
+        },
       ],
-      actions: [{
-        id: 1,
-        stepId: 9,
-        actionOrder: 0,
-        name: 'Deploy Web',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: true,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
-          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
-          { id: 3, actionId: 1, propertyName: 'Squid.Action.Script.ExecutionLocation', propertyValue: 'DeploymentTarget' },
-          { id: 4, actionId: 1, propertyName: 'Custom.Unknown', propertyValue: 'keep-me' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 1,
+          stepId: 9,
+          actionOrder: 0,
+          name: 'Deploy Web',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: true,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '3',
+            },
+            {
+              id: 2,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 1,
+              propertyName: 'Squid.Action.Script.ExecutionLocation',
+              propertyValue: 'DeploymentTarget',
+            },
+            {
+              id: 4,
+              actionId: 1,
+              propertyName: 'Custom.Unknown',
+              propertyValue: 'keep-me',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
     } as any
 
     const form = normalizeDeployPackageForm(existing)
@@ -317,7 +434,11 @@ describe('deploy-package-model', () => {
     form.timeoutMinutes = 2
     form.maxParallelism = 2
 
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: existing,
+    })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
 
@@ -361,6 +482,7 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
     expect(validateDeployPackageForm(base).ok).toBe(false)
@@ -397,9 +519,14 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
     expect(stepProps['Squid.Action.RunOnServer']).toBe('false')
@@ -420,35 +547,66 @@ describe('deploy-package-model', () => {
       isRequired: false,
       createdAt: new Date().toISOString(),
       properties: [
-        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
-        { id: 2, stepId: 9, propertyName: 'Squid.Action.RunOnServer', propertyValue: 'true' },
+        {
+          id: 1,
+          stepId: 9,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
+        {
+          id: 2,
+          stepId: 9,
+          propertyName: 'Squid.Action.RunOnServer',
+          propertyValue: 'true',
+        },
       ],
-      actions: [{
-        id: 1,
-        stepId: 9,
-        actionOrder: 0,
-        name: 'Deploy Web',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: false,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
-          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
-          { id: 3, actionId: 1, propertyName: 'Squid.Action.Script.ExecutionLocation', propertyValue: 'WorkerPoolForRoles' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 1,
+          stepId: 9,
+          actionOrder: 0,
+          name: 'Deploy Web',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '3',
+            },
+            {
+              id: 2,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 1,
+              propertyName: 'Squid.Action.Script.ExecutionLocation',
+              propertyValue: 'WorkerPoolForRoles',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
     } as any
 
     const form = normalizeDeployPackageForm(existing)
     expect(form.executionLocation).toBe('DeploymentTarget')
 
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: existing,
+    })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
 
@@ -486,9 +644,14 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: null })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
     const stepProps = Object.fromEntries(dto.properties.map((p) => [p.propertyName, p.propertyValue]))
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
 
@@ -512,35 +675,92 @@ describe('deploy-package-model', () => {
       isRequired: false,
       createdAt: new Date().toISOString(),
       properties: [
-        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+        {
+          id: 1,
+          stepId: 9,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
       ],
-      actions: [{
-        id: 1,
-        stepId: 9,
-        actionOrder: 0,
-        name: 'Deploy Web',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: false,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
-          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
-          { id: 3, actionId: 1, propertyName: 'Squid.Action.ConfigurationVariables.Enabled', propertyValue: 'True' },
-          { id: 4, actionId: 1, propertyName: 'Squid.Action.ConfigurationTransforms.Enabled', propertyValue: 'True' },
-          { id: 5, actionId: 1, propertyName: 'Squid.Action.ConfigurationTransforms.EnvironmentName', propertyValue: '#{Squid.Environment.Name}' },
-          { id: 6, actionId: 1, propertyName: 'Squid.Action.SubstituteInFiles.Enabled', propertyValue: 'True' },
-          { id: 7, actionId: 1, propertyName: 'Squid.Action.SubstituteInFiles.TargetFiles', propertyValue: 'appsettings.json' },
-          { id: 8, actionId: 1, propertyName: 'Squid.Action.JsonConfigVariables.Enabled', propertyValue: 'True' },
-          { id: 9, actionId: 1, propertyName: 'Squid.Action.JsonConfigVariables.Targets', propertyValue: '**/appsettings.json' },
-          { id: 10, actionId: 1, propertyName: 'Custom.Keep', propertyValue: 'yes' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 1,
+          stepId: 9,
+          actionOrder: 0,
+          name: 'Deploy Web',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '3',
+            },
+            {
+              id: 2,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 1,
+              propertyName: 'Squid.Action.ConfigurationVariables.Enabled',
+              propertyValue: 'True',
+            },
+            {
+              id: 4,
+              actionId: 1,
+              propertyName: 'Squid.Action.ConfigurationTransforms.Enabled',
+              propertyValue: 'True',
+            },
+            {
+              id: 5,
+              actionId: 1,
+              propertyName: 'Squid.Action.ConfigurationTransforms.EnvironmentName',
+              propertyValue: '#{Squid.Environment.Name}',
+            },
+            {
+              id: 6,
+              actionId: 1,
+              propertyName: 'Squid.Action.SubstituteInFiles.Enabled',
+              propertyValue: 'True',
+            },
+            {
+              id: 7,
+              actionId: 1,
+              propertyName: 'Squid.Action.SubstituteInFiles.TargetFiles',
+              propertyValue: 'appsettings.json',
+            },
+            {
+              id: 8,
+              actionId: 1,
+              propertyName: 'Squid.Action.JsonConfigVariables.Enabled',
+              propertyValue: 'True',
+            },
+            {
+              id: 9,
+              actionId: 1,
+              propertyName: 'Squid.Action.JsonConfigVariables.Targets',
+              propertyValue: '**/appsettings.json',
+            },
+            {
+              id: 10,
+              actionId: 1,
+              propertyName: 'Custom.Keep',
+              propertyValue: 'yes',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
     } as any
 
     const form = normalizeDeployPackageForm(existing)
@@ -549,7 +769,11 @@ describe('deploy-package-model', () => {
     expect(form.substituteInFilesEnabled).toBe(true)
     expect(form.structuredConfigEnabled).toBe(true)
 
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: existing,
+    })
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
     expect(actionProps['Squid.Action.ConfigurationVariables.Enabled']).toBe('True')
     expect(actionProps['Squid.Action.JsonConfigVariables.Targets']).toBe('**/appsettings.json')
@@ -570,34 +794,86 @@ describe('deploy-package-model', () => {
       isRequired: false,
       createdAt: new Date().toISOString(),
       properties: [
-        { id: 1, stepId: 9, propertyName: 'Squid.Action.TargetRoles', propertyValue: 'web' },
+        {
+          id: 1,
+          stepId: 9,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
       ],
-      actions: [{
-        id: 1,
-        stepId: 9,
-        actionOrder: 0,
-        name: 'Deploy Web',
-        actionType: 'Squid.TentaclePackage',
-        workerPoolId: null,
-        isDisabled: false,
-        isRequired: false,
-        canBeUsedForProjectVersioning: true,
-        createdAt: new Date().toISOString(),
-        properties: [
-          { id: 1, actionId: 1, propertyName: 'Squid.Action.Package.FeedId', propertyValue: '3' },
-          { id: 2, actionId: 1, propertyName: 'Squid.Action.Package.PackageId', propertyValue: 'Acme.Web' },
-          { id: 3, actionId: 1, propertyName: 'Squid.Action.Package.PurgeBeforeInstall', propertyValue: 'True' },
-          { id: 4, actionId: 1, propertyName: 'Squid.Action.Package.PreservePaths', propertyValue: 'App_Data/**\nlogs/**' },
-          { id: 5, actionId: 1, propertyName: 'Squid.Action.Package.SkipIfAlreadyInstalled', propertyValue: 'True' },
-          { id: 6, actionId: 1, propertyName: 'Squid.Action.Package.RetentionCount', propertyValue: '3' },
-          { id: 7, actionId: 1, propertyName: 'Squid.Action.Package.UseCurrentPointer', propertyValue: 'True' },
-          { id: 8, actionId: 1, propertyName: 'Squid.Action.Package.RollbackOnFailure', propertyValue: 'True' },
-          { id: 9, actionId: 1, propertyName: 'Custom.Keep', propertyValue: 'yes' },
-        ],
-        environments: [],
-        excludedEnvironments: [],
-        channels: [],
-      }],
+      actions: [
+        {
+          id: 1,
+          stepId: 9,
+          actionOrder: 0,
+          name: 'Deploy Web',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '3',
+            },
+            {
+              id: 2,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PurgeBeforeInstall',
+              propertyValue: 'True',
+            },
+            {
+              id: 4,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.PreservePaths',
+              propertyValue: 'App_Data/**\nlogs/**',
+            },
+            {
+              id: 5,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.SkipIfAlreadyInstalled',
+              propertyValue: 'True',
+            },
+            {
+              id: 6,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.RetentionCount',
+              propertyValue: '3',
+            },
+            {
+              id: 7,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.UseCurrentPointer',
+              propertyValue: 'True',
+            },
+            {
+              id: 8,
+              actionId: 1,
+              propertyName: 'Squid.Action.Package.RollbackOnFailure',
+              propertyValue: 'True',
+            },
+            {
+              id: 9,
+              actionId: 1,
+              propertyName: 'Custom.Keep',
+              propertyValue: 'yes',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+        },
+      ],
     } as any
 
     const form = normalizeDeployPackageForm(existing)
@@ -608,7 +884,11 @@ describe('deploy-package-model', () => {
     expect(form.useCurrentPointer).toBe(true)
     expect(form.rollbackOnFailure).toBe(true)
 
-    const dto = buildDeployPackageStepDto({ form, processId: 1, existingStep: existing })
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: existing,
+    })
     const actionProps = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
     expect(actionProps['Squid.Action.Package.PurgeBeforeInstall']).toBe('True')
     expect(actionProps['Squid.Action.Package.PreservePaths']).toBe('App_Data/**\nlogs/**')
@@ -660,6 +940,7 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
     const docker = validateDeployPackageForm(base)
@@ -707,6 +988,7 @@ describe('deploy-package-model', () => {
       retentionCount: 0,
       useCurrentPointer: false,
       rollbackOnFailure: false,
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
       conditions: emptyConditions,
     }
 
@@ -726,5 +1008,217 @@ describe('deploy-package-model', () => {
     expect(docker.ok).toBe(false)
     expect(docker.message).toContain('cannot be installed by Deploy a Package')
   })
+})
 
+describe('deploy-package features', () => {
+  it('defaults new steps to configuration variables and transforms features only', () => {
+    const form = normalizeDeployPackageForm(null)
+    expect(form.enabledFeatures).toEqual([...DEFAULT_DEPLOY_PACKAGE_FEATURES])
+  })
+
+  it('infers optional features from legacy properties when EnabledFeatures is absent', () => {
+    const form = normalizeDeployPackageForm({
+      id: 1,
+      processId: 1,
+      stepOrder: 1,
+      name: 'Deploy a Package',
+      stepType: 'DeployPackage',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: new Date().toISOString(),
+      properties: [
+        {
+          id: 1,
+          stepId: 1,
+          propertyName: 'Squid.Action.TargetRoles',
+          propertyValue: 'web',
+        },
+      ],
+      actions: [
+        {
+          id: 13,
+          stepId: 1,
+          actionOrder: 0,
+          name: 'Deploy a Package',
+          actionType: 'Squid.TentaclePackage',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: true,
+          createdAt: new Date().toISOString(),
+          properties: [
+            {
+              id: 1,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.FeedId',
+              propertyValue: '1',
+            },
+            {
+              id: 2,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.PackageId',
+              propertyValue: 'Acme.Web',
+            },
+            {
+              id: 3,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.InstallationDirectoryMode',
+              propertyValue: 'Custom',
+            },
+            {
+              id: 4,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.CustomInstallationDirectory',
+              propertyValue: '/opt/app',
+            },
+            {
+              id: 5,
+              actionId: 13,
+              propertyName: 'Squid.Action.Package.PurgeBeforeInstall',
+              propertyValue: 'True',
+            },
+            {
+              id: 6,
+              actionId: 13,
+              propertyName: 'Squid.Action.SubstituteInFiles.Enabled',
+              propertyValue: 'True',
+            },
+            {
+              id: 7,
+              actionId: 13,
+              propertyName: 'Squid.Action.JsonConfigVariables.Enabled',
+              propertyValue: 'True',
+            },
+          ],
+          environments: [],
+          excludedEnvironments: [],
+          channels: [7],
+        },
+      ],
+    })
+
+    expect(form.enabledFeatures).toEqual(
+      expect.arrayContaining([
+        'Squid.Features.ConfigurationVariables',
+        'Squid.Features.ConfigurationTransforms',
+        'Squid.Features.CustomDirectory',
+        'Squid.Features.InstallationOptions',
+        'Squid.Features.SubstituteInFiles',
+        'Squid.Features.JsonConfigurationVariables',
+        'Squid.Features.Channels',
+      ]),
+    )
+  })
+
+  it('omits gated properties when optional features are disabled', () => {
+    const form: DeployPackageFormState = {
+      ...validBaseForm,
+      installationDirectoryMode: 'Custom',
+      customInstallationDirectory: '/opt/app',
+      purgeBeforeInstall: true,
+      preservePaths: 'logs/**',
+      skipIfAlreadyInstalled: true,
+      retentionCount: 2,
+      useCurrentPointer: true,
+      rollbackOnFailure: true,
+      configurationVariablesEnabled: true,
+      configurationTransformsEnabled: true,
+      additionalTransforms: 'Web.Release.config => Web.config',
+      substituteInFilesEnabled: true,
+      substituteInFilesTargetFiles: 'appsettings.json',
+      substituteFailOnUnresolved: true,
+      structuredConfigEnabled: true,
+      structuredConfigTargets: 'appsettings.json',
+      enabledFeatures: ['Squid.Features.ConfigurationVariables', 'Squid.Features.ConfigurationTransforms'],
+      conditions: {
+        ...emptyConditions,
+        channelIds: [9],
+      },
+    }
+
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
+    const props = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+
+    expect(props['Squid.Action.EnabledFeatures']).toBe(
+      'Squid.Features.ConfigurationTransforms,Squid.Features.ConfigurationVariables',
+    )
+    expect(props['Squid.Action.Package.InstallationDirectoryMode']).toBe('Versioned')
+    expect(props['Squid.Action.Package.CustomInstallationDirectory']).toBeUndefined()
+    expect(props['Squid.Action.Package.PurgeBeforeInstall']).toBeUndefined()
+    expect(props['Squid.Action.Package.PreservePaths']).toBeUndefined()
+    expect(props['Squid.Action.Package.SkipIfAlreadyInstalled']).toBeUndefined()
+    expect(props['Squid.Action.Package.RetentionCount']).toBeUndefined()
+    expect(props['Squid.Action.Package.UseCurrentPointer']).toBeUndefined()
+    expect(props['Squid.Action.Package.RollbackOnFailure']).toBeUndefined()
+    expect(props['Squid.Action.SubstituteInFiles.Enabled']).toBeUndefined()
+    expect(props['Squid.Action.JsonConfigVariables.Enabled']).toBeUndefined()
+    expect(props['Squid.Action.ConfigurationVariables.Enabled']).toBe('True')
+    expect(props['Squid.Action.ConfigurationTransforms.Enabled']).toBe('True')
+    expect(dto.actions[0].channels).toEqual([])
+  })
+
+  it('writes gated properties only for enabled optional features', () => {
+    const form: DeployPackageFormState = {
+      ...validBaseForm,
+      installationDirectoryMode: 'Custom',
+      customInstallationDirectory: '/opt/app',
+      purgeBeforeInstall: true,
+      substituteInFilesEnabled: true,
+      substituteInFilesTargetFiles: 'appsettings.json',
+      structuredConfigEnabled: true,
+      structuredConfigTargets: 'appsettings.json',
+      enabledFeatures: [
+        'Squid.Features.ConfigurationVariables',
+        'Squid.Features.ConfigurationTransforms',
+        'Squid.Features.CustomDirectory',
+        'Squid.Features.InstallationOptions',
+        'Squid.Features.SubstituteInFiles',
+        'Squid.Features.JsonConfigurationVariables',
+        'Squid.Features.Channels',
+      ],
+      conditions: {
+        ...emptyConditions,
+        channelIds: [9],
+      },
+    }
+
+    const dto = buildDeployPackageStepDto({
+      form,
+      processId: 1,
+      existingStep: null,
+    })
+    const props = Object.fromEntries(dto.actions[0].properties.map((p) => [p.propertyName, p.propertyValue]))
+
+    expect(props['Squid.Action.Package.InstallationDirectoryMode']).toBe('Custom')
+    expect(props['Squid.Action.Package.CustomInstallationDirectory']).toBe('/opt/app')
+    expect(props['Squid.Action.Package.PurgeBeforeInstall']).toBe('True')
+    expect(props['Squid.Action.SubstituteInFiles.Enabled']).toBe('True')
+    expect(props['Squid.Action.JsonConfigVariables.Enabled']).toBe('True')
+    expect(dto.actions[0].channels).toEqual([9])
+  })
+
+  it('requires custom installation directory only when CustomDirectory feature is enabled', () => {
+    const disabled = validateDeployPackageForm({
+      ...validBaseForm,
+      installationDirectoryMode: 'Custom',
+      customInstallationDirectory: '',
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES],
+    })
+    expect(disabled.ok).toBe(true)
+
+    const enabled = validateDeployPackageForm({
+      ...validBaseForm,
+      installationDirectoryMode: 'Custom',
+      customInstallationDirectory: '',
+      enabledFeatures: [...DEFAULT_DEPLOY_PACKAGE_FEATURES, 'Squid.Features.CustomDirectory'],
+    })
+    expect(enabled.ok).toBe(false)
+  })
 })

@@ -34,15 +34,15 @@ export function PackageSection({
   onPackageVersionChange,
 }: PackageSectionProps) {
   return (
-    <CollapsibleSection title="Package" subtitle="Choose the package to deploy." defaultOpen>
-      <div className="space-y-4">
+    <CollapsibleSection title='Package' subtitle='Select the package containing your application.' defaultOpen>
+      <div className='space-y-4'>
         <div>
-          <div className="mb-1 text-sm text-slate-700">Package Feed</div>
+          <div className='mb-1 text-sm text-slate-700'>Package feed</div>
           <Select
-            className="w-full"
+            className='w-full'
             showSearch
-            optionFilterProp="label"
-            placeholder="Select a feed"
+            optionFilterProp='label'
+            placeholder='Select a feed'
             value={feedId ?? undefined}
             options={feeds.map((f) => ({ value: f.id, label: f.name }))}
             onChange={(value) => {
@@ -51,17 +51,17 @@ export function PackageSection({
             }}
           />
           {feedId && isUnsupportedDeployPackageFeedType(feedType) ? (
-            <div className="mt-1 text-xs text-amber-600">
+            <div className='mt-1 text-xs text-amber-600'>
               This feed type cannot be installed by Deploy a Package. Use an archive-capable feed (NuGet/GitHub/HTTP).
             </div>
           ) : null}
         </div>
         <div>
-          <div className="mb-1 text-sm text-slate-700">Package ID</div>
+          <div className='mb-1 text-sm text-slate-700'>Package ID</div>
           <AutoComplete
-            className="w-full"
+            className='w-full'
             disabled={!feedId}
-            placeholder={feedId ? 'Search package' : 'Select a feed first'}
+            placeholder={feedId ? 'Search or enter a package ID' : 'Select a feed first'}
             value={packageId}
             options={packageOptions.map((value) => ({ value }))}
             onSearch={onPackageQueryChange}
@@ -88,15 +88,15 @@ export function PackageSection({
           />
         </div>
         <div>
-          <div className="mb-1 text-sm text-slate-700">Version (optional)</div>
+          <div className='mb-1 text-sm text-slate-700'>Version (optional)</div>
           <Input
             value={packageVersion}
             onChange={(e) => onPackageVersionChange(e.target.value)}
-            placeholder="Leave empty to choose during release creation"
+            placeholder='Leave empty to choose during release creation'
             disabled={!feedId || !packageId}
           />
-          <div className="mt-1 text-xs text-slate-500">
-            Used as the default package version when creating a release. You can still override it on the create release page.
+          <div className='mt-1 text-xs text-slate-500'>
+            Optional default for release creation. If set, the package can still be overridden when creating a release.
           </div>
         </div>
       </div>
