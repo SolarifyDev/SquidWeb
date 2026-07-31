@@ -728,12 +728,13 @@ export const WindowsServiceEditor = forwardRef<
   const [packageSourcePath] = useState(
     getActionProperty(action, PackageProperties.packageSourcePath) ?? ""
   );
-  const [packagePurgeBeforeExtract] = useState(
+  const [packagePurgeBeforeExtract, setPackagePurgeBeforeExtract] = useState(
     normalizeBoolean(
       getActionProperty(action, PackageProperties.packagePurgeBeforeExtract),
       false
     )
   );
+  const [packagePurgeExclusions, setPackagePurgeExclusions] = useState("");
   const [customInstallationDirectory, setCustomInstallationDirectory] =
     useState(
       getActionProperty(
@@ -1350,28 +1351,73 @@ export const WindowsServiceEditor = forwardRef<
         {enabledFeatures.has("Squid.Features.CustomDirectory") ? (
           <CollapsibleSection
             title="Custom Installation Directory"
-            subtitle="Change where Tentacle extracts your package."
             defaultOpen
             fullWidth
           >
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Custom install directory
-                </label>
-                <Input
-                  size="small"
-                  value={customInstallationDirectory}
-                  onChange={(event) =>
-                    setCustomInstallationDirectory(event.target.value)
-                  }
-                  placeholder="C:\\Services\\MyService"
-                />
+            <CollapsibleSection
+              title="Custom Install Directory"
+              subtitle="Enter a custom installation directory."
+              defaultOpen
+              fullWidth
+            >
+              <div className="ml-[216px] space-y-5">
+                <div>
+                  <Input
+                    size="small"
+                    className="windows-service-compact-input"
+                    value={customInstallationDirectory}
+                    onChange={(event) =>
+                      setCustomInstallationDirectory(event.target.value)
+                    }
+                    placeholder="Install Into"
+                  />
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                    After the package is extracted, it will be copied to this
+                    location on the remote machine.
+                  </p>
+                </div>
+                <div>
+                  <Checkbox
+                    checked={packagePurgeBeforeExtract}
+                    onChange={(event) =>
+                      setPackagePurgeBeforeExtract(event.target.checked)
+                    }
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      Purge this directory before installation
+                    </span>
+                  </Checkbox>
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                    Before the contents of the extracted package is copied, all
+                    files in this location will be removed.
+                  </p>
+                </div>
+                {packagePurgeBeforeExtract ? (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                      Exclude from purge
+                    </label>
+                    <Input.TextArea
+                      className="windows-service-compact-textarea"
+                      value={packagePurgeExclusions}
+                      onChange={(event) =>
+                        setPackagePurgeExclusions(event.target.value)
+                      }
+                      autoSize={{ minRows: 1, maxRows: 4 }}
+                    />
+                    <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                      A newline-separated list of file or directory names,
+                      relative to the installation directory, to leave when it
+                      is purged. To exclude a whole directory, specify it by
+                      name without a wildcard. Extended wildcard syntax is
+                      supported. E.g., <em>appsettings.config</em>,{" "}
+                      <em>Config</em>, <em>Config\*.config</em>,{" "}
+                      <em>**\*.config</em>
+                    </p>
+                  </div>
+                ) : null}
               </div>
-              <p className="mb-0 text-xs text-slate-500">
-                Leave empty to install the package to the standard location.
-              </p>
-            </div>
+            </CollapsibleSection>
           </CollapsibleSection>
         ) : null}
 
@@ -1742,11 +1788,17 @@ export const WindowsServiceEditor = forwardRef<
                     onChange={(event) =>
                       setStructuredConfigTargets(event.target.value)
                     }
-                    autoSize={{ minRows: 3, maxRows: 8 }}
+                    autoSize={{ minRows: 1, maxRows: 4 }}
                     placeholder={
                       "appsettings.json\nappsettings.Production.json"
                     }
                   />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Target files need to be new line seperated, relative to the
+                    package contents. Extended wildcard syntax is supported.
+                    E.g., appsettings.json, Config\*.xml,
+                    **\specific-folder\*.yaml.
+                  </p>
                 </div>
               ) : null}
             </div>
@@ -1871,6 +1923,7 @@ export const WindowsServiceEditor = forwardRef<
                   Target files
                 </label>
                 <Input.TextArea
+                  className="windows-service-compact-textarea"
                   value={substituteTemplatesTargetFiles}
                   onChange={(event) =>
                     setSubstituteTemplatesTargetFiles(event.target.value)
@@ -1880,6 +1933,39 @@ export const WindowsServiceEditor = forwardRef<
                     "Notes.txt\nConfig\\*.json\n**\\specific-folder\\*.config"
                   }
                 />
+                <div className="mt-3 space-y-2 text-xs leading-5 text-slate-500">
+                  <p className="mb-0">
+                    A newline-separated list of file names to transform,
+                    relative to the package contents. Extended wildcard syntax
+                    is supported. E.g., <em>Notes.txt</em>,{" "}
+                    <em>{"Config\\*.json"}</em>,{" "}
+                    <em>{"**\\specific-folder\\*.config"}</em>.
+                  </p>
+                  <p className="mb-0">
+                    This field supports extended template syntax. Conditional{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      if
+                    </code>{" "}
+                    and{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      unless
+                    </code>
+                    :
+                  </p>
+                  <pre className="mb-0 overflow-x-auto rounded bg-slate-200 px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-700">
+                    {"#{if MyVar}...#{/if}"}
+                  </pre>
+                  <p className="mb-0">
+                    Iteration over variable sets or comma-separated values with{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      each
+                    </code>
+                    :
+                  </p>
+                  <pre className="mb-0 overflow-x-auto rounded bg-slate-200 px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-700">
+                    {"#{each mv in MyVar}...#{mv}...#{/each}"}
+                  </pre>
+                </div>
               </div>
 
               <div>
@@ -1894,6 +1980,10 @@ export const WindowsServiceEditor = forwardRef<
                   }
                   placeholder="Detect from template"
                 />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  The name of an encoding to use when writing the transformed
+                  file. E.g., utf-8.
+                </p>
               </div>
             </div>
           </CollapsibleSection>
