@@ -1,0 +1,44 @@
+.windows-service-compact-select.ant-select .ant-select-selector,
+.windows-service-package-feed-select.ant-select .ant-select-selector,
+.windows-service-package-id-autocomplete.ant-select .ant-select-selector {
+  min-height: 31px !important;
+  height: 31px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.windows-service-compact-select.ant-select .ant-select-selection-item,
+.windows-service-compact-select.ant-select .ant-select-selection-placeholder,
+.windows-service-package-feed-select.ant-select .ant-select-selection-item,
+.windows-service-package-feed-select.ant-select .ant-select-selection-placeholder,
+.windows-service-package-id-autocomplete.ant-select .ant-select-selection-item,
+.windows-service-package-id-autocomplete.ant-select .ant-select-selection-placeholder {
+  line-height: 29px !important;
+}
+
+.windows-service-compact-select.ant-select .ant-select-selection-search-input,
+.windows-service-package-feed-select.ant-select .ant-select-selection-search-input,
+.windows-service-package-id-autocomplete.ant-select .ant-select-selection-search-input {
+  height: 29px !important;
+  line-height: 29px !important;
+}
+
+.windows-service-compact-select .ant-select-arrow,
+.windows-service-package-feed-select .ant-select-arrow,
+.windows-service-package-id-autocomplete .ant-select-arrow {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  margin-top: 0 !important;
+}
+
+.windows-service-compact-input.ant-input {
+  height: 31px !important;
+  line-height: 29px !important;
+}
+
+.windows-service-compact-textarea.ant-input {
+  min-height: 31px !important;
+  line-height: 22px !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
