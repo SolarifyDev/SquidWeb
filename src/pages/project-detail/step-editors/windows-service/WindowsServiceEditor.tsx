@@ -43,6 +43,7 @@ import type {
   StepEditorHandle,
   StepEditorProps,
 } from "../shared/StepEditorTypes";
+import "./WindowsServiceEditor.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
 const ACTION_TYPE = "Squid.DeployWindowsService";
@@ -727,12 +728,13 @@ export const WindowsServiceEditor = forwardRef<
   const [packageSourcePath] = useState(
     getActionProperty(action, PackageProperties.packageSourcePath) ?? ""
   );
-  const [packagePurgeBeforeExtract] = useState(
+  const [packagePurgeBeforeExtract, setPackagePurgeBeforeExtract] = useState(
     normalizeBoolean(
       getActionProperty(action, PackageProperties.packagePurgeBeforeExtract),
       false
     )
   );
+  const [packagePurgeExclusions, setPackagePurgeExclusions] = useState("");
   const [customInstallationDirectory, setCustomInstallationDirectory] =
     useState(
       getActionProperty(
@@ -1249,10 +1251,10 @@ export const WindowsServiceEditor = forwardRef<
             defaultOpen
             fullWidth
           >
-            <div className="ml-[216px] space-y-4">
+            <div className="ml-[216px] space-y-5">
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Package feed
                   </label>
                   <Select
@@ -1270,7 +1272,7 @@ export const WindowsServiceEditor = forwardRef<
                       setPackageSearchTerm(packageId);
                     }}
                     size="small"
-                    className="w-full"
+                    className="w-full windows-service-package-feed-select"
                     showSearch
                     loading={feedsLoading}
                     allowClear
@@ -1280,7 +1282,7 @@ export const WindowsServiceEditor = forwardRef<
                 </div>
                 <button
                   type="button"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
+                  className="inline-flex h-[31px] w-[31px] items-center justify-center rounded border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
                   aria-label="Refresh feeds"
                   onClick={() => void loadFeeds()}
                 >
@@ -1289,14 +1291,14 @@ export const WindowsServiceEditor = forwardRef<
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Package ID
                 </label>
                 <AutoComplete
                   size="small"
-                  className="w-full min-w-0"
+                  className="w-full min-w-0 windows-service-package-id-autocomplete"
                   value={packageId}
-                  placeholder="my-service"
+                  placeholder="Package ID"
                   options={packageSearchOptions.map((value) => ({ value }))}
                   onSearch={setPackageSearchTerm}
                   onSelect={(value) => {
@@ -1317,8 +1319,7 @@ export const WindowsServiceEditor = forwardRef<
                       : null
                   }
                 />
-                <p className="mb-0 mt-1 text-xs text-slate-500">
-                  Enter the ID of the package.
+                <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                   {selectedFeedName ? (
                     <>
                       {" "}
@@ -1329,16 +1330,17 @@ export const WindowsServiceEditor = forwardRef<
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Version (optional)
                 </label>
                 <Input
                   size="small"
+                  className="windows-service-compact-input"
                   value={packageVersion}
                   onChange={(event) => setPackageVersion(event.target.value)}
                   placeholder="1.0.0"
                 />
-                <p className="mb-0 mt-1 text-xs text-slate-500">
+                <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                   Package will be locked to this version.
                 </p>
               </div>
@@ -1349,28 +1351,73 @@ export const WindowsServiceEditor = forwardRef<
         {enabledFeatures.has("Squid.Features.CustomDirectory") ? (
           <CollapsibleSection
             title="Custom Installation Directory"
-            subtitle="Change where Tentacle extracts your package."
             defaultOpen
             fullWidth
           >
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Custom install directory
-                </label>
-                <Input
-                  size="small"
-                  value={customInstallationDirectory}
-                  onChange={(event) =>
-                    setCustomInstallationDirectory(event.target.value)
-                  }
-                  placeholder="C:\\Services\\MyService"
-                />
+            <CollapsibleSection
+              title="Custom Install Directory"
+              subtitle="Enter a custom installation directory."
+              defaultOpen
+              fullWidth
+            >
+              <div className="ml-[216px] space-y-5">
+                <div>
+                  <Input
+                    size="small"
+                    className="windows-service-compact-input"
+                    value={customInstallationDirectory}
+                    onChange={(event) =>
+                      setCustomInstallationDirectory(event.target.value)
+                    }
+                    placeholder="Install Into"
+                  />
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                    After the package is extracted, it will be copied to this
+                    location on the remote machine.
+                  </p>
+                </div>
+                <div>
+                  <Checkbox
+                    checked={packagePurgeBeforeExtract}
+                    onChange={(event) =>
+                      setPackagePurgeBeforeExtract(event.target.checked)
+                    }
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      Purge this directory before installation
+                    </span>
+                  </Checkbox>
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                    Before the contents of the extracted package is copied, all
+                    files in this location will be removed.
+                  </p>
+                </div>
+                {packagePurgeBeforeExtract ? (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                      Exclude from purge
+                    </label>
+                    <Input.TextArea
+                      className="windows-service-compact-textarea"
+                      value={packagePurgeExclusions}
+                      onChange={(event) =>
+                        setPackagePurgeExclusions(event.target.value)
+                      }
+                      autoSize={{ minRows: 1, maxRows: 4 }}
+                    />
+                    <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                      A newline-separated list of file or directory names,
+                      relative to the installation directory, to leave when it
+                      is purged. To exclude a whole directory, specify it by
+                      name without a wildcard. Extended wildcard syntax is
+                      supported. E.g., <em>appsettings.config</em>,{" "}
+                      <em>Config</em>, <em>Config\*.config</em>,{" "}
+                      <em>**\*.config</em>
+                    </p>
+                  </div>
+                ) : null}
               </div>
-              <p className="mb-0 text-xs text-slate-500">
-                Leave empty to install the package to the standard location.
-              </p>
-            </div>
+            </CollapsibleSection>
           </CollapsibleSection>
         ) : null}
 
@@ -1387,46 +1434,49 @@ export const WindowsServiceEditor = forwardRef<
               defaultOpen
               fullWidth
             >
-              <div className="ml-[216px] space-y-4">
+              <div className="ml-[216px] space-y-5">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Service name
                   </label>
                   <Input
                     size="small"
+                    className="windows-service-compact-input"
                     value={serviceName}
                     onChange={(event) => setServiceName(event.target.value)}
                     placeholder="Service Name"
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                     The name of the Windows Service to create or configure.
                   </p>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Display name
                   </label>
                   <Input
                     size="small"
+                    className="windows-service-compact-input"
                     value={displayName}
                     onChange={(event) => setDisplayName(event.target.value)}
                     placeholder="Service Name"
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                     Optional display name of the Windows Service.
                   </p>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Description
                   </label>
                   <Input.TextArea
+                    className="windows-service-compact-textarea"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="Description"
-                    autoSize={{ minRows: 2, maxRows: 4 }}
+                    autoSize={{ minRows: 1, maxRows: 4 }}
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                     User-friendly description of the service.
                   </p>
                 </div>
@@ -1451,9 +1501,18 @@ export const WindowsServiceEditor = forwardRef<
                     placeholder="bin\\MyService.exe"
                   />
                   <p className="mb-0 mt-1 text-xs text-slate-500">
-                    The path should be relative to the package installation
-                    directory.
+                    Path to the executable file for the service. The path should
+                    be relative to the package installation directory; for
+                    example:
                   </p>
+                  <div className="mt-2 flex flex-col items-start gap-1">
+                    <code className="inline-flex rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      MyService.exe
+                    </code>
+                    <code className="inline-flex rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      bin\MyService.exe
+                    </code>
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600">
@@ -1463,7 +1522,7 @@ export const WindowsServiceEditor = forwardRef<
                     size="small"
                     value={argumentsValue}
                     onChange={(event) => setArgumentsValue(event.target.value)}
-                    placeholder="--environment production"
+                    placeholder="argument"
                   />
                   <p className="mb-0 mt-1 text-xs text-slate-500">
                     Command line arguments that will be passed to the service
@@ -1479,17 +1538,18 @@ export const WindowsServiceEditor = forwardRef<
               defaultOpen
               fullWidth
             >
-              <div className="ml-[216px] space-y-4">
+              <div className="ml-[216px] space-y-5">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Service account
                   </label>
                   <Select
+                    size="small"
                     value={serviceAccount}
                     onChange={(value) =>
                       setServiceAccount(value as ServiceAccountMode)
                     }
-                    className="w-full"
+                    className="w-full windows-service-compact-select"
                     options={[
                       { label: "Local System", value: "LocalSystem" },
                       { label: "Local Service", value: "LocalService" },
@@ -1497,7 +1557,7 @@ export const WindowsServiceEditor = forwardRef<
                       { label: "Custom user", value: "_CUSTOM" },
                     ]}
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                     Which built-in account will the service run under.
                   </p>
                 </div>
@@ -1534,15 +1594,16 @@ export const WindowsServiceEditor = forwardRef<
                 ) : null}
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Start mode
                   </label>
                   <Select
+                    size="small"
                     value={startMode}
                     onChange={(value) =>
                       setStartMode(value as WindowsServiceStartMode)
                     }
-                    className="w-full"
+                    className="w-full windows-service-compact-select"
                     options={[
                       { label: "Automatic", value: "auto" },
                       { label: "Automatic (delayed)", value: "delayed-auto" },
@@ -1551,7 +1612,7 @@ export const WindowsServiceEditor = forwardRef<
                       { label: "Unchanged", value: "unchanged" },
                     ]}
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
                     When will the service start? Use Unchanged to keep the
                     current start mode.
                   </p>
@@ -1583,20 +1644,71 @@ export const WindowsServiceEditor = forwardRef<
                       <span className="text-sm">Unchanged</span>
                     </Radio>
                   </Radio.Group>
+                  <div className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
+                    <p className="mb-0">
+                      Defines the state of the service after it has been
+                      deployed.
+                    </p>
+                    <p className="mb-0">
+                      The{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Started
+                      </code>{" "}
+                      option will start the service.
+                    </p>
+                    <p className="mb-0">
+                      The{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Stopped
+                      </code>{" "}
+                      option will leave the service stopped.
+                    </p>
+                    <p className="mb-0">
+                      The{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Unchanged
+                      </code>{" "}
+                      option will start the service if it already exists, and if
+                      it was running or starting. Otherwise it will leave the
+                      service stopped.
+                    </p>
+                    <p className="mb-0">
+                      The{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Default
+                      </code>{" "}
+                      option will start the service if the start mode is{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Automatic
+                      </code>{" "}
+                      or{" "}
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        Automatic (delayed)
+                      </code>
+                      . Otherwise it will leave the service stopped.
+                    </p>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Dependencies
                   </label>
                   <Input
                     size="small"
+                    className="windows-service-compact-input"
                     value={dependencies}
                     onChange={(event) => setDependencies(event.target.value)}
                     placeholder="LanmanWorkstation/TCPIP/MSSQL"
                   />
-                  <p className="mb-0 mt-1 text-xs text-slate-500">
-                    Separate dependencies using forward slashes (/).
+                  <p className="mb-0 mt-2 text-xs leading-5 text-slate-500">
+                    Separate dependencies using forward slashes (/). For
+                    example:
+                    <div className="mt-2 flex flex-col items-start gap-1">
+                      <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                        LanmanWorkstation/TCPIP/MSSQL
+                      </code>
+                    </div>
                   </p>
                 </div>
               </div>
@@ -1621,7 +1733,7 @@ export const WindowsServiceEditor = forwardRef<
                   onChange={(event) =>
                     setCustomScriptsPreDeploy(event.target.value)
                   }
-                  autoSize={{ minRows: 4, maxRows: 12 }}
+                  autoSize={{ minRows: 1, maxRows: 12 }}
                   placeholder="# Runs after extraction and before configuration"
                 />
                 <p className="mb-0 mt-1 text-xs text-slate-500">
@@ -1639,7 +1751,7 @@ export const WindowsServiceEditor = forwardRef<
                   onChange={(event) =>
                     setCustomScriptsPostDeploy(event.target.value)
                   }
-                  autoSize={{ minRows: 4, maxRows: 12 }}
+                  autoSize={{ minRows: 1, maxRows: 12 }}
                   placeholder="# Runs after service configuration completes"
                 />
               </div>
@@ -1676,11 +1788,17 @@ export const WindowsServiceEditor = forwardRef<
                     onChange={(event) =>
                       setStructuredConfigTargets(event.target.value)
                     }
-                    autoSize={{ minRows: 3, maxRows: 8 }}
+                    autoSize={{ minRows: 1, maxRows: 4 }}
                     placeholder={
                       "appsettings.json\nappsettings.Production.json"
                     }
                   />
+                  <p className="mb-0 mt-1 text-xs text-slate-500">
+                    Target files need to be new line seperated, relative to the
+                    package contents. Extended wildcard syntax is supported.
+                    E.g., appsettings.json, Config\*.xml,
+                    **\specific-folder\*.yaml.
+                  </p>
                 </div>
               ) : null}
             </div>
@@ -1715,7 +1833,7 @@ export const WindowsServiceEditor = forwardRef<
             defaultOpen
             fullWidth
           >
-            <div className="ml-[216px] space-y-4">
+            <div className="ml-[216px] space-y-5">
               <div>
                 <Checkbox
                   checked={runConfigTransforms}
@@ -1731,13 +1849,14 @@ export const WindowsServiceEditor = forwardRef<
                 </p>
               </div>
 
-              {runConfigTransforms ? (
+              {/* {runConfigTransforms ? (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600">
                     Environment name token
                   </label>
                   <Input
                     size="small"
+                    className="windows-service-compact-input"
                     value={configTransformsEnvironmentName}
                     onChange={(event) =>
                       setConfigTransformsEnvironmentName(event.target.value)
@@ -1745,20 +1864,47 @@ export const WindowsServiceEditor = forwardRef<
                     placeholder="#{Squid.Environment.Name}"
                   />
                 </div>
-              ) : null}
+              ) : null} */}
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">
                   Additional transforms
                 </label>
                 <Input.TextArea
+                  className="windows-service-compact-textarea"
                   value={additionalTransforms}
                   onChange={(event) =>
                     setAdditionalTransforms(event.target.value)
                   }
-                  autoSize={{ minRows: 3, maxRows: 8 }}
+                  autoSize={{ minRows: 1, maxRows: 8 }}
                   placeholder="Web.Release.config => Web.config"
                 />
+                <div className="mt-3 space-y-2 text-xs leading-5 text-slate-500">
+                  <p className="mb-0">
+                    A comma- or newline-separated list of additional
+                    configuration transformation file rules. Example:
+                  </p>
+                  <pre className="mb-0 overflow-x-auto rounded bg-slate-200 px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-700">
+                    {
+                      "Web.Release.config => Web.config\n*.Foo.config => *.config\ncrossdomainpolicy.#{Squid.Environment.Name}.xml => crossdomainpolicy.xml"
+                    }
+                  </pre>
+                  <p className="mb-0">
+                    If your configuration file is named <em>Bar.xml</em>, and
+                    your transformation file is named <em>Foo.xml</em>, you
+                    should enter{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      Foo.xml=&gt;Bar.xml
+                    </code>
+                    . Wildcards are supported so if you have config files named{" "}
+                    <em>xyz.Bar.config</em> and <em>abc.Bar.config</em>, and you
+                    have transform files named <em>xyz.Foo.config</em> and{" "}
+                    <em>abc.Foo.config</em>, you may enter{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      *.Foo.config=&gt;*.Bar.config
+                    </code>
+                  </p>
+                </div>
               </div>
             </div>
           </CollapsibleSection>
@@ -1777,6 +1923,7 @@ export const WindowsServiceEditor = forwardRef<
                   Target files
                 </label>
                 <Input.TextArea
+                  className="windows-service-compact-textarea"
                   value={substituteTemplatesTargetFiles}
                   onChange={(event) =>
                     setSubstituteTemplatesTargetFiles(event.target.value)
@@ -1786,6 +1933,39 @@ export const WindowsServiceEditor = forwardRef<
                     "Notes.txt\nConfig\\*.json\n**\\specific-folder\\*.config"
                   }
                 />
+                <div className="mt-3 space-y-2 text-xs leading-5 text-slate-500">
+                  <p className="mb-0">
+                    A newline-separated list of file names to transform,
+                    relative to the package contents. Extended wildcard syntax
+                    is supported. E.g., <em>Notes.txt</em>,{" "}
+                    <em>{"Config\\*.json"}</em>,{" "}
+                    <em>{"**\\specific-folder\\*.config"}</em>.
+                  </p>
+                  <p className="mb-0">
+                    This field supports extended template syntax. Conditional{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      if
+                    </code>{" "}
+                    and{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      unless
+                    </code>
+                    :
+                  </p>
+                  <pre className="mb-0 overflow-x-auto rounded bg-slate-200 px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-700">
+                    {"#{if MyVar}...#{/if}"}
+                  </pre>
+                  <p className="mb-0">
+                    Iteration over variable sets or comma-separated values with{" "}
+                    <code className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-700">
+                      each
+                    </code>
+                    :
+                  </p>
+                  <pre className="mb-0 overflow-x-auto rounded bg-slate-200 px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-700">
+                    {"#{each mv in MyVar}...#{mv}...#{/each}"}
+                  </pre>
+                </div>
               </div>
 
               <div>
@@ -1800,6 +1980,10 @@ export const WindowsServiceEditor = forwardRef<
                   }
                   placeholder="Detect from template"
                 />
+                <p className="mb-0 mt-1 text-xs text-slate-500">
+                  The name of an encoding to use when writing the transformed
+                  file. E.g., utf-8.
+                </p>
               </div>
             </div>
           </CollapsibleSection>
@@ -2014,7 +2198,7 @@ export const WindowsServiceEditor = forwardRef<
 
           <CollapsibleSection
             title="Time out"
-            subtitle="If this step is still running after the set time has lapsed, the task will fail."
+            subtitle="If this step is still running after the set time has lapsed, the task will fail.We recommend using this option in conjunction with retries where appropriate."
             defaultOpen
           >
             <label className="mb-1 block text-xs font-medium text-slate-600">
@@ -2034,6 +2218,12 @@ export const WindowsServiceEditor = forwardRef<
                 setStepTimeoutSeconds(parsed);
               }}
             />
+            <p className="mb-0 mt-1 text-xs text-slate-500">
+              The execution timeout encompasses all processes involved in
+              executing a step, such as connecting to a target, bootstrapper
+              scripts, execution container startup, package cache cleanups, etc
+              but is contained to each machine
+            </p>
           </CollapsibleSection>
         </CollapsibleSection>
       </div>
