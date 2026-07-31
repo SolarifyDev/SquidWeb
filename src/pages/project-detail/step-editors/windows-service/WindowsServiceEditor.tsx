@@ -1733,7 +1733,7 @@ export const WindowsServiceEditor = forwardRef<
                   onChange={(event) =>
                     setCustomScriptsPreDeploy(event.target.value)
                   }
-                  autoSize={{ minRows: 4, maxRows: 12 }}
+                  autoSize={{ minRows: 1, maxRows: 12 }}
                   placeholder="# Runs after extraction and before configuration"
                 />
                 <p className="mb-0 mt-1 text-xs text-slate-500">
@@ -1751,7 +1751,7 @@ export const WindowsServiceEditor = forwardRef<
                   onChange={(event) =>
                     setCustomScriptsPostDeploy(event.target.value)
                   }
-                  autoSize={{ minRows: 4, maxRows: 12 }}
+                  autoSize={{ minRows: 1, maxRows: 12 }}
                   placeholder="# Runs after service configuration completes"
                 />
               </div>
