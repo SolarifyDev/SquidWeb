@@ -521,7 +521,7 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
                 <Input
                   value={hostRuleHost}
                   onChange={(e) => setHostRuleHost(e.target.value)}
-                  placeholder="#{IngressBaseDomainName}"
+                  placeholder="app.example.com"
                 />
               </div>
               <button
@@ -788,7 +788,7 @@ export function IngressSection({ state, updateField, showNamespaceSection = fals
         <CollapsibleSection
           title="Namespace"
           subtitle={<span>The Kubernetes context with be set with the namespace <strong>{state.namespace || '#{K8SNameSpace}'}</strong></span>}
-          defaultOpen={false}
+          defaultOpen
         >
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Namespace</label>
