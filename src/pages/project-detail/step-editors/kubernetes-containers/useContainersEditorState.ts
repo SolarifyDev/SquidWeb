@@ -766,6 +766,28 @@ function buildActionProperties(state: ContainersEditorState, actionType: string,
   return props
 }
 
+/**
+ * Validates the ingress host rules for a standalone Deploy-ingress step. A rule that has a
+ * service backend but a blank host renders as an empty host, which Kubernetes treats as a
+ * cluster-wide catch-all (nginx-ingress reports it as host `_`) and collides with any other
+ * empty-host `/` ingress. Returns an error message, or null when the rules are valid.
+ */
+export function validateIngressRules(rules: ContainersEditorState['ingressRules']): string | null {
+  const rulesWithBackend = rules.filter((rule) =>
+    rule.paths.some((path) => path.backend.serviceName.trim() && path.backend.servicePort.trim()),
+  )
+
+  if (rulesWithBackend.length === 0) {
+    return 'At least one ingress rule is required'
+  }
+
+  if (rulesWithBackend.some((rule) => !rule.host.trim())) {
+    return 'Each ingress host rule must specify a host — an empty host becomes a cluster-wide catch-all that collides with other ingresses'
+  }
+
+  return null
+}
+
 export function serializeToStep(state: ContainersEditorState, processId: number, existingStep?: DeploymentStepDto, actionType?: string): DeploymentStepDto {
   const resolvedActionType = actionType ?? 'Squid.KubernetesDeployContainers'
   const actionProperties = buildActionProperties(state, resolvedActionType, existingStep?.actions[0])

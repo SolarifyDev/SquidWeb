@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import { createDeploymentStep, updateDeploymentStep } from 'pages/apis/deploymentProcess'
-import { useContainersEditorState, serializeToStep } from '../kubernetes-containers/useContainersEditorState'
+import { useContainersEditorState, serializeToStep, validateIngressRules } from '../kubernetes-containers/useContainersEditorState'
 import { StepNameSection } from '../kubernetes-containers/sections/StepNameSection'
 import { TargetTagsSection } from '../kubernetes-containers/sections/TargetTagsSection'
 import { IngressSection } from '../kubernetes-containers/sections/IngressSection'
@@ -27,11 +27,9 @@ export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorPr
         return
       }
 
-      const hasIngressRules = state.ingressRules.some((rule) =>
-        rule.paths.some((path) => path.backend.serviceName.trim() && path.backend.servicePort.trim()),
-      )
-      if (!hasIngressRules) {
-        message.warning('At least one ingress rule is required')
+      const ingressError = validateIngressRules(state.ingressRules)
+      if (ingressError) {
+        message.warning(ingressError)
         return
       }
 
