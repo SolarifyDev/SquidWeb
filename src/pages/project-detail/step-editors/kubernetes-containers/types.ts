@@ -262,7 +262,7 @@ export function defaultContainer(): ContainerSpec {
     ImagePullPolicy: '',
     PackageId: '',
     FeedId: null,
-    CreateFeedSecrets: 'False',
+    CreateFeedSecrets: 'True',
     IsInitContainer: 'False',
     Command: [],
     Args: [],
