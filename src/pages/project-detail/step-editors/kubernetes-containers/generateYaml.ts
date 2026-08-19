@@ -9,6 +9,16 @@ function indent(text: string, spaces: number): string {
   return text.split('\n').map((line) => (line.trim() ? pad + line : line)).join('\n')
 }
 
+// A plain (unquoted) YAML scalar is only safe for simple token values. Anything else must
+// be double-quoted — most importantly Octostache expressions: in `namespace: #{NameSpace}`
+// the `#` starts a YAML comment, so parsing the YAML back into form state silently turns
+// the value into null and the original expression is destroyed on the next save. Values
+// matching the safe set are emitted bare, so numbers keep their Kubernetes integer
+// semantics and well-formed output is byte-identical to what this file emitted before.
+function yamlScalar(value: string): string {
+  return /^[A-Za-z0-9._\-/]+$/.test(value) ? value : JSON.stringify(value)
+}
+
 function kvToMap(items: KeyValueItem[]): Record<string, string> {
   const map: Record<string, string> = {}
   for (const item of items) {
@@ -20,7 +30,7 @@ function kvToMap(items: KeyValueItem[]): Record<string, string> {
 function emitMap(map: Record<string, string>, indentLevel: number): string {
   const entries = Object.entries(map)
   if (entries.length === 0) return ''
-  return entries.map(([k, v]) => `${' '.repeat(indentLevel)}${k}: "${v}"`).join('\n')
+  return entries.map(([k, v]) => `${' '.repeat(indentLevel)}${yamlScalar(k)}: ${JSON.stringify(v)}`).join('\n')
 }
 
 function emitMapLiteral(map: Record<string, string>, indentLevel: number): string {
@@ -28,9 +38,9 @@ function emitMapLiteral(map: Record<string, string>, indentLevel: number): strin
   if (entries.length === 0) return ''
   return entries.map(([k, v]) => {
     if (v.includes('\n')) {
-      return `${' '.repeat(indentLevel)}${k}: |\n${indent(v, indentLevel + 2)}`
+      return `${' '.repeat(indentLevel)}${yamlScalar(k)}: |\n${indent(v, indentLevel + 2)}`
     }
-    return `${' '.repeat(indentLevel)}${k}: ${JSON.stringify(v)}`
+    return `${' '.repeat(indentLevel)}${yamlScalar(k)}: ${JSON.stringify(v)}`
   }).join('\n')
 }
 
@@ -46,7 +56,7 @@ function tryParseJson(value: string): unknown | null {
 function jsonToYaml(obj: unknown, level: number): string {
   const pad = ' '.repeat(level)
   if (obj == null) return ''
-  if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return String(obj)
+  if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return yamlScalar(String(obj))
   if (Array.isArray(obj)) {
     return obj.map((item) => {
       const inner = jsonToYaml(item, level + 2)
@@ -120,11 +130,11 @@ function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
 
   if (probe.type === 'httpGet' && probe.httpGet) {
     lines.push(`${pad}httpGet:`)
-    lines.push(`${pad}  path: ${probe.httpGet.path || '/'}`)
-    lines.push(`${pad}  port: ${probe.httpGet.port || '80'}`)
+    lines.push(`${pad}  path: ${yamlScalar(probe.httpGet.path || '/')}`)
+    lines.push(`${pad}  port: ${yamlScalar(probe.httpGet.port || '80')}`)
     if (probe.httpGet.host?.trim()) lines.push(`${pad}  host: ${JSON.stringify(probe.httpGet.host.trim())}`)
     if (probe.httpGet.scheme && probe.httpGet.scheme !== 'HTTP') {
-      lines.push(`${pad}  scheme: ${probe.httpGet.scheme}`)
+      lines.push(`${pad}  scheme: ${yamlScalar(probe.httpGet.scheme)}`)
     }
     const headers = (probe.httpGet.httpHeaders ?? []).filter((header) => header.name?.trim())
     if (headers.length > 0) {
@@ -137,17 +147,17 @@ function emitProbe(probe: ProbeConfig, indentLevel: number): string | null {
   } else if (probe.type === 'tcpSocket' && probe.tcpSocket) {
     lines.push(`${pad}tcpSocket:`)
     if (probe.tcpSocket.host?.trim()) lines.push(`${pad}  host: ${JSON.stringify(probe.tcpSocket.host.trim())}`)
-    lines.push(`${pad}  port: ${probe.tcpSocket.port || '80'}`)
+    lines.push(`${pad}  port: ${yamlScalar(probe.tcpSocket.port || '80')}`)
   } else if (probe.type === 'exec' && probe.exec?.command) {
     lines.push(`${pad}exec:`)
     emitStringArrayBlock(lines, indentLevel + 2, 'command', splitCommandParts(probe.exec.command))
   }
 
-  if (probe.initialDelaySeconds) lines.push(`${pad}initialDelaySeconds: ${probe.initialDelaySeconds}`)
-  if (probe.periodSeconds) lines.push(`${pad}periodSeconds: ${probe.periodSeconds}`)
-  if (probe.timeoutSeconds) lines.push(`${pad}timeoutSeconds: ${probe.timeoutSeconds}`)
-  if (probe.successThreshold) lines.push(`${pad}successThreshold: ${probe.successThreshold}`)
-  if (probe.failureThreshold) lines.push(`${pad}failureThreshold: ${probe.failureThreshold}`)
+  if (probe.initialDelaySeconds) lines.push(`${pad}initialDelaySeconds: ${yamlScalar(probe.initialDelaySeconds)}`)
+  if (probe.periodSeconds) lines.push(`${pad}periodSeconds: ${yamlScalar(probe.periodSeconds)}`)
+  if (probe.timeoutSeconds) lines.push(`${pad}timeoutSeconds: ${yamlScalar(probe.timeoutSeconds)}`)
+  if (probe.successThreshold) lines.push(`${pad}successThreshold: ${yamlScalar(probe.successThreshold)}`)
+  if (probe.failureThreshold) lines.push(`${pad}failureThreshold: ${yamlScalar(probe.failureThreshold)}`)
 
   return lines.length > 0 ? lines.join('\n') : null
 }
@@ -166,18 +176,18 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   const pad = ' '.repeat(indentLevel)
   const lines: string[] = []
 
-  lines.push(`${pad}- name: ${container.Name || 'unnamed'}`)
-  lines.push(`${pad}  image: ${resolveContainerImage(container, registryHost, statePackageId)}`)
-  if (container.ImagePullPolicy) lines.push(`${pad}  imagePullPolicy: ${container.ImagePullPolicy}`)
+  lines.push(`${pad}- name: ${yamlScalar(container.Name || 'unnamed')}`)
+  lines.push(`${pad}  image: ${yamlScalar(resolveContainerImage(container, registryHost, statePackageId))}`)
+  if (container.ImagePullPolicy) lines.push(`${pad}  imagePullPolicy: ${yamlScalar(container.ImagePullPolicy)}`)
 
   // Ports
   const ports = container.Ports.filter((p) => p.value)
   if (ports.length > 0) {
     lines.push(`${pad}  ports:`)
     for (const port of ports) {
-      lines.push(`${pad}    - containerPort: ${port.value}`)
-      if (port.key) lines.push(`${pad}      name: ${port.key}`)
-      if (port.option && port.option !== 'TCP') lines.push(`${pad}      protocol: ${port.option}`)
+      lines.push(`${pad}    - containerPort: ${yamlScalar(port.value)}`)
+      if (port.key) lines.push(`${pad}      name: ${yamlScalar(port.key)}`)
+      if (port.option && port.option !== 'TCP') lines.push(`${pad}      protocol: ${yamlScalar(port.option)}`)
     }
   }
 
@@ -191,13 +201,13 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     if (hasRequests) {
       lines.push(`${pad}    requests:`)
       for (const [key, value] of Object.entries(requestResources)) {
-        lines.push(`${pad}      ${key}: "${value}"`)
+        lines.push(`${pad}      ${yamlScalar(key)}: ${JSON.stringify(value)}`)
       }
     }
     if (hasLimits) {
       lines.push(`${pad}    limits:`)
       for (const [key, value] of Object.entries(limitResources)) {
-        lines.push(`${pad}      ${key}: "${value}"`)
+        lines.push(`${pad}      ${yamlScalar(key)}: ${JSON.stringify(value)}`)
       }
     }
   }
@@ -207,9 +217,9 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   if (mounts.length > 0) {
     lines.push(`${pad}  volumeMounts:`)
     for (const mount of mounts) {
-      lines.push(`${pad}    - name: ${mount.key}`)
-      lines.push(`${pad}      mountPath: ${mount.value}`)
-      if (mount.option) lines.push(`${pad}      subPath: ${mount.option}`)
+      lines.push(`${pad}    - name: ${yamlScalar(mount.key)}`)
+      lines.push(`${pad}      mountPath: ${yamlScalar(mount.value)}`)
+      if (mount.option) lines.push(`${pad}      subPath: ${yamlScalar(mount.option)}`)
     }
   }
 
@@ -224,14 +234,14 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     lines.push(`${pad}  envFrom:`)
     for (const src of configMapEnvFrom) {
       lines.push(`${pad}    - configMapRef:`)
-      lines.push(`${pad}        name: ${src.key}`)
+      lines.push(`${pad}        name: ${yamlScalar(src.key)}`)
       if (src.option === 'True') lines.push(`${pad}        optional: true`)
       if (src.option === 'False') lines.push(`${pad}        optional: false`)
       if (src.value) lines.push(`${pad}      prefix: ${JSON.stringify(src.value)}`)
     }
     for (const src of secretEnvFrom) {
       lines.push(`${pad}    - secretRef:`)
-      lines.push(`${pad}        name: ${src.key}`)
+      lines.push(`${pad}        name: ${yamlScalar(src.key)}`)
       if (src.option === 'True') lines.push(`${pad}        optional: true`)
       if (src.option === 'False') lines.push(`${pad}        optional: false`)
       if (src.value) lines.push(`${pad}      prefix: ${JSON.stringify(src.value)}`)
@@ -245,30 +255,30 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   if (envVars.length > 0 || fieldRefEnvVars.length > 0 || configMapEnvVars.length > 0 || secretEnvVars.length > 0) {
     lines.push(`${pad}  env:`)
     for (const envVar of envVars) {
-      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}    - name: ${yamlScalar(envVar.key)}`)
       lines.push(`${pad}      value: ${JSON.stringify(envVar.value ?? '')}`)
     }
     for (const envVar of fieldRefEnvVars) {
-      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}    - name: ${yamlScalar(envVar.key)}`)
       lines.push(`${pad}      valueFrom:`)
       lines.push(`${pad}        fieldRef:`)
       lines.push(`${pad}          fieldPath: ${JSON.stringify(envVar.value)}`)
     }
     for (const envVar of configMapEnvVars) {
-      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}    - name: ${yamlScalar(envVar.key)}`)
       lines.push(`${pad}      valueFrom:`)
       lines.push(`${pad}        configMapKeyRef:`)
-      lines.push(`${pad}          name: ${envVar.value}`)
-      lines.push(`${pad}          key: ${envVar.option}`)
+      lines.push(`${pad}          name: ${yamlScalar(envVar.value)}`)
+      lines.push(`${pad}          key: ${yamlScalar(envVar.option)}`)
       if (envVar.optional === 'True') lines.push(`${pad}          optional: true`)
       if (envVar.optional === 'False') lines.push(`${pad}          optional: false`)
     }
     for (const envVar of secretEnvVars) {
-      lines.push(`${pad}    - name: ${envVar.key}`)
+      lines.push(`${pad}    - name: ${yamlScalar(envVar.key)}`)
       lines.push(`${pad}      valueFrom:`)
       lines.push(`${pad}        secretKeyRef:`)
-      lines.push(`${pad}          name: ${envVar.value}`)
-      lines.push(`${pad}          key: ${envVar.option}`)
+      lines.push(`${pad}          name: ${yamlScalar(envVar.value)}`)
+      lines.push(`${pad}          key: ${yamlScalar(envVar.option)}`)
       if (envVar.optional === 'True') lines.push(`${pad}          optional: true`)
       if (envVar.optional === 'False') lines.push(`${pad}          optional: false`)
     }
@@ -305,10 +315,10 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     }
     if (handler.type === 'httpGet' && handler.httpGet) {
       lifecycleLines.push(`${handlerPad}httpGet:`)
-      lifecycleLines.push(`${handlerPad}  path: ${handler.httpGet.path || '/'}`)
-      lifecycleLines.push(`${handlerPad}  port: ${handler.httpGet.port || '80'}`)
+      lifecycleLines.push(`${handlerPad}  path: ${yamlScalar(handler.httpGet.path || '/')}`)
+      lifecycleLines.push(`${handlerPad}  port: ${yamlScalar(handler.httpGet.port || '80')}`)
       if (handler.httpGet.host?.trim()) lifecycleLines.push(`${handlerPad}  host: ${JSON.stringify(handler.httpGet.host.trim())}`)
-      if (handler.httpGet.scheme && handler.httpGet.scheme !== 'HTTP') lifecycleLines.push(`${handlerPad}  scheme: ${handler.httpGet.scheme}`)
+      if (handler.httpGet.scheme && handler.httpGet.scheme !== 'HTTP') lifecycleLines.push(`${handlerPad}  scheme: ${yamlScalar(handler.httpGet.scheme)}`)
       const headers = (handler.httpGet.httpHeaders ?? []).filter((header) => header.name?.trim())
       if (headers.length > 0) {
         lifecycleLines.push(`${handlerPad}  httpHeaders:`)
@@ -322,7 +332,7 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     if (handler.type === 'tcpSocket' && handler.tcpSocket?.port) {
       lifecycleLines.push(`${handlerPad}tcpSocket:`)
       if (handler.tcpSocket.host?.trim()) lifecycleLines.push(`${handlerPad}  host: ${JSON.stringify(handler.tcpSocket.host.trim())}`)
-      lifecycleLines.push(`${handlerPad}  port: ${handler.tcpSocket.port}`)
+      lifecycleLines.push(`${handlerPad}  port: ${yamlScalar(handler.tcpSocket.port)}`)
       return lifecycleLines
     }
     return []
@@ -344,8 +354,8 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     }
   }
 
-  if (container.TerminationMessagePath?.trim()) lines.push(`${pad}  terminationMessagePath: ${container.TerminationMessagePath.trim()}`)
-  if ((container.TerminationMessagePolicy || 'File') !== 'File') lines.push(`${pad}  terminationMessagePolicy: ${container.TerminationMessagePolicy}`)
+  if (container.TerminationMessagePath?.trim()) lines.push(`${pad}  terminationMessagePath: ${yamlScalar(container.TerminationMessagePath.trim())}`)
+  if ((container.TerminationMessagePolicy || 'File') !== 'File') lines.push(`${pad}  terminationMessagePolicy: ${yamlScalar(container.TerminationMessagePolicy)}`)
 
   // Security context
   const sc = container.SecurityContext
@@ -353,8 +363,8 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
   const droppedCapabilities = (sc.dropCapabilities ?? []).map((cap) => cap.trim()).filter((cap) => cap.length > 0)
   const hasSeLinuxOptions = Boolean(sc.seLinuxLevel || sc.seLinuxRole || sc.seLinuxType || sc.seLinuxUser)
   const scEntries: string[] = []
-  if (sc.runAsUser) scEntries.push(`${pad}      runAsUser: ${sc.runAsUser}`)
-  if (sc.runAsGroup) scEntries.push(`${pad}      runAsGroup: ${sc.runAsGroup}`)
+  if (sc.runAsUser) scEntries.push(`${pad}      runAsUser: ${yamlScalar(sc.runAsUser)}`)
+  if (sc.runAsGroup) scEntries.push(`${pad}      runAsGroup: ${yamlScalar(sc.runAsGroup)}`)
   if (sc.runAsNonRoot === 'True') scEntries.push(`${pad}      runAsNonRoot: true`)
   if (sc.readOnlyRootFilesystem === 'True') scEntries.push(`${pad}      readOnlyRootFilesystem: true`)
   if (sc.privileged === 'True') scEntries.push(`${pad}      privileged: true`)
@@ -363,11 +373,11 @@ function emitContainer(container: ContainerSpec, indentLevel: number, registryHo
     scEntries.push(`${pad}      capabilities:`)
     if (addedCapabilities.length > 0) {
       scEntries.push(`${pad}        add:`)
-      for (const capability of addedCapabilities) scEntries.push(`${pad}          - ${capability}`)
+      for (const capability of addedCapabilities) scEntries.push(`${pad}          - ${yamlScalar(capability)}`)
     }
     if (droppedCapabilities.length > 0) {
       scEntries.push(`${pad}        drop:`)
-      for (const capability of droppedCapabilities) scEntries.push(`${pad}          - ${capability}`)
+      for (const capability of droppedCapabilities) scEntries.push(`${pad}          - ${yamlScalar(capability)}`)
     }
   }
   if (hasSeLinuxOptions) {
@@ -407,12 +417,12 @@ function appendPodTemplate(
   }
   lines.push(`${at(2)}spec:`)
 
-  if (state.podTerminationGracePeriodSeconds) lines.push(`${at(4)}terminationGracePeriodSeconds: ${state.podTerminationGracePeriodSeconds}`)
-  if (state.podPriorityClassName) lines.push(`${at(4)}priorityClassName: ${state.podPriorityClassName}`)
-  if (state.serviceAccountName) lines.push(`${at(4)}serviceAccountName: ${state.serviceAccountName}`)
-  if (state.podRestartPolicy) lines.push(`${at(4)}restartPolicy: ${state.podRestartPolicy}`)
-  if (state.podDnsPolicy) lines.push(`${at(4)}dnsPolicy: ${state.podDnsPolicy}`)
-  if (state.podHostNetworking) lines.push(`${at(4)}hostNetwork: ${state.podHostNetworking === 'True' ? 'true' : 'false'}`)
+  if (state.podTerminationGracePeriodSeconds) lines.push(`${at(4)}terminationGracePeriodSeconds: ${yamlScalar(state.podTerminationGracePeriodSeconds)}`)
+  if (state.podPriorityClassName) lines.push(`${at(4)}priorityClassName: ${yamlScalar(state.podPriorityClassName)}`)
+  if (state.serviceAccountName) lines.push(`${at(4)}serviceAccountName: ${yamlScalar(state.serviceAccountName)}`)
+  if (state.podRestartPolicy) lines.push(`${at(4)}restartPolicy: ${yamlScalar(state.podRestartPolicy)}`)
+  if (state.podDnsPolicy) lines.push(`${at(4)}dnsPolicy: ${yamlScalar(state.podDnsPolicy)}`)
+  if (state.podHostNetworking) lines.push(`${at(4)}hostNetwork: ${yamlScalar(state.podHostNetworking === 'True' ? 'true' : 'false')}`)
 
   const readinessGates = state.podReadinessGates
     .split(/\r?\n/)
@@ -447,40 +457,40 @@ function appendPodTemplate(
   if (vols.length > 0) {
     lines.push(`${at(4)}volumes:`)
     for (const vol of vols) {
-      lines.push(`${at(6)}- name: ${vol.Name}`)
+      lines.push(`${at(6)}- name: ${yamlScalar(vol.Name)}`)
       if (vol.Type === 'ConfigMap') {
         const configMapName = vol.ResourceNameMode === 'LinkedResource'
           ? (state.configMapName.trim() || vol.ReferenceName || vol.Name)
           : (vol.ReferenceName || vol.Name)
         const items = (vol.Items ?? []).filter((item) => item.key || item.path)
         lines.push(`${at(8)}configMap:`)
-        lines.push(`${at(10)}name: ${configMapName}`)
+        lines.push(`${at(10)}name: ${yamlScalar(configMapName)}`)
         if (items.length > 0) {
           lines.push(`${at(10)}items:`)
           for (const item of items) {
-            lines.push(`${at(12)}- key: ${item.key}`)
-            lines.push(`${at(14)}path: ${item.path || item.key}`)
+            lines.push(`${at(12)}- key: ${yamlScalar(item.key)}`)
+            lines.push(`${at(14)}path: ${yamlScalar(item.path || item.key)}`)
           }
         }
       } else if (vol.Type === 'Secret') {
         const items = (vol.Items ?? []).filter((item) => item.key || item.path)
         lines.push(`${at(8)}secret:`)
-        lines.push(`${at(10)}secretName: ${vol.ReferenceName || vol.Name}`)
+        lines.push(`${at(10)}secretName: ${yamlScalar(vol.ReferenceName || vol.Name)}`)
         if (items.length > 0) {
           lines.push(`${at(10)}items:`)
           for (const item of items) {
-            lines.push(`${at(12)}- key: ${item.key}`)
-            lines.push(`${at(14)}path: ${item.path || item.key}`)
+            lines.push(`${at(12)}- key: ${yamlScalar(item.key)}`)
+            lines.push(`${at(14)}path: ${yamlScalar(item.path || item.key)}`)
           }
         }
       } else if (vol.Type === 'EmptyDir') {
         lines.push(`${at(8)}emptyDir: {}`)
       } else if (vol.Type === 'PVC') {
         lines.push(`${at(8)}persistentVolumeClaim:`)
-        lines.push(`${at(10)}claimName: ${vol.ReferenceName || vol.Name}`)
+        lines.push(`${at(10)}claimName: ${yamlScalar(vol.ReferenceName || vol.Name)}`)
       } else if (vol.Type === 'HostPath') {
         lines.push(`${at(8)}hostPath:`)
-        lines.push(`${at(10)}path: ${vol.ReferenceName || '/'}`)
+        lines.push(`${at(10)}path: ${yamlScalar(vol.ReferenceName || '/')}`)
       }
     }
   }
@@ -492,10 +502,10 @@ function appendPodTemplate(
       const operator = String(tol.operator ?? '').trim() || 'Equal'
       const isExistsOperator = operator.toLowerCase() === 'exists'
       const value = String(tol.value ?? '').trim()
-      lines.push(`${at(6)}- key: ${tol.key}`)
-      lines.push(`${at(8)}operator: ${operator}`)
+      lines.push(`${at(6)}- key: ${yamlScalar(tol.key)}`)
+      lines.push(`${at(8)}operator: ${yamlScalar(operator)}`)
       if (!isExistsOperator && value) lines.push(`${at(8)}value: ${JSON.stringify(value)}`)
-      if (tol.effect) lines.push(`${at(8)}effect: ${tol.effect}`)
+      if (tol.effect) lines.push(`${at(8)}effect: ${yamlScalar(tol.effect)}`)
     }
   }
 
@@ -532,19 +542,19 @@ function appendPodTemplate(
     if (dnsNameservers.length > 0) {
       lines.push(`${at(6)}nameservers:`)
       for (const ns of dnsNameservers) {
-        lines.push(`${at(8)}- ${ns}`)
+        lines.push(`${at(8)}- ${yamlScalar(ns)}`)
       }
     }
     if (dnsSearches.length > 0) {
       lines.push(`${at(6)}searches:`)
       for (const search of dnsSearches) {
-        lines.push(`${at(8)}- ${search}`)
+        lines.push(`${at(8)}- ${yamlScalar(search)}`)
       }
     }
     if (dnsOpts.length > 0) {
       lines.push(`${at(6)}options:`)
       for (const opt of dnsOpts) {
-        lines.push(`${at(8)}- name: ${opt.name}`)
+        lines.push(`${at(8)}- name: ${yamlScalar(opt.name)}`)
         if (opt.value) lines.push(`${at(10)}value: ${JSON.stringify(opt.value)}`)
       }
     }
@@ -572,29 +582,29 @@ function appendPodTemplate(
 
   if (hasPodSecurityContext) {
     lines.push(`${at(4)}securityContext:`)
-    if (state.podSecurityFsGroup) lines.push(`${at(6)}fsGroup: ${state.podSecurityFsGroup}`)
-    if (state.podSecurityRunAsGroup) lines.push(`${at(6)}runAsGroup: ${state.podSecurityRunAsGroup}`)
-    if (state.podSecurityRunAsUser) lines.push(`${at(6)}runAsUser: ${state.podSecurityRunAsUser}`)
+    if (state.podSecurityFsGroup) lines.push(`${at(6)}fsGroup: ${yamlScalar(state.podSecurityFsGroup)}`)
+    if (state.podSecurityRunAsGroup) lines.push(`${at(6)}runAsGroup: ${yamlScalar(state.podSecurityRunAsGroup)}`)
+    if (state.podSecurityRunAsUser) lines.push(`${at(6)}runAsUser: ${yamlScalar(state.podSecurityRunAsUser)}`)
     if (supplementalGroups.length > 0) {
       lines.push(`${at(6)}supplementalGroups:`)
       for (const group of supplementalGroups) {
-        lines.push(`${at(8)}- ${group}`)
+        lines.push(`${at(8)}- ${yamlScalar(group)}`)
       }
     }
     if (state.podSecurityRunAsNonRoot === 'True' || state.podSecurityRunAsNonRoot === 'False') {
-      lines.push(`${at(6)}runAsNonRoot: ${state.podSecurityRunAsNonRoot === 'True' ? 'true' : 'false'}`)
+      lines.push(`${at(6)}runAsNonRoot: ${yamlScalar(state.podSecurityRunAsNonRoot === 'True' ? 'true' : 'false')}`)
     }
     if (hasSeLinux) {
       lines.push(`${at(6)}seLinuxOptions:`)
-      if (state.podSecuritySeLinuxLevel) lines.push(`${at(8)}level: ${state.podSecuritySeLinuxLevel}`)
-      if (state.podSecuritySeLinuxRole) lines.push(`${at(8)}role: ${state.podSecuritySeLinuxRole}`)
-      if (state.podSecuritySeLinuxType) lines.push(`${at(8)}type: ${state.podSecuritySeLinuxType}`)
-      if (state.podSecuritySeLinuxUser) lines.push(`${at(8)}user: ${state.podSecuritySeLinuxUser}`)
+      if (state.podSecuritySeLinuxLevel) lines.push(`${at(8)}level: ${yamlScalar(state.podSecuritySeLinuxLevel)}`)
+      if (state.podSecuritySeLinuxRole) lines.push(`${at(8)}role: ${yamlScalar(state.podSecuritySeLinuxRole)}`)
+      if (state.podSecuritySeLinuxType) lines.push(`${at(8)}type: ${yamlScalar(state.podSecuritySeLinuxType)}`)
+      if (state.podSecuritySeLinuxUser) lines.push(`${at(8)}user: ${yamlScalar(state.podSecuritySeLinuxUser)}`)
     }
     if (sysctls.length > 0) {
       lines.push(`${at(6)}sysctls:`)
       for (const sysctl of sysctls) {
-        lines.push(`${at(8)}- name: ${sysctl.name}`)
+        lines.push(`${at(8)}- name: ${yamlScalar(sysctl.name)}`)
         lines.push(`${at(10)}value: ${JSON.stringify(sysctl.value)}`)
       }
     }
@@ -604,7 +614,7 @@ function appendPodTemplate(
   if (pullSecrets.length > 0) {
     lines.push(`${at(4)}imagePullSecrets:`)
     for (const secret of pullSecrets) {
-      lines.push(`${at(6)}- name: ${secret.name}`)
+      lines.push(`${at(6)}- name: ${yamlScalar(secret.name)}`)
     }
   }
 
@@ -647,11 +657,11 @@ export function generateDeploymentYaml(state: ContainersEditorState, registryHos
     lines.push(emitMap(selectorLabels, 6))
   }
 
-  lines.push(`apiVersion: ${apiVersion}`)
-  lines.push(`kind: ${resourceType}`)
+  lines.push(`apiVersion: ${yamlScalar(apiVersion)}`)
+  lines.push(`kind: ${yamlScalar(resourceType)}`)
   lines.push('metadata:')
-  lines.push(`  name: ${deploymentName}`)
-  lines.push(`  namespace: ${namespace}`)
+  lines.push(`  name: ${yamlScalar(deploymentName)}`)
+  lines.push(`  namespace: ${yamlScalar(namespace)}`)
   if (Object.keys(labels).length > 0) {
     lines.push('  labels:')
     lines.push(emitMap(labels, 4))
@@ -669,12 +679,12 @@ export function generateDeploymentYaml(state: ContainersEditorState, registryHos
   }
 
   if (resourceType === 'StatefulSet') {
-    lines.push(`  serviceName: ${state.serviceName || deploymentName}`)
-    lines.push(`  replicas: ${replicas}`)
+    lines.push(`  serviceName: ${yamlScalar(state.serviceName || deploymentName)}`)
+    lines.push(`  replicas: ${yamlScalar(replicas)}`)
     pushSelector()
     const updateStrategyType = state.deploymentStyle === 'OnDelete' ? 'OnDelete' : 'RollingUpdate'
     lines.push('  updateStrategy:')
-    lines.push(`    type: ${updateStrategyType}`)
+    lines.push(`    type: ${yamlScalar(updateStrategyType)}`)
     appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
     return lines.filter((l) => l !== '').join('\n')
   }
@@ -683,28 +693,28 @@ export function generateDeploymentYaml(state: ContainersEditorState, registryHos
     pushSelector()
     const updateStrategyType = state.deploymentStyle === 'OnDelete' ? 'OnDelete' : 'RollingUpdate'
     lines.push('  updateStrategy:')
-    lines.push(`    type: ${updateStrategyType}`)
+    lines.push(`    type: ${yamlScalar(updateStrategyType)}`)
     if (updateStrategyType === 'RollingUpdate' && (state.maxUnavailable || state.maxSurge)) {
       lines.push('    rollingUpdate:')
-      if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
-      if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
+      if (state.maxUnavailable) lines.push(`      maxUnavailable: ${yamlScalar(state.maxUnavailable)}`)
+      if (state.maxSurge) lines.push(`      maxSurge: ${yamlScalar(state.maxSurge)}`)
     }
     appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
     return lines.filter((l) => l !== '').join('\n')
   }
 
   // Deployment (default)
-  lines.push(`  replicas: ${replicas}`)
-  if (state.revisionHistoryLimit) lines.push(`  revisionHistoryLimit: ${state.revisionHistoryLimit}`)
-  if (state.progressDeadlineSeconds) lines.push(`  progressDeadlineSeconds: ${state.progressDeadlineSeconds}`)
+  lines.push(`  replicas: ${yamlScalar(replicas)}`)
+  if (state.revisionHistoryLimit) lines.push(`  revisionHistoryLimit: ${yamlScalar(state.revisionHistoryLimit)}`)
+  if (state.progressDeadlineSeconds) lines.push(`  progressDeadlineSeconds: ${yamlScalar(state.progressDeadlineSeconds)}`)
   pushSelector()
   const strategyType = state.deploymentStyle === 'Recreate' ? 'Recreate' : 'RollingUpdate'
   lines.push('  strategy:')
-  lines.push(`    type: ${strategyType}`)
+  lines.push(`    type: ${yamlScalar(strategyType)}`)
   if (strategyType === 'RollingUpdate' && (state.maxUnavailable || state.maxSurge)) {
     lines.push('    rollingUpdate:')
-    if (state.maxUnavailable) lines.push(`      maxUnavailable: ${state.maxUnavailable}`)
-    if (state.maxSurge) lines.push(`      maxSurge: ${state.maxSurge}`)
+    if (state.maxUnavailable) lines.push(`      maxUnavailable: ${yamlScalar(state.maxUnavailable)}`)
+    if (state.maxSurge) lines.push(`      maxSurge: ${yamlScalar(state.maxSurge)}`)
   }
   appendPodTemplate(lines, state, selectorLabels, 2, registryHost)
 
@@ -727,24 +737,24 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
   lines.push('apiVersion: v1')
   lines.push('kind: Service')
   lines.push('metadata:')
-  lines.push(`  name: ${state.serviceName}`)
-  lines.push(`  namespace: ${namespace}`)
+  lines.push(`  name: ${yamlScalar(state.serviceName)}`)
+  lines.push(`  namespace: ${yamlScalar(namespace)}`)
   if (Object.keys(annotations).length > 0) {
     lines.push('  annotations:')
     lines.push(emitMap(annotations, 4))
   }
   lines.push('spec:')
-  lines.push(`  type: ${state.serviceType || 'ClusterIP'}`)
+  lines.push(`  type: ${yamlScalar(state.serviceType || 'ClusterIP')}`)
   if (state.serviceClusterIp) lines.push(`  clusterIP: ${JSON.stringify(state.serviceClusterIp)}`)
   lines.push('  selector:')
   lines.push(emitMap(selectorLabels, 4))
   lines.push('  ports:')
   for (const port of ports) {
-    lines.push(`    - port: ${port.port}`)
-    if (port.name) lines.push(`      name: ${port.name}`)
-    if (port.targetPort) lines.push(`      targetPort: ${port.targetPort}`)
-    if (port.nodePort && state.serviceType === 'NodePort') lines.push(`      nodePort: ${port.nodePort}`)
-    if (port.protocol && port.protocol !== 'TCP') lines.push(`      protocol: ${port.protocol}`)
+    lines.push(`    - port: ${yamlScalar(port.port)}`)
+    if (port.name) lines.push(`      name: ${yamlScalar(port.name)}`)
+    if (port.targetPort) lines.push(`      targetPort: ${yamlScalar(port.targetPort)}`)
+    if (port.nodePort && state.serviceType === 'NodePort') lines.push(`      nodePort: ${yamlScalar(port.nodePort)}`)
+    if (port.protocol && port.protocol !== 'TCP') lines.push(`      protocol: ${yamlScalar(port.protocol)}`)
   }
 
   return lines.join('\n')
@@ -762,15 +772,15 @@ export function generateIngressYaml(state: ContainersEditorState): string | null
   lines.push('apiVersion: networking.k8s.io/v1')
   lines.push('kind: Ingress')
   lines.push('metadata:')
-  lines.push(`  name: ${state.ingressName}`)
-  lines.push(`  namespace: ${namespace}`)
+  lines.push(`  name: ${yamlScalar(state.ingressName)}`)
+  lines.push(`  namespace: ${yamlScalar(namespace)}`)
   if (Object.keys(annotations).length > 0) {
     lines.push('  annotations:')
     lines.push(emitMap(annotations, 4))
   }
   lines.push('spec:')
   if (state.ingressClassName) {
-    lines.push(`  ingressClassName: ${state.ingressClassName}`)
+    lines.push(`  ingressClassName: ${yamlScalar(state.ingressClassName)}`)
   }
   if (tlsItems.length > 0) {
     lines.push('  tls:')
@@ -779,11 +789,11 @@ export function generateIngressYaml(state: ContainersEditorState): string | null
       if (tls.hosts.length > 0) {
         lines.push('      hosts:')
         for (const host of tls.hosts) {
-          lines.push(`        - ${host}`)
+          lines.push(`        - ${yamlScalar(host)}`)
         }
       }
       if (tls.secretName) {
-        lines.push(`      secretName: ${tls.secretName}`)
+        lines.push(`      secretName: ${yamlScalar(tls.secretName)}`)
       }
     }
   }
@@ -791,22 +801,22 @@ export function generateIngressYaml(state: ContainersEditorState): string | null
     lines.push('  rules:')
     for (const rule of rules) {
       lines.push('    -')
-      if (rule.host) lines.push(`      host: ${rule.host}`)
+      if (rule.host) lines.push(`      host: ${yamlScalar(rule.host)}`)
       lines.push('      http:')
       lines.push('        paths:')
       const validPaths = rule.paths.filter((path) => path.path || path.backend.serviceName || path.backend.servicePort)
       const paths = validPaths.length > 0 ? validPaths : [{ path: '/', pathType: 'Prefix', backend: { serviceName: state.serviceName, servicePort: '80' } }]
       for (const path of paths) {
-        lines.push(`          - path: ${path.path || '/'}`)
-        lines.push(`            pathType: ${path.pathType || 'Prefix'}`)
+        lines.push(`          - path: ${yamlScalar(path.path || '/')}`)
+        lines.push(`            pathType: ${yamlScalar(path.pathType || 'Prefix')}`)
         lines.push('            backend:')
         lines.push('              service:')
-        lines.push(`                name: ${path.backend.serviceName || state.serviceName || 'service-name'}`)
+        lines.push(`                name: ${yamlScalar(path.backend.serviceName || state.serviceName || 'service-name')}`)
         lines.push(`                port:`)
         if (/^\d+$/.test(path.backend.servicePort || '')) {
-          lines.push(`                  number: ${path.backend.servicePort}`)
+          lines.push(`                  number: ${yamlScalar(path.backend.servicePort)}`)
         } else if ((path.backend.servicePort || '').trim()) {
-          lines.push(`                  name: ${path.backend.servicePort}`)
+          lines.push(`                  name: ${yamlScalar(path.backend.servicePort)}`)
         } else {
           lines.push('                  number: 80')
         }
@@ -828,8 +838,8 @@ export function generateConfigMapYaml(state: ContainersEditorState): string | nu
   lines.push('apiVersion: v1')
   lines.push('kind: ConfigMap')
   lines.push('metadata:')
-  lines.push(`  name: ${state.configMapName}`)
-  lines.push(`  namespace: ${namespace}`)
+  lines.push(`  name: ${yamlScalar(state.configMapName)}`)
+  lines.push(`  namespace: ${yamlScalar(namespace)}`)
   lines.push('data:')
   lines.push(emitMapLiteral(data, 2))
 
@@ -847,8 +857,8 @@ export function generateSecretYaml(state: ContainersEditorState): string | null 
   lines.push('apiVersion: v1')
   lines.push('kind: Secret')
   lines.push('metadata:')
-  lines.push(`  name: ${state.secretName}`)
-  lines.push(`  namespace: ${namespace}`)
+  lines.push(`  name: ${yamlScalar(state.secretName)}`)
+  lines.push(`  namespace: ${yamlScalar(namespace)}`)
   lines.push('type: Opaque')
   lines.push('stringData:')
   lines.push(emitMapLiteral(data, 2))

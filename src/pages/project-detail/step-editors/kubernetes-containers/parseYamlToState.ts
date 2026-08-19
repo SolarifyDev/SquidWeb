@@ -243,6 +243,16 @@ function parseContainer(c: Record<string, unknown>, isInitContainer = false): Co
   }
 }
 
+// The namespace is shared by every resource section of the editor. A document that does
+// not carry metadata.namespace must NOT be allowed to overwrite it — an absent field means
+// "keep what the form already has", never "reset to empty". Returning the key only when
+// present lets the sections' `!== undefined` filters actually do their job. (This matters
+// doubly for values like #{NameSpace}: before scalars were quoted, the round-tripped YAML
+// turned them into comments, and this fallback-to-empty is what destroyed the saved value.)
+function namespaceOf(meta: Record<string, unknown>): { namespace: string } | Record<string, never> {
+  return meta.namespace != null ? { namespace: str(meta.namespace) } : {}
+}
+
 function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditorState> {
   const meta = (doc.metadata ?? {}) as Record<string, unknown>
   const spec = (doc.spec ?? {}) as Record<string, unknown>
@@ -346,9 +356,9 @@ function parseDeployment(doc: Record<string, unknown>): Partial<ContainersEditor
   const podAntiAffinity = affinity.podAntiAffinity ? JSON.stringify(affinity.podAntiAffinity) : ''
 
   return {
+    ...namespaceOf(meta),
     resourceType: str(doc.kind) || 'Deployment',
     deploymentName: str(meta.name),
-    namespace: str(meta.namespace) || 'default',
     replicas: spec.replicas != null ? str(spec.replicas) : '1',
     revisionHistoryLimit: spec.revisionHistoryLimit != null ? str(spec.revisionHistoryLimit) : '',
     progressDeadlineSeconds: spec.progressDeadlineSeconds != null ? str(spec.progressDeadlineSeconds) : '',
@@ -404,7 +414,7 @@ function parseService(doc: Record<string, unknown>): Partial<ContainersEditorSta
     : []
 
   return {
-    namespace: str(meta.namespace),
+    ...namespaceOf(meta),
     serviceName: str(meta.name),
     serviceType: str(spec.type) || 'ClusterIP',
     serviceClusterIp: str(spec.clusterIP),
@@ -450,7 +460,7 @@ function parseIngress(doc: Record<string, unknown>): Partial<ContainersEditorSta
     : []
 
   return {
-    namespace: str(meta.namespace),
+    ...namespaceOf(meta),
     ingressName: str(meta.name),
     ingressClassName: str(spec.ingressClassName),
     ingressAnnotations: mapToKv(meta.annotations),
@@ -462,7 +472,7 @@ function parseIngress(doc: Record<string, unknown>): Partial<ContainersEditorSta
 function parseConfigMap(doc: Record<string, unknown>): Partial<ContainersEditorState> {
   const meta = (doc.metadata ?? {}) as Record<string, unknown>
   return {
-    namespace: str(meta.namespace),
+    ...namespaceOf(meta),
     configMapName: str(meta.name),
     configMapValues: mapToKv(doc.data),
   }
@@ -471,7 +481,7 @@ function parseConfigMap(doc: Record<string, unknown>): Partial<ContainersEditorS
 function parseSecret(doc: Record<string, unknown>): Partial<ContainersEditorState> {
   const meta = (doc.metadata ?? {}) as Record<string, unknown>
   return {
-    namespace: str(meta.namespace),
+    ...namespaceOf(meta),
     secretName: str(meta.name),
     secretValues: mapToKv(doc.stringData ?? doc.data),
   }
