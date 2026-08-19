@@ -22,6 +22,7 @@ import { ManualInterventionEditor } from './step-editors/manual/ManualInterventi
 import { HealthCheckEditor } from './step-editors/health-check/HealthCheckEditor'
 import { HelmChartUpgradeEditor } from './step-editors/helm-chart/HelmChartUpgradeEditor'
 import { DeployToIisEditor } from './step-editors/iis/DeployToIisEditor'
+import { DeployPackageEditor } from './step-editors/deploy-package/DeployPackageEditor'
 import { RunScriptEditor } from './step-editors/run-script/RunScriptEditor'
 import { WindowsServiceEditor } from './step-editors/windows-service/WindowsServiceEditor'
 import { KustomizeEditor } from './step-editors/kustomize/KustomizeEditor'
@@ -56,6 +57,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
   'Squid.HealthCheck':                HealthCheckEditor,
   'Squid.DeployToIISWebSite':         DeployToIisEditor,
   'Squid.IIS':                        DeployToIisEditor,
+  'Squid.TentaclePackage':            DeployPackageEditor,
   'Squid.DeployWindowsService':       WindowsServiceEditor,
   'Squid.WindowsService':             WindowsServiceEditor,
   'Squid.OpenClaw.InvokeTool':        OpenClawInvokeToolEditor,
@@ -512,6 +514,7 @@ const STEP_TEMPLATES: StepTemplate[] = [
     actionType: 'Squid.TentaclePackage',
     bullets: ['Deploy the contents of a package to one or more deployment targets.'],
     categoryIds: ['package'],
+    featured: true,
   },
   {
     id: 'azure-app',

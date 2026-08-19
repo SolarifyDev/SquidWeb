@@ -4,7 +4,13 @@ import { DownOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 import { getChannel, getChannelVersionRules, getChannels, type ChannelDto } from 'pages/apis/channel'
-import { getPackageReferences, type PackageReferenceItem } from 'pages/apis/deploymentProcess'
+import {
+  getActionProperty,
+  getDeploymentSteps,
+  getPackageReferences,
+  type DeploymentStepDto,
+  type PackageReferenceItem,
+} from 'pages/apis/deploymentProcess'
 import { listExternalFeedPackageVersions } from 'pages/apis/externalFeed'
 import { createRelease, getReleases, type ReleaseDto } from 'pages/apis/release'
 
@@ -19,6 +25,7 @@ interface PackageTarget {
   feedId: number
   feedName: string
   lastReleaseVersion: string
+  defaultVersion?: string
 }
 
 interface PackageSelection {
@@ -335,6 +342,47 @@ const findVersionRuleViolations = (packages: PackageSelection[], rules: Normaliz
 }
 
 const normalizePackageVersion = (value?: string | null) => (value ?? '').trim()
+const PACKAGE_VERSION_PROPERTY = 'Squid.Action.Package.PackageVersion'
+
+const buildDefaultPackageVersionLookup = (steps: DeploymentStepDto[]) => {
+  const lookup = new Map<string, string>()
+  for (const step of steps) {
+    for (const action of step.actions ?? []) {
+      const packageVersion = normalizePackageVersion(getActionProperty(action, PACKAGE_VERSION_PROPERTY))
+      if (!packageVersion) continue
+      const packageId = normalizePackageVersion(getActionProperty(action, 'Squid.Action.Package.PackageId'))
+      const actionName = normalizeText(action.name)
+      // Prefer exact action + package keys only, to avoid cross-matching multi-package steps.
+      if (actionName && packageId) {
+        lookup.set(`action-package:${actionName}::${normalizeText(packageId)}`, packageVersion)
+      }
+    }
+  }
+  return lookup
+}
+
+const resolveDefaultPackageVersion = (
+  lookup: Map<string, string> | Record<string, string>,
+  target: Pick<PackageTarget, 'actionName' | 'packageReferenceName' | 'packageId'>,
+) => {
+  const read = (key: string) => (
+    lookup instanceof Map ? lookup.get(key) : lookup[key]
+  )
+  const actionName = normalizeText(target.actionName)
+  const packageReferenceName = normalizeText(target.packageReferenceName)
+  const packageId = normalizeText(target.packageId)
+  // packageReferenceName == packageId for Deploy a Package; try both exact keys.
+  return (
+    (actionName && packageReferenceName
+      ? read(`action-package:${actionName}::${packageReferenceName}`)
+      : undefined)
+    || (actionName && packageId
+      ? read(`action-package:${actionName}::${packageId}`)
+      : undefined)
+    || ''
+  )
+}
+
 const normalizePackageVersionFilter = (value?: string | null) => (value ?? '').trim()
 const buildPackageVersionsCacheKey = (targetKey: string, includePreRelease: boolean, filter?: string) =>
   `${targetKey}|${includePreRelease ? '1' : '0'}|${normalizeText(filter)}`
@@ -357,6 +405,8 @@ const ReleasesCreate: React.FC = () => {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [channelReleases, setChannelReleases] = useState<ReleaseDto[]>([])
   const [packageReferences, setPackageReferences] = useState<PackageReferenceItem[]>([])
+  const [defaultPackageVersionByKey, setDefaultPackageVersionByKey] = useState<Record<string, string>>({})
+  const [defaultPackageVersionsLoaded, setDefaultPackageVersionsLoaded] = useState(false)
   const [version, setVersion] = useState('')
   const [versionTouched, setVersionTouched] = useState(false)
   const [showVersionHelp, setShowVersionHelp] = useState(false)
@@ -449,6 +499,41 @@ const ReleasesCreate: React.FC = () => {
   }, [project?.id, selectedChannelId])
 
   useEffect(() => {
+    if (!project?.deploymentProcessId) {
+      setDefaultPackageVersionByKey({})
+      setDefaultPackageVersionsLoaded(true)
+      return
+    }
+
+    let cancelled = false
+    setDefaultPackageVersionsLoaded(false)
+    ;(async () => {
+      try {
+        const stepsRes = await getDeploymentSteps({
+          processId: project.deploymentProcessId,
+          pageIndex: 1,
+          pageSize: 2000,
+        })
+        if (cancelled) return
+        const lookup = buildDefaultPackageVersionLookup(stepsRes.steps ?? [])
+        const next: Record<string, string> = {}
+        for (const [key, value] of lookup.entries()) {
+          next[key] = value
+        }
+        setDefaultPackageVersionByKey(next)
+      } catch {
+        if (!cancelled) setDefaultPackageVersionByKey({})
+      } finally {
+        if (!cancelled) setDefaultPackageVersionsLoaded(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [project?.deploymentProcessId])
+
+  useEffect(() => {
     if (!project?.id || !selectedChannelId) {
       setChannelReleases([])
       return
@@ -520,16 +605,24 @@ const ReleasesCreate: React.FC = () => {
   }, [latestReleaseVersionLabel, versionTouched])
 
   const packageTargets = useMemo<PackageTarget[]>(() => {
-    return packageReferences.map((ref, index) => ({
-      key: `${ref.actionName}-${normalizePackageReferenceName(ref.packageReferenceName, ref.packageId)}-${ref.feedId}-${index}`,
-      actionName: ref.actionName,
-      packageReferenceName: normalizePackageReferenceName(ref.packageReferenceName, ref.packageId),
-      packageId: ref.packageId,
-      feedId: ref.feedId,
-      feedName: ref.feedName ?? `Feed #${ref.feedId}`,
-      lastReleaseVersion: normalizePackageVersion(ref.lastReleaseVersion),
-    }))
-  }, [packageReferences])
+    return packageReferences.map((ref, index) => {
+      const packageReferenceName = normalizePackageReferenceName(ref.packageReferenceName, ref.packageId)
+      const base = {
+        key: `${ref.actionName}-${packageReferenceName}-${ref.feedId}-${index}`,
+        actionName: ref.actionName,
+        packageReferenceName,
+        packageId: ref.packageId,
+        feedId: ref.feedId,
+        feedName: ref.feedName ?? `Feed #${ref.feedId}`,
+        lastReleaseVersion: normalizePackageVersion(ref.lastReleaseVersion),
+      }
+      const defaultVersion = resolveDefaultPackageVersion(defaultPackageVersionByKey, base)
+      return {
+        ...base,
+        defaultVersion: defaultVersion || undefined,
+      }
+    })
+  }, [defaultPackageVersionByKey, packageReferences])
 
   const packageTargetByKey = useMemo(
     () => new Map(packageTargets.map((target) => [target.key, target])),
@@ -596,24 +689,39 @@ const ReleasesCreate: React.FC = () => {
   }, [packageVersionsByKey, packageVersionsLoadingByKey])
 
   useEffect(() => {
+    if (!defaultPackageVersionsLoaded) return
+
     setPackageModeByKey((prev) => {
       const next: Record<string, PackageMode> = {}
       for (const target of packageTargets) {
-        next[target.key] = prev[target.key] ?? (target.lastReleaseVersion ? 'last' : 'latest')
+        if (prev[target.key]) {
+          next[target.key] = prev[target.key]
+          continue
+        }
+        const defaultVersion = normalizePackageVersion(target.defaultVersion)
+        next[target.key] = defaultVersion
+          ? 'specific'
+          : (target.lastReleaseVersion ? 'last' : 'latest')
       }
       return next
     })
     setPackageSpecificVersionByKey((prev) => {
       const next: Record<string, string> = {}
       for (const target of packageTargets) {
-        if (prev[target.key]) next[target.key] = prev[target.key]
+        if (prev[target.key]) {
+          next[target.key] = prev[target.key]
+          continue
+        }
+        const defaultVersion = normalizePackageVersion(target.defaultVersion)
+        if (defaultVersion) next[target.key] = defaultVersion
       }
       return next
     })
-  }, [packageTargets])
+  }, [defaultPackageVersionsLoaded, packageTargets])
 
   useEffect(() => {
     packageTargets.forEach((target) => {
+      if (!Number.isFinite(target.feedId) || target.feedId <= 0) return
       const defaultQueryKey = buildPackageVersionsCacheKey(target.key, true)
       if (packageVersionsByKey[defaultQueryKey]) return
       if (packageVersionsLoadingByKey[defaultQueryKey]) return
@@ -768,6 +876,12 @@ const ReleasesCreate: React.FC = () => {
     }
     if (!/^\d+\.\d+/.test(version.trim())) {
       message.error('Version must contain at least two parts, e.g. 1.0')
+      return
+    }
+
+    const invalidFeedPackage = selectedPackages.find((pkg) => !Number.isFinite(pkg.feedId) || pkg.feedId <= 0)
+    if (invalidFeedPackage) {
+      message.error(`Package feed is missing or invalid for ${invalidFeedPackage.packageReferenceName}.`)
       return
     }
 

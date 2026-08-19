@@ -23,6 +23,7 @@ interface StepConditionsSectionProps {
   projectId?: number | null
   requiredLocked?: boolean
   requiredLockedReason?: React.ReactNode
+  afterChannels?: React.ReactNode
   afterEnvironments?: React.ReactNode
   afterRunCondition?: React.ReactNode
   hideRootSection?: boolean
@@ -84,6 +85,7 @@ export function StepConditionsSection({
   projectId,
   requiredLocked = false,
   requiredLockedReason,
+  afterChannels,
   afterEnvironments,
   afterRunCondition,
   hideRootSection = false,
@@ -98,12 +100,13 @@ export function StepConditionsSection({
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-
     ;(async () => {
       try {
         const [envRes, channelRes] = await Promise.all([
           getEnvironments({ pageSize: 1000 }).catch(() => null),
-          typeof projectId === 'number' ? getChannels({ projectId, pageSize: 1000 }).catch(() => null) : Promise.resolve(null),
+          !hideChannels && typeof projectId === 'number'
+            ? getChannels({ projectId, pageSize: 1000 }).catch(() => null)
+            : Promise.resolve(null),
         ])
         if (cancelled) return
 
@@ -117,7 +120,7 @@ export function StepConditionsSection({
     return () => {
       cancelled = true
     }
-  }, [projectId])
+  }, [hideChannels, projectId])
 
   const environmentOptions = useMemo(
     () => environments.map((env) => ({ label: env.name, value: env.id })),
@@ -133,10 +136,10 @@ export function StepConditionsSection({
 
   const body = (
     <>
-      <CollapsibleSection title="Environments" subtitle="Choose which environments this step applies to." defaultOpen>
+      <CollapsibleSection title='Environments' subtitle='Choose which environments this step applies to.' defaultOpen>
         {loading ? (
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Spin size="small" />
+          <div className='flex items-center gap-2 text-xs text-slate-500'>
+            <Spin size='small' />
             <span>Loading environments...</span>
           </div>
         ) : (
@@ -146,47 +149,61 @@ export function StepConditionsSection({
               onChange={(event) => {
                 const mode = event.target.value as StepEnvironmentMode
                 if (mode === 'all') {
-                  onChange({ ...value, environmentMode: mode, environmentIds: [] })
+                  onChange({
+                    ...value,
+                    environmentMode: mode,
+                    environmentIds: [],
+                  })
                   return
                 }
                 onChange({ ...value, environmentMode: mode })
               }}
-              className="flex flex-col gap-2"
+              className='flex flex-col gap-2'
             >
-              <Radio value="all">
-                <span className="text-sm">Run for any environment (default)</span>
+              <Radio value='all'>
+                <span className='text-sm'>Run for any environment (default)</span>
               </Radio>
-              <Radio value="include">
-                <span className="text-sm">Run only for specific environments</span>
+              <Radio value='include'>
+                <span className='text-sm'>Run only for specific environments</span>
               </Radio>
               {value.environmentMode === 'include' ? (
                 <Select
-                  mode="multiple"
+                  mode='multiple'
                   value={value.environmentIds}
                   options={environmentOptions}
-                  onChange={(ids) => onChange({ ...value, environmentIds: (ids as number[]).map(Number) })}
-                  placeholder="Select environments"
-                  size="small"
-                  className="w-full mt-2"
+                  onChange={(ids) =>
+                    onChange({
+                      ...value,
+                      environmentIds: (ids as number[]).map(Number),
+                    })
+                  }
+                  placeholder='Select environments'
+                  size='small'
+                  className='w-full mt-2'
                 />
               ) : null}
-              <Radio value="exclude">
-                <span className="text-sm">Skip specific environments</span>
+              <Radio value='exclude'>
+                <span className='text-sm'>Skip specific environments</span>
               </Radio>
               {value.environmentMode === 'exclude' ? (
                 <Select
-                  mode="multiple"
+                  mode='multiple'
                   value={value.environmentIds}
                   options={environmentOptions}
-                  onChange={(ids) => onChange({ ...value, environmentIds: (ids as number[]).map(Number) })}
-                  placeholder="Select environments to skip"
-                  size="small"
-                  className="w-full mt-2"
+                  onChange={(ids) =>
+                    onChange({
+                      ...value,
+                      environmentIds: (ids as number[]).map(Number),
+                    })
+                  }
+                  placeholder='Select environments to skip'
+                  size='small'
+                  className='w-full mt-2'
                 />
               ) : null}
             </Radio.Group>
             {showEnvironmentPicker ? (
-              <p className="text-xs text-slate-500 m-0">
+              <p className='text-xs text-slate-500 m-0'>
                 Choose the specific environments under which you want this step to run.
               </p>
             ) : null}
@@ -197,54 +214,61 @@ export function StepConditionsSection({
       {afterEnvironments}
 
       {!hideChannels ? (
-        <CollapsibleSection title="Channels" subtitle="Choose which channels this step applies to." defaultOpen>
+        <CollapsibleSection title='Channels' subtitle='Choose which channels this step applies to.' defaultOpen>
           {loading ? (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Spin size="small" />
+            <div className='flex items-center gap-2 text-xs text-slate-500'>
+              <Spin size='small' />
               <span>Loading channels...</span>
             </div>
           ) : (
             <>
-              <p className="text-xs text-slate-500 m-0">
-                If nothing is selected this step will run for releases in any channel, otherwise it will only run for releases belonging to the selected channels.
+              <p className='text-xs text-slate-500 m-0'>
+                If nothing is selected this step will run for releases in any channel, otherwise it will only run for
+                releases belonging to the selected channels.
               </p>
               <Select
-                mode="multiple"
+                mode='multiple'
                 value={value.channelIds}
                 options={channelOptions}
                 onChange={(ids) => {
                   const unique = Array.from(new Set((ids as number[]).map(Number)))
                   onChange({ ...value, channelIds: unique })
                 }}
-                placeholder="Select channels"
-                size="small"
-                className="w-full"
+                placeholder='Select channels'
+                size='small'
+                className='w-full'
               />
             </>
           )}
         </CollapsibleSection>
       ) : null}
 
-      <CollapsibleSection title="Run Condition" subtitle="Limit when this step runs by setting a condition." defaultOpen>
+      {afterChannels}
+
+      <CollapsibleSection
+        title='Run Condition'
+        subtitle='Limit when this step runs by setting a condition.'
+        defaultOpen
+      >
         <Radio.Group
           value={value.runCondition}
           onChange={(event) => onChange({ ...value, runCondition: event.target.value })}
-          className="flex flex-col gap-2"
+          className='flex flex-col gap-2'
         >
           {RUN_CONDITION_OPTIONS.map((option) => (
             <Radio key={option.value} value={option.value}>
-              <span className="text-sm">{option.label}</span>
+              <span className='text-sm'>{option.label}</span>
             </Radio>
           ))}
         </Radio.Group>
         {value.runCondition === 'Variable' ? (
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-slate-600">Variable expression</label>
+          <div className='space-y-1'>
+            <label className='block text-xs font-medium text-slate-600'>Variable expression</label>
             <Input
               value={value.conditionExpression}
               onChange={(event) => onChange({ ...value, conditionExpression: event.target.value })}
-              placeholder="#{IsProduction}"
-              size="small"
+              placeholder='#{IsProduction}'
+              size='small'
             />
           </div>
         ) : null}
@@ -253,37 +277,43 @@ export function StepConditionsSection({
       {afterRunCondition}
 
       {!hidePackageRequirement ? (
-        <CollapsibleSection title="Package Requirement" subtitle="Configure package acquisition behavior for this step." defaultOpen={false}>
+        <CollapsibleSection
+          title='Package Requirement'
+          subtitle='Configure package acquisition behavior for this step.'
+          defaultOpen={false}
+        >
           <Select
             value={normalizeRequirement(value.packageRequirement)}
             options={PACKAGE_REQUIREMENT_OPTIONS}
             onChange={(next) => onChange({ ...value, packageRequirement: String(next) })}
-            size="small"
-            className="w-full"
+            size='small'
+            className='w-full'
           />
         </CollapsibleSection>
       ) : null}
 
-      <CollapsibleSection title="Required" subtitle="Required steps cannot be skipped when deploying a release." defaultOpen>
-        {requiredLockedReason ? (
-          <p className="text-xs text-slate-500 m-0">{requiredLockedReason}</p>
-        ) : null}
+      <CollapsibleSection
+        title='Required'
+        subtitle='Required steps cannot be skipped when deploying a release.'
+        defaultOpen
+      >
+        {requiredLockedReason ? <p className='text-xs text-slate-500 m-0'>{requiredLockedReason}</p> : null}
         <Checkbox
           checked={requiredLocked ? true : value.required}
           disabled={requiredLocked}
           onChange={(event) => onChange({ ...value, required: event.target.checked })}
         >
-          <span className="text-sm">Prevent this step from being skipped when deploying</span>
+          <span className='text-sm'>Prevent this step from being skipped when deploying</span>
         </Checkbox>
       </CollapsibleSection>
 
       {!hideDisabled ? (
-        <CollapsibleSection title="Disabled" subtitle="Disabled steps are skipped during deployment." defaultOpen>
+        <CollapsibleSection title='Disabled' subtitle='Disabled steps are skipped during deployment.' defaultOpen>
           <Checkbox
             checked={value.disabled}
             onChange={(event) => onChange({ ...value, disabled: event.target.checked })}
           >
-            <span className="text-sm">Disable this step</span>
+            <span className='text-sm'>Disable this step</span>
           </Checkbox>
         </CollapsibleSection>
       ) : null}
@@ -294,8 +324,8 @@ export function StepConditionsSection({
 
   return (
     <CollapsibleSection
-      title="Conditions"
-      subtitle="Configure when and where this step should run."
+      title='Conditions'
+      subtitle='Configure when and where this step should run.'
       defaultOpen
       fullWidth
     >
