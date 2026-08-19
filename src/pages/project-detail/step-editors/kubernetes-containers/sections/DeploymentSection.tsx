@@ -554,7 +554,9 @@ function EditYamlSubSection({ state, onApply }: { state: ContainersEditorState; 
 export function DeploymentSection({ state, updateField }: DeploymentSectionProps) {
   const handleYamlApply = (partial: Partial<ContainersEditorState>) => {
     for (const [key, value] of Object.entries(partial) as [keyof ContainersEditorState, ContainersEditorState[keyof ContainersEditorState]][]) {
-      updateField(key, value)
+      // An absent field (e.g. no metadata.namespace in the pasted YAML) means "keep the
+      // current form value" — applying undefined would wipe it instead.
+      if (value !== undefined) updateField(key, value)
     }
   }
 
