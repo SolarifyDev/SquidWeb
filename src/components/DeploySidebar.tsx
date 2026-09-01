@@ -75,8 +75,9 @@ const DeploySidebar: React.FC = () => {
             );
           }
 
-          // "Projects" uses exact match; all others use startsWith
+          // Keep Projects active for the import flow without highlighting every project detail page.
           const isActive = location.pathname === item.path ||
+            (item.label === 'Projects' && location.pathname.startsWith(`${item.path}/import`)) ||
             (item.label !== 'Projects' && location.pathname.startsWith(item.path));
 
           return (

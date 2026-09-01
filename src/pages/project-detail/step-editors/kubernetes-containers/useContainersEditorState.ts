@@ -26,8 +26,37 @@ function getStepProp(step: DeploymentStepDto, names: string[]): string {
 }
 
 function kvFromJson(value: string | undefined): KeyValueItem[] {
-  const arr = safeJsonParse<{ Key: string; Value: string }[]>(value, [])
-  return arr.map((item) => ({ key: item.Key, value: item.Value }))
+  const parsed = safeJsonParse<unknown>(value, [])
+
+  if (Array.isArray(parsed)) {
+    return parsed
+      .map((item) => {
+        const record = asObject(item)
+        const key = record.Key ?? record.key ?? record.Name ?? record.name
+        const itemValue = record.Value ?? record.value
+        return {
+          key: key == null ? '' : String(key),
+          value: itemValue == null ? '' : String(itemValue),
+        }
+      })
+      .filter((item) => item.key.trim())
+  }
+
+  const record = asObject(parsed)
+  if ('Key' in record || 'key' in record || 'Value' in record || 'value' in record) {
+    const key = record.Key ?? record.key
+    const itemValue = record.Value ?? record.value
+    return key == null || !String(key).trim()
+      ? []
+      : [{ key: String(key), value: itemValue == null ? '' : String(itemValue) }]
+  }
+
+  return Object.entries(record)
+    .map(([key, itemValue]) => ({
+      key,
+      value: itemValue == null ? '' : String(itemValue),
+    }))
+    .filter((item) => item.key.trim())
 }
 
 function kvToJson(items: KeyValueItem[]): string {

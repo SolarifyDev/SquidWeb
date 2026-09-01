@@ -20,6 +20,7 @@ import InfrastructureOverviewPage from 'pages/infrastructure/overview'
 import OpenClawDirectChatPage from 'pages/chat'
 import ChatEntryPage from 'pages/chat/entry'
 import ProjectDetail from "pages/project-detail";
+import ImportProjects from "pages/project/ImportProjects";
 import Deployments from "pages/project-detail/Deployments";
 import Process from "pages/project-detail/DeploymentProcess";
 import ProjectVariables from "pages/project-detail/ProjectVariables";
@@ -65,6 +66,11 @@ const routes = [
             path: "projects",
             component: Project,
             name: "Project",
+          },
+          {
+            path: "projects/import",
+            component: ImportProjects,
+            name: "ImportProjects",
           },
           {
             path: "chat",

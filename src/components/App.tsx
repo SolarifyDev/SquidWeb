@@ -148,6 +148,9 @@ function App() {
   const isSignInRoute = location.pathname.startsWith("/users/sign-in");
   const isChangePasswordRoute = location.pathname.startsWith("/users/change-password");
   const isPersonalSettingsRoute = location.pathname.startsWith("/users/me");
+  const isImportProjectsPage = Boolean(
+    matchPath("/:spaceId/projects/import", location.pathname),
+  );
   const [isProjectHovered, setIsProjectHovered] = useState(false);
   const [showSpaceSwitcher, setShowSpaceSwitcher] = useState(false);
   const spaceSwitcherRef = useRef<HTMLDivElement>(null);
@@ -241,7 +244,9 @@ function App() {
   const isTasksActive = location.pathname.startsWith("/tasks");
 
   const isDeploySection = isDeployActive;
-  const isProjectDetailPage = Boolean(matchPath("/:spaceId/projects/:projectName/*", location.pathname));
+  const isProjectDetailPage =
+    Boolean(matchPath("/:spaceId/projects/:projectName/*", location.pathname)) &&
+    !isImportProjectsPage;
   const showSidebarInline = isDeploySection && !isProjectDetailPage;
   const showSidebarOverlay = isDeploySection && isProjectDetailPage && isProjectHovered;
   const currentPath = `${location.pathname}${location.search}${location.hash}`;
