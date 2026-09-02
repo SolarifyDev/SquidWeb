@@ -670,6 +670,14 @@ const DeployCreate: React.FC = () => {
 
       message.error(`Failed to create deployments: ${failedEnvironmentNames}.`)
     } catch (error: any) {
+      if (error?.code === 'ECONNABORTED') {
+        message.error('Deployment request timed out. Please try again.')
+        return
+      }
+      if (error?.code === 'ERR_CANCELED') {
+        message.error('Deployment request was canceled.')
+        return
+      }
       message.error(error?.message || 'Failed to create deployment.')
     } finally {
       setDeploying(false)
