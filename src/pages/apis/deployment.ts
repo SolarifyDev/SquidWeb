@@ -1,8 +1,6 @@
 import { ApiError, axiosInstance, get, post, type RequestConfig } from 'utils/request'
 import type { ServerTaskDetailsDto } from './serverTask'
 
-const CREATE_DEPLOYMENT_TIMEOUT_MS = 5 * 60 * 1000
-
 export interface CreateDeploymentCommand {
   releaseId: number
   environmentId: number
@@ -112,14 +110,7 @@ export interface GetDeploymentRequest {
 }
 
 export function createDeployment(command: CreateDeploymentCommand, config?: RequestConfig<CreateDeploymentCommand>) {
-  return post<CreateDeploymentResponseData, CreateDeploymentCommand>(
-    '/deployments/create',
-    command,
-    {
-      ...config,
-      timeout: config?.timeout ?? CREATE_DEPLOYMENT_TIMEOUT_MS,
-    },
-  )
+  return post<CreateDeploymentResponseData, CreateDeploymentCommand>('/deployments/create', command, config)
 }
 
 export function getDeployment(id: number, params?: GetDeploymentRequest) {
