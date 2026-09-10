@@ -24,6 +24,20 @@ export interface OctopusImportDiagnostic {
   message: string;
 }
 
+export interface OctopusImportBlockingReason {
+  code: string;
+  message: string;
+  occurrenceCount: number;
+  affectedResourceCount: number;
+}
+
+export interface OctopusImportBlockerSummary {
+  hasBlockers: boolean;
+  blockerCount: number;
+  affectedResourceCount: number;
+  blockingReasons: OctopusImportBlockingReason[];
+}
+
 export interface OctopusImportRequiredInput {
   kind: OctopusImportRequiredInputKind;
   resourceId?: string | null;
@@ -127,30 +141,36 @@ export interface OctopusImportResult {
 
 export interface OctopusImportUploadResponseData {
   session: OctopusImportSession;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export interface OctopusImportExtractResponseData {
   session: OctopusImportSession;
   extraction: OctopusImportExtraction;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export interface OctopusImportPreviewResponseData {
   session: OctopusImportSession;
   previewPlan: OctopusImportPreviewPlan;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export interface OctopusImportValidateResponseData {
   session: OctopusImportSession;
   previewPlan: OctopusImportPreviewPlan;
   validation: OctopusImportValidation;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export interface OctopusImportConfirmResponseData {
   session: OctopusImportSession;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export interface OctopusImportStatusResponseData {
   session: OctopusImportSession;
+  blockerSummary: OctopusImportBlockerSummary;
 }
 
 export function isImportTerminalState(
@@ -258,12 +278,14 @@ async function requestImport<T>(
 
 export function uploadOctopusImport(
   file: File,
+  password: string,
   spaceId: number,
   signal?: AbortSignal,
 ) {
   const form = new FormData();
   form.append("file", file);
   form.append("spaceId", String(spaceId));
+  form.append("password", password);
 
   return requestImport<OctopusImportUploadResponseData>("/upload", {
     method: "POST",

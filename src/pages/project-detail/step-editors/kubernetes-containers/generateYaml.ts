@@ -2,6 +2,11 @@ import type { ContainersEditorState, ContainerSpec, ProbeConfig } from './types'
 import type { KeyValueItem } from '../shared/KeyValueListEditor'
 import type { ExternalFeedDto } from 'pages/apis/externalFeed'
 
+// Temporary compatibility label for exported Deployment resources.
+const OCTOPUS_EXPORT_LABELS: Record<string, string> = {
+  octopusexport: 'OctopusExport',
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function indent(text: string, spaces: number): string {
@@ -644,7 +649,7 @@ export function generateDeploymentYaml(state: ContainersEditorState, registryHos
   const deploymentName = state.deploymentName || 'my-deployment'
   const namespace = state.namespace || 'default'
   const replicas = state.replicas || '1'
-  const labels = kvToMap(state.deploymentLabels)
+  const labels = resourceType === 'Deployment' ? OCTOPUS_EXPORT_LABELS : kvToMap(state.deploymentLabels)
   const annotations = kvToMap(state.deploymentAnnotations)
   const selectorLabels = Object.keys(labels).length > 0 ? labels : { app: deploymentName }
 
@@ -729,7 +734,9 @@ export function generateServiceYaml(state: ContainersEditorState): string | null
 
   const deploymentName = state.deploymentName || 'my-deployment'
   const namespace = state.namespace || 'default'
-  const labels = kvToMap(state.deploymentLabels)
+  const labels = (state.resourceType || 'Deployment') === 'Deployment'
+    ? OCTOPUS_EXPORT_LABELS
+    : kvToMap(state.deploymentLabels)
   const annotations = kvToMap(state.serviceAnnotations)
   const selectorLabels = Object.keys(labels).length > 0 ? labels : { app: deploymentName }
 

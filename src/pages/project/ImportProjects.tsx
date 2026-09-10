@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Modal, Spin, Typography, message } from "antd";
+import { Alert, Button, Input, Modal, Spin, message } from "antd";
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -16,19 +16,14 @@ import {
   getOctopusImportStatus,
   isImportTerminalState,
   previewOctopusImport,
-  type OctopusImportDiagnostic,
-  type OctopusImportExtraction,
+  type OctopusImportBlockerSummary,
   type OctopusImportPreviewPlan,
-  type OctopusImportPreviewResource,
-  type OctopusImportResult,
   type OctopusImportSession,
   type OctopusImportValidation,
   type OctopusImportUploadResponseData,
   uploadOctopusImport,
   validateOctopusImport,
 } from "pages/apis/octopusImport";
-
-const { Text } = Typography;
 
 type ValidationState = "idle" | "validating" | "valid" | "error";
 type WorkflowPhase =
@@ -42,11 +37,6 @@ type WorkflowPhase =
   | "succeeded"
   | "failed";
 
-interface ResourceGroup {
-  title: string;
-  items: OctopusImportPreviewResource[];
-}
-
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -54,91 +44,6 @@ const formatFileSize = (size: number) => {
 };
 
 const isZipFile = (file: File) => file.name.toLowerCase().endsWith(".zip");
-
-const formatPreviewAction = (value: number) => {
-  switch (value) {
-    case 0:
-      return "Create";
-    case 1:
-      return "Reuse existing";
-    case 2:
-      return "Rename required";
-    case 3:
-      return "Skip";
-    case 4:
-      return "Unsupported";
-    case 5:
-      return "Blocked";
-    default:
-      return `Action ${value}`;
-  }
-};
-
-const formatOutcomeState = (value: number) => {
-  switch (value) {
-    case 0:
-      return "Pending";
-    case 1:
-      return "Created";
-    case 2:
-      return "Reused";
-    case 3:
-      return "Skipped";
-    case 4:
-      return "Unsupported";
-    case 5:
-      return "Blocked";
-    case 6:
-      return "Failed";
-    default:
-      return `Outcome ${value}`;
-  }
-};
-
-const formatSeverity = (value: number) => {
-  switch (value) {
-    case 0:
-      return "Info";
-    case 1:
-      return "Warning";
-    case 2:
-      return "Blocker";
-    default:
-      return `Severity ${value}`;
-  }
-};
-
-const getSeverityClass = (value: number) => {
-  switch (value) {
-    case 0:
-      return "border-slate-200 bg-slate-50 text-slate-600";
-    case 1:
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case 2:
-      return "border-red-200 bg-red-50 text-red-700";
-    default:
-      return "border-slate-200 bg-slate-50 text-slate-600";
-  }
-};
-
-const groupPreviewResources = (
-  resources: OctopusImportPreviewResource[],
-): ResourceGroup[] => {
-  const grouped = new Map<string, OctopusImportPreviewResource[]>();
-  for (const resource of resources) {
-    const key = resource.sourceType || "Other";
-    const existing = grouped.get(key);
-    if (existing) {
-      existing.push(resource);
-    } else {
-      grouped.set(key, [resource]);
-    }
-  }
-  return Array.from(grouped.entries()).map(([title, items]) => ({
-    title,
-    items,
-  }));
-};
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message;
@@ -158,25 +63,22 @@ const ImportProjects: React.FC = () => {
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<OctopusImportSession | null>(null);
-  const [extraction, setExtraction] = useState<OctopusImportExtraction | null>(
-    null,
-  );
   const [previewPlan, setPreviewPlan] =
     useState<OctopusImportPreviewPlan | null>(null);
   const [validation, setValidation] = useState<OctopusImportValidation | null>(
     null,
   );
-  const [result, setResult] = useState<OctopusImportResult | null>(null);
   const [workflowPhase, setWorkflowPhase] = useState<WorkflowPhase>("idle");
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowWarning, setWorkflowWarning] = useState<string | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
-  const [workflowDiagnostics, setWorkflowDiagnostics] = useState<
-    OctopusImportDiagnostic[]
-  >([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [blockerSummary, setBlockerSummary] =
+    useState<OctopusImportBlockerSummary | null>(null);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [draftFile, setDraftFile] = useState<File | null>(null);
+  const [draftPassword, setDraftPassword] = useState("");
   const [draftValidation, setDraftValidation] =
     useState<ValidationState>("idle");
   const [draftError, setDraftError] = useState("");
@@ -189,20 +91,27 @@ const ImportProjects: React.FC = () => {
   const isFinalizingImport =
     workflowPhase === "validating" || workflowPhase === "confirming";
   const hasPreviewBlockers = Boolean(
-    previewPlan?.hasBlockers || validation?.hasBlockers,
+    blockerSummary?.hasBlockers ||
+      previewPlan?.hasBlockers ||
+      validation?.hasBlockers,
+  );
+  const hasImportErrorOrBlocker = Boolean(
+    workflowError ||
+      blockerSummary?.hasBlockers ||
+      previewPlan?.hasBlockers ||
+      validation?.hasBlockers,
   );
   const canImport = Boolean(
     previewPlan &&
       !hasPreviewBlockers &&
+      !workflowError &&
       workflowPhase === "ready" &&
       !isFinalizingImport,
   );
   const showPreviewSection = Boolean(
-    isProcessingFile ||
-      previewPlan ||
-      extraction ||
+    previewPlan ||
       validation ||
-      result ||
+      blockerSummary?.hasBlockers ||
       workflowWarning ||
       workflowError,
   );
@@ -218,16 +127,14 @@ const ImportProjects: React.FC = () => {
   const clearWorkflow = () => {
     workflowAbortRef.current?.abort();
     workflowAbortRef.current = null;
-    setSession(null);
-    setExtraction(null);
     setPreviewPlan(null);
     setValidation(null);
-    setResult(null);
     setWorkflowPhase("idle");
     setWorkflowMessage(null);
     setWorkflowWarning(null);
     setWorkflowError(null);
-    setWorkflowDiagnostics([]);
+    setUploadError(null);
+    setBlockerSummary(null);
   };
 
   const validateDraftFile = (file: File | null) => {
@@ -236,6 +143,7 @@ const ImportProjects: React.FC = () => {
 
     setDraftFile(file);
     setDraftError("");
+    setUploadError(null);
 
     if (!file) {
       setDraftValidation("idle");
@@ -262,6 +170,7 @@ const ImportProjects: React.FC = () => {
 
   const openPicker = () => {
     setDraftFile(selectedFile);
+    setDraftPassword("");
     setDraftError("");
     setDraftValidation(selectedFile ? "valid" : "idle");
     setIsDragging(false);
@@ -271,6 +180,19 @@ const ImportProjects: React.FC = () => {
   const closePicker = () => {
     setIsPickerOpen(false);
     setIsDragging(false);
+    setUploadError(null);
+  };
+
+  const cancelPicker = () => {
+    if (isProcessingFile) {
+      workflowTokenRef.current += 1;
+      clearWorkflow();
+    }
+    setDraftFile(selectedFile);
+    setDraftPassword("");
+    setDraftError("");
+    setDraftValidation(selectedFile ? "valid" : "idle");
+    closePicker();
   };
 
   const handleBrowseKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -302,30 +224,41 @@ const ImportProjects: React.FC = () => {
     clearWorkflow();
     const controller = new AbortController();
     workflowAbortRef.current = controller;
-    setSelectedFile(file);
     setWorkflowPhase("uploading");
     setWorkflowMessage("Uploading archive...");
+    let uploadCompleted = false;
 
     try {
       const uploadEnvelope = await uploadOctopusImport(
         file,
+        draftPassword,
         space.id,
         controller.signal,
       );
       if (workflowTokenRef.current !== token) return;
+
+      if (uploadEnvelope.code !== 200) {
+        setWorkflowPhase("idle");
+        setWorkflowMessage(null);
+        setUploadError(uploadEnvelope.msg || "Upload failed.");
+        return;
+      }
+      setBlockerSummary(uploadEnvelope.data?.blockerSummary ?? null);
 
       const uploadSession = applyUploadResult(
         uploadEnvelope.data ?? null,
         file,
         token,
       );
-      if (!uploadSession) return;
-
-      if (uploadEnvelope.code !== 200) {
-        setWorkflowPhase("failed");
-        setWorkflowError(uploadEnvelope.msg || "Upload failed.");
+      if (!uploadSession) {
+        setWorkflowPhase("idle");
+        setWorkflowMessage(null);
+        setWorkflowError(null);
+        setUploadError("Upload did not return a session.");
         return;
       }
+      uploadCompleted = true;
+      closePicker();
 
       setWorkflowPhase("extracting");
       setWorkflowMessage("Extracting archive...");
@@ -340,7 +273,9 @@ const ImportProjects: React.FC = () => {
       const extractedSession = extractEnvelope.data?.session ?? uploadSession;
       setSession(extractedSession);
       const extractionData = extractEnvelope.data?.extraction ?? null;
-      setExtraction(extractionData);
+      const extractionBlockerSummary =
+        extractEnvelope.data?.blockerSummary ?? null;
+      setBlockerSummary(extractionBlockerSummary);
 
       if (!extractionData) {
         setWorkflowPhase("failed");
@@ -349,13 +284,16 @@ const ImportProjects: React.FC = () => {
         return;
       }
 
-      if (extractEnvelope.code !== 200 || extractionData.hasBlockers) {
+      if (
+        extractEnvelope.code !== 200 ||
+        extractionData.hasBlockers ||
+        extractionBlockerSummary?.hasBlockers
+      ) {
         setWorkflowPhase("failed");
         setWorkflowMessage(null);
         setWorkflowError(
           extractEnvelope.msg || "Extraction produced blocking diagnostics.",
         );
-        setWorkflowDiagnostics(extractionData.diagnostics ?? []);
         return;
       }
 
@@ -371,8 +309,11 @@ const ImportProjects: React.FC = () => {
 
       const previewSession = previewEnvelope.data?.session ?? extractedSession;
       const previewData = previewEnvelope.data?.previewPlan ?? null;
+      const previewBlockerSummary =
+        previewEnvelope.data?.blockerSummary ?? null;
       setSession(previewSession);
       setPreviewPlan(previewData);
+      setBlockerSummary(previewBlockerSummary);
       setWorkflowMessage(null);
 
       if (!previewData) {
@@ -382,16 +323,29 @@ const ImportProjects: React.FC = () => {
       }
 
       setWorkflowPhase("ready");
-      if (previewEnvelope.code !== 200 || previewData.hasBlockers) {
-        setWorkflowWarning(previewEnvelope.msg || "Preview contains blockers.");
-        setWorkflowDiagnostics(previewData.diagnostics ?? []);
+      if (
+        previewEnvelope.code !== 200 ||
+        previewData.hasBlockers ||
+        previewBlockerSummary?.hasBlockers
+      ) {
+        setWorkflowError(
+          previewEnvelope.code !== 200
+            ? previewEnvelope.msg || "Preview failed."
+            : null,
+        );
       } else {
+        setWorkflowError(null);
         setWorkflowWarning(null);
-        setWorkflowDiagnostics([]);
       }
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if ((error as Error)?.name === "AbortError") return;
+      if (!uploadCompleted) {
+        setWorkflowPhase("idle");
+        setWorkflowMessage(null);
+        setUploadError(getErrorMessage(error));
+        return;
+      }
       setWorkflowPhase("failed");
       setWorkflowMessage(null);
       setWorkflowError(getErrorMessage(error));
@@ -406,7 +360,7 @@ const ImportProjects: React.FC = () => {
         file.name !== selectedFile.name ||
         file.size !== selectedFile.size)
     ) {
-      clearWorkflow();
+      setDraftPassword("");
     }
     validateDraftFile(file);
     event.target.value = "";
@@ -422,26 +376,16 @@ const ImportProjects: React.FC = () => {
         file.name !== selectedFile.name ||
         file.size !== selectedFile.size)
     ) {
-      clearWorkflow();
+      setDraftPassword("");
     }
     validateDraftFile(file);
   };
 
   const handleConfirmPicker = () => {
-    if (!draftFile || draftValidation !== "valid") return;
-    closePicker();
+    if (!draftFile || draftValidation !== "valid" || !draftPassword.trim()) {
+      return;
+    }
     void runImportWorkflow(draftFile);
-  };
-
-  const handleClearSource = () => {
-    workflowAbortRef.current?.abort();
-    workflowAbortRef.current = null;
-    workflowTokenRef.current += 1;
-    setSelectedFile(null);
-    setDraftFile(null);
-    setDraftValidation("idle");
-    setDraftError("");
-    clearWorkflow();
   };
 
   const pollFinalStatus = async (
@@ -460,6 +404,7 @@ const ImportProjects: React.FC = () => {
       }
 
       const statusSession = statusEnvelope.data?.session ?? null;
+      setBlockerSummary(statusEnvelope.data?.blockerSummary ?? null);
       if (!statusSession) return null;
       if (isImportTerminalState(statusSession.state)) return statusSession;
       await wait(1500);
@@ -486,8 +431,8 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage("Validating preview plan...");
     setWorkflowWarning(null);
     setWorkflowError(null);
-    setWorkflowDiagnostics([]);
     setValidation(null);
+    setBlockerSummary(null);
 
     try {
       const validateEnvelope = await validateOctopusImport(
@@ -499,19 +444,24 @@ const ImportProjects: React.FC = () => {
       if (workflowTokenRef.current !== token) return;
 
       const validationData = validateEnvelope.data?.validation ?? null;
+      const validationBlockerSummary =
+        validateEnvelope.data?.blockerSummary ?? null;
       setValidation(validationData);
+      setBlockerSummary(validationBlockerSummary);
 
       if (
         !validationData ||
         validateEnvelope.code !== 200 ||
-        validationData.hasBlockers
+        validationData.hasBlockers ||
+        validationBlockerSummary?.hasBlockers
       ) {
         setWorkflowPhase("ready");
         setWorkflowMessage(null);
-        setWorkflowWarning(
-          validateEnvelope.msg || "Validation produced blockers.",
+        setWorkflowError(
+          validateEnvelope.code !== 200
+            ? validateEnvelope.msg || "Validation failed."
+            : null,
         );
-        setWorkflowDiagnostics(validationData?.diagnostics ?? []);
         return;
       }
 
@@ -526,6 +476,7 @@ const ImportProjects: React.FC = () => {
       if (workflowTokenRef.current !== token) return;
 
       const confirmedSession = confirmEnvelope.data?.session ?? null;
+      setBlockerSummary(confirmEnvelope.data?.blockerSummary ?? null);
       if (!confirmedSession) {
         setWorkflowPhase("failed");
         setWorkflowMessage(null);
@@ -553,8 +504,6 @@ const ImportProjects: React.FC = () => {
       }
 
       setSession(finalSession);
-      setResult(finalSession.result ?? null);
-
       if (finalSession.state === 5) {
         setWorkflowPhase("succeeded");
         setWorkflowMessage(null);
@@ -570,7 +519,6 @@ const ImportProjects: React.FC = () => {
       setWorkflowError(
         finalSession.result?.diagnostics?.[0]?.message || "Import failed.",
       );
-      setWorkflowDiagnostics(finalSession.result?.diagnostics ?? []);
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if ((error as Error)?.name === "AbortError") return;
@@ -580,104 +528,58 @@ const ImportProjects: React.FC = () => {
     }
   };
 
-  const previewResourceGroups = useMemo(() => {
-    if (!previewPlan) return [];
-    return groupPreviewResources(previewPlan.resources);
+  const previewResources = useMemo(() => {
+    const resources = previewPlan?.resources ?? [];
+    const byType = (type: string) =>
+      resources.filter(
+        (resource) =>
+          resource.sourceType.trim().toLowerCase() === type.toLowerCase(),
+      );
+
+    return {
+      projects: byType("Project"),
+      environments: byType("Environment"),
+      lifecycles: byType("Lifecycle"),
+    };
   }, [previewPlan]);
 
-  const renderDiagnostics = (diagnostics: OctopusImportDiagnostic[]) => {
-    if (!diagnostics.length) return null;
-    return (
-      <div className="space-y-2">
-        {diagnostics.map((diagnostic, index) => (
-          <div
-            key={`${diagnostic.code}-${index}`}
-            className={`rounded-md border px-3 py-2 text-sm ${getSeverityClass(
-              diagnostic.severity,
-            )}`}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold">
-                {formatSeverity(diagnostic.severity)}
-              </span>
-              <span className="text-xs opacity-70">{diagnostic.code}</span>
-            </div>
-            <div className="mt-1">{diagnostic.message}</div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderResourceCard = (resource: OctopusImportPreviewResource) => {
-    const actionLabel = formatPreviewAction(resource.previewAction);
-    const outcomeLabel = formatOutcomeState(resource.outcomeState);
-    const actionTone =
-      resource.previewAction === 0
-        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-        : resource.previewAction === 1
-          ? "border-blue-200 bg-blue-50 text-blue-800"
-          : resource.previewAction === 2
-            ? "border-amber-200 bg-amber-50 text-amber-800"
-            : resource.previewAction === 5
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-slate-200 bg-slate-50 text-slate-600";
+  const renderBlockerSummary = (summary: OctopusImportBlockerSummary) => {
+    if (!summary.hasBlockers) return null;
 
     return (
-      <div
-        key={`${resource.sourceType}-${resource.sourceId}`}
-        className="rounded-lg border border-slate-200 bg-white px-4 py-3"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">
-              {resource.sourceName}
+      <Alert
+        type="error"
+        showIcon
+        icon={<ExclamationCircleOutlined />}
+        message="Import cannot continue."
+        description={
+          <div className="space-y-2">
+            <div>
+              {summary.blockerCount} blocking issue
+              {summary.blockerCount === 1 ? "" : "s"} found across{" "}
+              {summary.affectedResourceCount} resource
+              {summary.affectedResourceCount === 1 ? "" : "s"}.
             </div>
-            <div className="mt-1 text-xs text-slate-500">
-              {resource.sourceType}
-              {resource.destinationId != null
-                ? ` · Destination ${resource.destinationId}`
-                : ""}
-            </div>
+            {summary.blockingReasons.length ? (
+              <ul className="list-disc space-y-1 pl-5">
+                {summary.blockingReasons.map((reason) => (
+                  <li key={reason.code}>
+                    <span>{reason.message}</span>
+                    <span className="ml-1 text-xs opacity-75">
+                      ({reason.occurrenceCount} occurrence
+                      {reason.occurrenceCount === 1 ? "" : "s"},{" "}
+                      {reason.affectedResourceCount} affected resource
+                      {reason.affectedResourceCount === 1 ? "" : "s"})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
-          <div className="flex flex-wrap justify-end gap-1.5">
-            <span
-              className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${actionTone}`}
-            >
-              {actionLabel}
-            </span>
-            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
-              {outcomeLabel}
-            </span>
-          </div>
-        </div>
-
-        {resource.requiredInputs.length ? (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {resource.requiredInputs.length} required input
-            {resource.requiredInputs.length > 1 ? "s" : ""} need to be
-            re-entered after import.
-          </div>
-        ) : null}
-
-        {resource.diagnostics.length ? (
-          <div className="mt-3 space-y-2">
-            {renderDiagnostics(resource.diagnostics)}
-          </div>
-        ) : null}
-      </div>
+        }
+      />
     );
   };
-
-  const sourceSummary = selectedFile
-    ? `${selectedFile.name} · ${formatFileSize(selectedFile.size)}`
-    : "No file selected";
-
-  const sessionSummary = session?.sourceSummary
-    ? `${session.sourceSummary.fileName} · ${formatFileSize(
-        session.sourceSummary.sizeBytes,
-      )}`
-    : sourceSummary;
 
   return (
     <div className="flex min-h-full flex-col bg-white">
@@ -753,39 +655,18 @@ const ImportProjects: React.FC = () => {
                   <div className="text-base font-semibold text-slate-900">
                     Select a Zip file to import projects.
                   </div>
+                  {selectedFile ? (
+                    <div className="mt-4 text-sm font-medium text-slate-900">
+                      Selected file:{" "}
+                      <span className="font-semibold">{selectedFile.name}</span>
+                    </div>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <Button type="primary" ghost onClick={openPicker}>
                       Select zip file
                     </Button>
-                    <Text className="text-sm text-slate-500">
-                      {sessionSummary}
-                    </Text>
                   </div>
                 </div>
-
-                {selectedFile ? (
-                  <div className="rounded-lg border border-slate-200 bg-white">
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-squid-blue">
-                        <FileZipOutlined className="text-lg" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-slate-900">
-                          {selectedFile.name}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {formatFileSize(selectedFile.size)}
-                        </div>
-                      </div>
-                      <Button onClick={openPicker}>Change</Button>
-                      <Button
-                        aria-label="Remove selected zip file"
-                        icon={<DeleteOutlined />}
-                        onClick={handleClearSource}
-                      />
-                    </div>
-                  </div>
-                ) : null}
 
                 {isProcessingFile ? (
                   <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -793,164 +674,119 @@ const ImportProjects: React.FC = () => {
                     {workflowMessage}
                   </div>
                 ) : null}
-
-                {showPreviewSection ? (
-                  <div className="w-full rounded-lg border border-slate-200 bg-white">
-                    <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                      <div className="min-w-0">
-                        <div className="text-base font-semibold text-slate-900">
-                          Import Preview
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {workflowPhase === "ready"
-                            ? "Parsed from the selected archive."
-                            : workflowPhase === "failed"
-                              ? "The archive has blocking issues."
-                              : workflowMessage || "Preparing preview..."}
-                        </div>
-                      </div>
-                      <Button
-                        type={canImport ? "primary" : "default"}
-                        loading={isFinalizingImport}
-                        disabled={!canImport}
-                        onClick={handleImport}
-                        className={
-                          canImport
-                            ? "!bg-green-700 hover:!bg-green-800 !border-green-700 !text-white"
-                            : "!border-slate-300 !bg-slate-100 !text-slate-400"
-                        }
-                      >
-                        Import
-                      </Button>
-                    </div>
-
-                    <div className="space-y-4 px-4 py-4">
-                      {extraction ? (
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                              Documents
-                            </div>
-                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                              {extraction.documentCount}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                              Resources
-                            </div>
-                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                              {extraction.resourceCount}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                            <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                              Blockers
-                            </div>
-                            <div className="mt-1 text-lg font-semibold text-slate-900">
-                              {extraction.hasBlockers ? "Yes" : "No"}
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {workflowWarning ? (
-                        <Alert
-                          type="warning"
-                          showIcon
-                          message={workflowWarning}
-                          description={
-                            workflowDiagnostics.length
-                              ? renderDiagnostics(workflowDiagnostics)
-                              : null
-                          }
-                        />
-                      ) : null}
-
-                      {workflowError ? (
-                        <Alert
-                          type="error"
-                          showIcon
-                          icon={<ExclamationCircleOutlined />}
-                          message={workflowError}
-                          description={
-                            workflowDiagnostics.length
-                              ? renderDiagnostics(workflowDiagnostics)
-                              : null
-                          }
-                        />
-                      ) : null}
-
-                      {previewPlan ? (
-                        <div className="space-y-4">
-                          {previewPlan.requiredInputs.length ? (
-                            <Alert
-                              type="info"
-                              showIcon
-                              message={`${
-                                previewPlan.requiredInputs.length
-                              } required input${
-                                previewPlan.requiredInputs.length > 1 ? "s" : ""
-                              } will need to be re-entered after import.`}
-                            />
-                          ) : null}
-
-                          {previewPlan.diagnostics.length ? (
-                            <div className="space-y-2">
-                              <div className="text-sm font-semibold text-slate-900">
-                                Preview diagnostics
-                              </div>
-                              {renderDiagnostics(previewPlan.diagnostics)}
-                            </div>
-                          ) : null}
-
-                          <div className="space-y-4">
-                            {previewResourceGroups.map((group) => (
-                              <div key={group.title}>
-                                <div className="mb-2 text-sm font-semibold text-slate-900">
-                                  {group.title}
-                                  <span className="ml-2 text-xs font-normal text-slate-500">
-                                    ({group.items.length})
-                                  </span>
-                                </div>
-                                <div className="space-y-2">
-                                  {group.items.map((resource) =>
-                                    renderResourceCard(resource),
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            Source: {previewPlan.generatedAt}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
-                      <Button onClick={() => navigate(projectListPath)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        type="primary"
-                        loading={isFinalizingImport}
-                        disabled={!canImport}
-                        onClick={handleImport}
-                        className={
-                          canImport
-                            ? "!bg-green-700 hover:!bg-green-800 !border-green-700 !text-white"
-                            : "!border-slate-300 !bg-slate-100 !text-slate-400"
-                        }
-                      >
-                        Continue
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
               </div>
             </div>
+
+            {showPreviewSection ? (
+              <div className="mt-5 w-full">
+                <div className="border border-slate-200 bg-slate-50 px-4 py-3 text-base font-semibold text-slate-900">
+                  Import Preview
+                </div>
+                <div className="space-y-5 px-4 py-4">
+                  {blockerSummary?.hasBlockers && !isProcessingFile
+                    ? renderBlockerSummary(blockerSummary)
+                    : null}
+
+                  {!blockerSummary?.hasBlockers &&
+                  hasImportErrorOrBlocker &&
+                  !isProcessingFile ? (
+                    <Alert
+                      type="error"
+                      showIcon
+                      icon={<ExclamationCircleOutlined />}
+                      message="Import cannot continue."
+                      description={
+                        workflowError ||
+                        "Resolve the blocking issues before importing."
+                      }
+                    />
+                  ) : null}
+
+                  {!blockerSummary?.hasBlockers &&
+                  workflowWarning &&
+                  !workflowError &&
+                  !isProcessingFile ? (
+                    <Alert type="warning" showIcon message={workflowWarning} />
+                  ) : null}
+
+                  {previewPlan ? (
+                    <div className="space-y-5 text-sm text-slate-900">
+                      <section>
+                        <h2 className="mb-3 text-base font-semibold">
+                          The following projects will be imported:
+                        </h2>
+                        <ul className="list-disc space-y-1 pl-8">
+                          {previewResources.projects.map((resource) => (
+                            <li
+                              key={`${resource.sourceType}-${resource.sourceId}`}
+                            >
+                              {resource.sourceName}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+
+                      <section>
+                        <h2 className="mb-3 text-base font-semibold">
+                          The following resources will be imported:
+                        </h2>
+                        <div className="space-y-1">
+                          {previewResources.environments.length ? (
+                            <div>
+                              <div className="font-semibold">Environments</div>
+                              <ul className="list-disc space-y-1 pl-8">
+                                {previewResources.environments.map(
+                                  (resource) => (
+                                    <li
+                                      key={`${resource.sourceType}-${resource.sourceId}`}
+                                    >
+                                      {resource.sourceName}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {previewResources.lifecycles.length ? (
+                            <div>
+                              <div className="font-semibold">Lifecycles</div>
+                              <ul className="list-disc space-y-1 pl-8">
+                                {previewResources.lifecycles.map((resource) => (
+                                  <li
+                                    key={`${resource.sourceType}-${resource.sourceId}`}
+                                  >
+                                    {resource.sourceName}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {previewResources.projects.length ? (
+                            <div>
+                              <div className="font-semibold">Projects</div>
+                              <ul className="list-disc space-y-1 pl-8">
+                                {previewResources.projects.map((resource) => (
+                                  <li
+                                    key={`${resource.sourceType}-resource-${resource.sourceId}`}
+                                  >
+                                    <div className="font-semibold">
+                                      {resource.sourceName}
+                                    </div>
+                                    <div className="ml-4 italic">Channels</div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -958,14 +794,14 @@ const ImportProjects: React.FC = () => {
       <Modal
         title="Select Zip File"
         open={isPickerOpen}
-        onCancel={closePicker}
+        onCancel={cancelPicker}
         width={600}
         className="select-zip-file-modal"
         destroyOnClose
         footer={[
           <Button
             key="cancel"
-            onClick={closePicker}
+            onClick={cancelPicker}
             className="border-slate-300 bg-white text-slate-700 hover:!border-slate-400 hover:!text-slate-900"
           >
             Cancel
@@ -973,7 +809,13 @@ const ImportProjects: React.FC = () => {
           <Button
             key="select"
             type="primary"
-            disabled={!draftFile || draftValidation !== "valid"}
+            loading={workflowPhase === "uploading"}
+            disabled={
+              !draftFile ||
+              draftValidation !== "valid" ||
+              !draftPassword.trim() ||
+              isProcessingFile
+            }
             onClick={handleConfirmPicker}
             className="!bg-squid-blue hover:!bg-blue-600 disabled:!bg-slate-200 disabled:!text-slate-500"
           >
@@ -982,6 +824,16 @@ const ImportProjects: React.FC = () => {
         ]}
       >
         <div className="space-y-4 bg-white">
+          {uploadError ? (
+            <Alert
+              type="error"
+              showIcon
+              icon={<ExclamationCircleOutlined />}
+              message="There was a problem with your request."
+              description={uploadError}
+            />
+          ) : null}
+
           <div className="text-sm font-medium text-slate-700">
             Upload file containing exported data
           </div>
@@ -1058,6 +910,25 @@ const ImportProjects: React.FC = () => {
               </div>
             </div>
           ) : null}
+
+          <div>
+            <label
+              htmlFor="import-zip-password"
+              className="mb-1.5 block text-sm font-medium text-slate-700"
+            >
+              Password
+            </label>
+            <Input.Password
+              id="import-zip-password"
+              value={draftPassword}
+              onChange={(event) => {
+                setDraftPassword(event.target.value);
+                setUploadError(null);
+              }}
+              placeholder="Enter password"
+              autoComplete="new-password"
+            />
+          </div>
         </div>
       </Modal>
     </div>
