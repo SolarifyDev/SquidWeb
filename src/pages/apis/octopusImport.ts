@@ -11,12 +11,45 @@ export interface OctopusImportEnvelope<T> {
   data: T | null;
 }
 
-export type OctopusImportSessionState = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export enum OctopusImportSessionState {
+  Uploaded,
+  Extracted,
+  Previewed,
+  Validated,
+  Importing,
+  Succeeded,
+  Failed,
+  Expired,
+}
 
-export type OctopusImportPreviewAction = 0 | 1 | 2 | 3 | 4 | 5;
-export type OctopusImportResourceOutcomeState = 0 | 1 | 2 | 3 | 4 | 5 | 6;
-export type OctopusImportCompatibilitySeverity = 0 | 1 | 2;
-export type OctopusImportRequiredInputKind = 0;
+export enum OctopusImportPreviewAction {
+  Create,
+  ReuseExisting,
+  RenameRequired,
+  Skip,
+  Unsupported,
+  Blocked,
+}
+
+export enum OctopusImportResourceOutcomeState {
+  Pending,
+  Created,
+  Reused,
+  Skipped,
+  Unsupported,
+  Blocked,
+  Failed,
+}
+
+export enum OctopusImportCompatibilitySeverity {
+  Info,
+  Warning,
+  Blocker,
+}
+
+export enum OctopusImportRequiredInputKind {
+  SensitiveVariableValue,
+}
 
 export interface OctopusImportDiagnostic {
   severity: OctopusImportCompatibilitySeverity;
