@@ -32,7 +32,7 @@ export default function MachineUpgradeLogPanel({ machineId, active = false }: Pr
     setLoading(true)
     setError(null)
     try {
-      const data = await getMachineUpgradeLog(machineId)
+      const data = await getMachineUpgradeLog(machineId, { silentLoading: true })
       setLog(data?.log ?? '')
       setLoaded(true)
     } catch (e) {

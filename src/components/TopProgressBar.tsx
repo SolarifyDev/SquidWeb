@@ -1,83 +1,86 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { subscribeInFlight } from 'utils/request';
+import {
+  initialLoadingState,
+  reduceLoading,
+  type LoadingState,
+} from 'utils/loadingProgress';
 
-// GitHub / NProgress 风格的细进度条，钉在内容方框（page-content-right）顶边。
-// 触发源：路由切换 + axios 进行中的请求数（两者任一活跃即显示）。
+// Thin adapter over the pure state machine in utils/loadingProgress: it owns no logic beyond
+// feeding the reducer three event sources — navigation, request telemetry, and an animation
+// frame — and rendering whatever state comes back.
 const TopProgressBar: React.FC = () => {
   const location = useLocation();
-  const [width, setWidth] = useState(0);
-  const [visible, setVisible] = useState(false);
+  const stateRef = useRef<LoadingState>(initialLoadingState);
+  const [view, setView] = useState({ width: 0, visible: false, shimmer: false });
+  const frameRef = useRef<number>();
 
-  const phaseRef = useRef<'idle' | 'run' | 'done'>('idle');
-  const trickleRef = useRef<number>();
-  const doneRef = useRef<number>();
-  const navTimerRef = useRef<number>();
-  const inFlightRef = useRef(0);
+  // One ref-held dispatch so the effects below never need to re-subscribe when state changes.
+  const dispatchRef = useRef<(event: Parameters<typeof reduceLoading>[1]) => void>();
 
-  const begin = useCallback(() => {
-    if (phaseRef.current === 'run') return;
+  if (!dispatchRef.current) {
+    const pump = () => {
+      dispatchRef.current?.({ type: 'tick', at: performance.now() });
 
-    phaseRef.current = 'run';
-    window.clearTimeout(doneRef.current);
-    setVisible(true);
-    setWidth(8);
+      // Stop scheduling once the machine is back at rest; the next navigation or request
+      // restarts the loop. An idle app therefore costs nothing.
+      if (stateRef.current.phase === 'idle') {
+        frameRef.current = undefined;
+        return;
+      }
 
-    window.clearInterval(trickleRef.current);
-    trickleRef.current = window.setInterval(() => {
-      setWidth((w) => (w < 90 ? w + (90 - w) * 0.12 : w));
-    }, 280);
-  }, []);
+      frameRef.current = window.requestAnimationFrame(pump);
+    };
 
-  const finish = useCallback(() => {
-    if (phaseRef.current !== 'run') return;
+    dispatchRef.current = (event) => {
+      const next = reduceLoading(stateRef.current, event);
 
-    phaseRef.current = 'done';
-    window.clearInterval(trickleRef.current);
-    setWidth(100);
+      if (next !== stateRef.current) {
+        stateRef.current = next;
+        setView((prev) =>
+          prev.width === next.width && prev.visible === next.visible && prev.shimmer === next.shimmer
+            ? prev
+            : { width: next.width, visible: next.visible, shimmer: next.shimmer },
+        );
+      }
 
-    doneRef.current = window.setTimeout(() => {
-      setVisible(false);
-      phaseRef.current = 'idle';
-      window.setTimeout(() => setWidth(0), 220);
-    }, 260);
-  }, []);
+      if (stateRef.current.phase !== 'idle' && frameRef.current == null) {
+        frameRef.current = window.requestAnimationFrame(pump);
+      }
+    };
+  }
 
   useEffect(() => {
-    return subscribeInFlight((count) => {
-      inFlightRef.current = count;
-      if (count > 0) begin();
-      else finish();
+    return subscribeInFlight((stats) => {
+      dispatchRef.current?.({ type: 'stats', at: performance.now(), stats });
     });
-  }, [begin, finish]);
+  }, []);
 
   useEffect(() => {
-    begin();
-    window.clearTimeout(navTimerRef.current);
-    navTimerRef.current = window.setTimeout(() => {
-      if (inFlightRef.current === 0) finish();
-    }, 450);
-    return () => window.clearTimeout(navTimerRef.current);
-  }, [location.key, begin, finish]);
+    dispatchRef.current?.({ type: 'navigate', at: performance.now() });
+  }, [location.key]);
 
   useEffect(() => {
     return () => {
-      window.clearInterval(trickleRef.current);
-      window.clearTimeout(doneRef.current);
-      window.clearTimeout(navTimerRef.current);
+      if (frameRef.current != null) window.cancelAnimationFrame(frameRef.current);
     };
   }, []);
 
   return (
-    <div className="relative z-50 h-[2px] flex-none pointer-events-none">
+    <div className="relative z-50 h-[2px] flex-none pointer-events-none" aria-hidden="true">
       <div
-        className="absolute inset-y-0 left-0 bg-squid-blue rounded-r-full"
+        className="absolute inset-y-0 left-0 overflow-hidden bg-squid-blue rounded-r-full"
         style={{
-          width: `${width}%`,
-          opacity: visible ? 1 : 0,
-          transition: 'width 0.2s ease-out, opacity 0.25s ease-out',
+          width: `${view.width}%`,
+          opacity: view.visible ? 1 : 0,
+          transition: 'width 0.18s ease-out, opacity 0.25s ease-out',
         }}
-      />
+      >
+        {view.shimmer && (
+          <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+        )}
+      </div>
     </div>
   );
 };
