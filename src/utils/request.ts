@@ -4,6 +4,7 @@ import axios, {
   AxiosResponse,
   AxiosError,
 } from 'axios'
+import type { LoadingStats } from './loadingProgress'
 import { getAuthToken, handleUnauthorizedSession, isAuthenticated } from 'utils/auth'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
@@ -20,27 +21,36 @@ const instance: AxiosInstance = axios.create({
 })
 
 // 进行中的请求计数 + 订阅（供顶部进度条等全局 loading 指示使用）
-let inFlightCount = 0
-type InFlightListener = (count: number) => void
+// Cumulative request telemetry for the top progress bar. `started`/`settled` never reset, so a
+// subscriber can take its own baseline and derive real per-navigation progress; `inFlight` alone
+// cannot do that, because it returns to zero between a page's request waves.
+const inFlightStats: LoadingStats = { inFlight: 0, started: 0, settled: 0 }
+type InFlightListener = (stats: LoadingStats) => void
 const inFlightListeners = new Set<InFlightListener>()
 
+/** Marks a config we actually counted, so start and settle stay symmetric by construction. */
+const COUNTED_FLAG = '__squidLoadingCounted'
+
 function emitInFlight() {
-  for (const listener of inFlightListeners) listener(inFlightCount)
+  const snapshot = { ...inFlightStats }
+  for (const listener of inFlightListeners) listener(snapshot)
 }
 
 function notifyRequestStarted() {
-  inFlightCount += 1
+  inFlightStats.inFlight += 1
+  inFlightStats.started += 1
   emitInFlight()
 }
 
 function notifyRequestSettled() {
-  inFlightCount = Math.max(0, inFlightCount - 1)
+  inFlightStats.inFlight = Math.max(0, inFlightStats.inFlight - 1)
+  inFlightStats.settled += 1
   emitInFlight()
 }
 
 export function subscribeInFlight(listener: InFlightListener) {
   inFlightListeners.add(listener)
-  listener(inFlightCount)
+  listener({ ...inFlightStats })
   return () => {
     inFlightListeners.delete(listener)
   }
@@ -163,7 +173,10 @@ instance.interceptors.request.use(
       config.data = appendSpaceIdToBody(config.data, currentSpaceId)
     }
 
-    if (!(config as any).silentLoading) notifyRequestStarted()
+    if (!(config as any).silentLoading) {
+      ;(config as any)[COUNTED_FLAG] = true
+      notifyRequestStarted()
+    }
 
     return config
   },
@@ -175,11 +188,11 @@ instance.interceptors.request.use(
 // 响应拦截：目前只透传错误，你可以在这里做全局错误提示、401 处理等
 instance.interceptors.response.use(
   (response) => {
-    if (!(response.config as any).silentLoading) notifyRequestSettled()
+    if ((response.config as any)?.[COUNTED_FLAG]) notifyRequestSettled()
     return response
   },
   (error: AxiosError) => {
-    if (!(error.config as any)?.silentLoading) notifyRequestSettled()
+    if ((error.config as any)?.[COUNTED_FLAG]) notifyRequestSettled()
     if (error.response?.status === 401) {
       handleUnauthorizedSession()
     }

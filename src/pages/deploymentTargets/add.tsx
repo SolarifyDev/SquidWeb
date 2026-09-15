@@ -746,7 +746,7 @@ const AddDeploymentTargetPage: React.FC = () => {
 
     pollingRef.current = setInterval(async () => {
       try {
-        const res = await getConnectionStatus(subscriptionId)
+        const res = await getConnectionStatus(subscriptionId, { silentLoading: true })
         if (res.connected) {
           stopPolling()
           setAgentStep('connected')
@@ -768,7 +768,7 @@ const AddDeploymentTargetPage: React.FC = () => {
     const normalizedName = machineName.trim().toLowerCase()
     const checkMachineAppeared = async () => {
       try {
-        const res = await getMachines({ pageIndex: 1, pageSize: 1000, spaceId: space.id })
+        const res = await getMachines({ pageIndex: 1, pageSize: 1000, spaceId: space.id }, { silentLoading: true })
         const connected = (res.machines ?? []).some((machine) => machine.name.trim().toLowerCase() === normalizedName)
         if (connected) {
           stopListeningPolling()
