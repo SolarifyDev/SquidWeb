@@ -158,6 +158,7 @@ instance.interceptors.request.use(
     if (
       currentSpaceId != null
       && shouldInjectSpaceId(path)
+      && !(config as RequestConfig).skipSpaceIdInjection
       && (method === 'post' || method === 'put' || method === 'patch')
     ) {
       config.data = appendSpaceIdToBody(config.data, currentSpaceId)
@@ -214,6 +215,8 @@ export interface RequestConfig<T = any> extends AxiosRequestConfig<T> {
   // When true, this request is excluded from the global in-flight counter
   // (so it won't drive the top progress bar). Use for component-local loading.
   silentLoading?: boolean
+  // Some APIs require spaceId only in the route, query, or multipart body.
+  skipSpaceIdInjection?: boolean
 }
 
 // 统一处理后端 { data, msg, code } 的响应
