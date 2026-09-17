@@ -15,6 +15,7 @@ import {
   extractOctopusImport,
   getOctopusImportStatus,
   isImportTerminalState,
+  OctopusImportPreviewAction,
   previewOctopusImport,
   OctopusImportSessionState,
   type OctopusImportBlockerSummary,
@@ -579,9 +580,13 @@ const ImportProjects: React.FC = () => {
 
   const previewResources = useMemo(() => {
     const resources = previewPlan?.resources ?? [];
+    const isImportable = (resource: (typeof resources)[number]) =>
+      resource.previewAction === OctopusImportPreviewAction.Create ||
+      resource.previewAction === OctopusImportPreviewAction.ReuseExisting;
     const byType = (type: string) =>
       resources.filter(
         (resource) =>
+          isImportable(resource) &&
           resource.sourceType.trim().toLowerCase() === type.toLowerCase(),
       );
 
@@ -760,20 +765,22 @@ const ImportProjects: React.FC = () => {
 
                   {previewPlan ? (
                     <div className="space-y-5 text-sm text-slate-900">
-                      <section>
-                        <h2 className="mb-3 text-base font-semibold">
-                          The following projects will be imported:
-                        </h2>
-                        <ul className="list-disc space-y-1 pl-8">
-                          {previewResources.projects.map((resource) => (
-                            <li
-                              key={`${resource.sourceType}-${resource.sourceId}`}
-                            >
-                              {resource.sourceName}
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
+                      {previewResources.projects.length ? (
+                        <section>
+                          <h2 className="mb-3 text-base font-semibold">
+                            The following projects will be imported:
+                          </h2>
+                          <ul className="list-disc space-y-1 pl-8">
+                            {previewResources.projects.map((resource) => (
+                              <li
+                                key={`${resource.sourceType}-${resource.sourceId}`}
+                              >
+                                {resource.sourceName}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      ) : null}
 
                       <section>
                         <h2 className="mb-3 text-base font-semibold">
