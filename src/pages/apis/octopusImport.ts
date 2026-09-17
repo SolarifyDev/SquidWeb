@@ -1,7 +1,9 @@
-import { axiosInstance } from "utils/request";
-import { getAuthToken, handleUnauthorizedSession } from "utils/auth";
+import { AxiosError } from "axios";
+import { axiosInstance, type RequestConfig } from "utils/request";
 
 const IMPORT_API_ROOT = "/octopus-import";
+const IMPORT_REQUEST_TIMEOUT_MS = 60 * 1000;
+const IMPORT_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -73,11 +75,15 @@ export interface OctopusImportBlockerSummary {
 
 export interface OctopusImportRequiredInput {
   kind: OctopusImportRequiredInputKind;
-  resourceId?: string | null;
-  resourceType?: string | null;
-  resourceName?: string | null;
-  propertyName?: string | null;
-  message?: string | null;
+  inputKey: string;
+  sourceId: string;
+  sourceType: string;
+  name: string;
+  fieldName: string;
+  valueType: string;
+  hasSourceValue: boolean;
+  isRequired: boolean;
+  sourceScopes: Record<string, string[]>;
 }
 
 export interface OctopusImportSourceFile {
@@ -213,41 +219,6 @@ export function isImportTerminalState(
   return value === 5 || value === 6 || value === 7;
 }
 
-function buildImportUrl(path: string, query?: Record<string, QueryValue>) {
-  const resolved = new URL(
-    axiosInstance.getUri({ url: `${IMPORT_API_ROOT}${path}` }),
-    window.location.origin,
-  );
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
-      if (value == null) continue;
-      resolved.searchParams.set(key, String(value));
-    }
-  }
-  return resolved.toString();
-}
-
-function buildHeaders(spaceId?: number, includeJson = false) {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-  };
-
-  const token = getAuthToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  if (spaceId != null) {
-    headers["X-Space-Id"] = String(spaceId);
-  }
-
-  if (includeJson) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  return headers;
-}
-
 function toEnvelope<T>(body: any, status: number): OctopusImportEnvelope<T> {
   if (body && typeof body === "object" && "code" in body && "data" in body) {
     return {
@@ -281,31 +252,29 @@ async function requestImport<T>(
     body?: BodyInit | null;
     includeJson?: boolean;
     signal?: AbortSignal;
+    timeout?: number;
   },
 ): Promise<OctopusImportEnvelope<T>> {
-  const response = await fetch(buildImportUrl(path, options.query), {
-    method: options.method,
-    headers: buildHeaders(options.spaceId, options.includeJson),
-    body: options.body ?? undefined,
-    signal: options.signal,
-  });
-
-  if (response.status === 401) {
-    handleUnauthorizedSession();
-    throw new Error("Unauthorized");
-  }
-
-  const text = await response.text();
-  if (!text) return { msg: null, code: response.status, data: null };
-
   try {
-    return toEnvelope<T>(JSON.parse(text), response.status);
-  } catch {
-    return {
-      msg: null,
-      code: response.status,
-      data: null,
-    };
+    const response = await axiosInstance.request<OctopusImportEnvelope<T>>({
+      url: `${IMPORT_API_ROOT}${path}`,
+      method: options.method,
+      params: options.query,
+      data: options.body ?? undefined,
+      signal: options.signal,
+      timeout: options.timeout ?? IMPORT_REQUEST_TIMEOUT_MS,
+      skipSpaceIdInjection: true,
+      headers: options.includeJson
+        ? { "Content-Type": "application/json" }
+        : undefined,
+    } as RequestConfig);
+
+    return toEnvelope<T>(response.data, response.status);
+  } catch (error) {
+    if (error instanceof AxiosError && error.response) {
+      return toEnvelope<T>(error.response.data, error.response.status);
+    }
+    throw error;
   }
 }
 
@@ -325,6 +294,7 @@ export function uploadOctopusImport(
     spaceId,
     body: form,
     signal,
+    timeout: IMPORT_UPLOAD_TIMEOUT_MS,
   });
 }
 

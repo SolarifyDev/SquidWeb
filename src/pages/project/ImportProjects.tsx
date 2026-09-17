@@ -16,6 +16,7 @@ import {
   getOctopusImportStatus,
   isImportTerminalState,
   previewOctopusImport,
+  OctopusImportSessionState,
   type OctopusImportBlockerSummary,
   type OctopusImportPreviewPlan,
   type OctopusImportSession,
@@ -36,6 +37,11 @@ type WorkflowPhase =
   | "confirming"
   | "succeeded"
   | "failed";
+
+const MAX_IMPORT_UPLOAD_BYTES = 100 * 1024 * 1024;
+const IMPORT_POLL_INITIAL_DELAY_MS = 1500;
+const IMPORT_POLL_MAX_DELAY_MS = 15000;
+const IMPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -161,6 +167,12 @@ const ImportProjects: React.FC = () => {
       if (file.size === 0) {
         setDraftValidation("error");
         setDraftError("The selected file is empty.");
+        return;
+      }
+
+      if (file.size > MAX_IMPORT_UPLOAD_BYTES) {
+        setDraftValidation("error");
+        setDraftError("The selected file exceeds the 100 MB upload limit.");
         return;
       }
 
@@ -393,7 +405,16 @@ const ImportProjects: React.FC = () => {
     signal: AbortSignal,
     token: number,
   ) => {
+    const startedAt = Date.now();
+    let delay = IMPORT_POLL_INITIAL_DELAY_MS;
+
     for (;;) {
+      if (Date.now() - startedAt >= IMPORT_POLL_TIMEOUT_MS) {
+        throw new Error(
+          "The import is still running after 10 minutes. Check the status again later.",
+        );
+      }
+
       const statusEnvelope = await getOctopusImportStatus(
         sessionId,
         space.id,
@@ -407,7 +428,12 @@ const ImportProjects: React.FC = () => {
       setBlockerSummary(statusEnvelope.data?.blockerSummary ?? null);
       if (!statusSession) return null;
       if (isImportTerminalState(statusSession.state)) return statusSession;
-      await wait(1500);
+
+      await wait(delay);
+      delay = Math.min(
+        Math.ceil(delay * 1.5),
+        IMPORT_POLL_MAX_DELAY_MS,
+      );
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     }
   };
@@ -504,13 +530,22 @@ const ImportProjects: React.FC = () => {
       }
 
       setSession(finalSession);
-      if (finalSession.state === 5) {
+      if (finalSession.state === OctopusImportSessionState.Succeeded) {
         setWorkflowPhase("succeeded");
         setWorkflowMessage(null);
         setWorkflowWarning(null);
         setWorkflowError(null);
         message.success("Import completed.");
         navigate(projectListPath);
+        return;
+      }
+
+      if (finalSession.state === OctopusImportSessionState.Expired) {
+        setWorkflowPhase("failed");
+        setWorkflowMessage(null);
+        setWorkflowError(
+          "The import session expired. Upload the export file again.",
+        );
         return;
       }
 
@@ -522,6 +557,20 @@ const ImportProjects: React.FC = () => {
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if ((error as Error)?.name === "AbortError") return;
+      if (
+        error instanceof Error &&
+        error.message.startsWith(
+          "The import is still running after 10 minutes.",
+        )
+      ) {
+        setWorkflowPhase("confirming");
+        setWorkflowMessage("Import is still running...");
+        setWorkflowWarning(
+          "Polling stopped after 10 minutes. Refresh the page or check back later.",
+        );
+        setWorkflowError(null);
+        return;
+      }
       setWorkflowPhase("ready");
       setWorkflowMessage(null);
       setWorkflowError(getErrorMessage(error));
