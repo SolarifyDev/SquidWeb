@@ -883,7 +883,7 @@ const DeploymentDetail: React.FC = () => {
     let cancelled = false
 
     const timer = window.setInterval(() => {
-      getServerTaskDetails(taskId, { verbose, tail })
+      getServerTaskDetails(taskId, { verbose, tail }, { silentLoading: true })
         .then((details) => {
           if (!cancelled) setTaskDetails(details)
         })
@@ -911,7 +911,7 @@ const DeploymentDetail: React.FC = () => {
     setInterruptionsLoading(true)
     setInterruptionLoadError(null)
 
-    getServerTaskInterruptions(taskId)
+    getServerTaskInterruptions(taskId, { silentLoading: true })
       .then((response) => {
         if (cancelled) return
         const pending = uniquePendingInterruptions(response.interruptions ?? [])

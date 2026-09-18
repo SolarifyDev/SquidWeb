@@ -1,4 +1,4 @@
-import { get, post } from 'utils/request'
+import { get, post, type RequestConfig } from 'utils/request'
 
 export type MachineHealthStatus = 'Unknown' | 'Healthy' | 'HasWarnings' | 'Unhealthy' | 'Unavailable'
 
@@ -49,14 +49,14 @@ export interface DeleteMachinesResponseData {
   failIds: number[]
 }
 
-export function getMachines(params?: GetMachinesRequest) {
+export function getMachines(params?: GetMachinesRequest, config?: RequestConfig) {
   const query = {
     pageIndex: params?.pageIndex ?? 1,
     pageSize: params?.pageSize ?? 1000,
     ...(params?.spaceId ? { spaceId: params.spaceId } : {}),
   }
 
-  return get<GetMachinesResponseData>('/machines/list', { params: query })
+  return get<GetMachinesResponseData>('/machines/list', { params: query, ...config })
 }
 
 export function deleteMachines(command: DeleteMachinesCommand) {
@@ -470,8 +470,8 @@ export interface ConnectionStatusData {
   connected: boolean
 }
 
-export function getConnectionStatus(subscriptionId: string) {
-  return get<ConnectionStatusData>('/machines/connection-status', { params: { subscriptionId } })
+export function getConnectionStatus(subscriptionId: string, config?: RequestConfig) {
+  return get<ConnectionStatusData>('/machines/connection-status', { params: { subscriptionId }, ...config })
 }
 
 // --- Machine Health Check ---
@@ -506,8 +506,8 @@ export interface MachineUpgradeLogData {
   log: string
 }
 
-export function getMachineUpgradeLog(machineId: number) {
-  return get<MachineUpgradeLogData>(`/machines/${machineId}/upgrade-log`)
+export function getMachineUpgradeLog(machineId: number, config?: RequestConfig) {
+  return get<MachineUpgradeLogData>(`/machines/${machineId}/upgrade-log`, config)
 }
 
 // --- Connection Log (real Halibut transport events for the machine's endpoint) ---

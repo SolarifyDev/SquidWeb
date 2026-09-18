@@ -1,4 +1,4 @@
-import { ApiError, axiosInstance, get, post, put } from 'utils/request'
+import { ApiError, axiosInstance, get, post, put, type RequestConfig } from 'utils/request'
 
 export type DeploymentActivityLogNodeTypeValue = number | 'Task' | 'Step' | 'Action' | 'LogEntry'
 export type DeploymentActivityLogNodeStatusValue = number | 'Pending' | 'Running' | 'Success' | 'Failed' | null
@@ -178,8 +178,8 @@ export function getServerTask(taskId: number) {
   return get<ServerTaskSummaryDto>(`/tasks/${taskId}`)
 }
 
-export function getServerTaskDetails(taskId: number, params?: GetServerTaskDetailsParams) {
-  return get<ServerTaskDetailsDto>(`/tasks/${taskId}/details`, { params })
+export function getServerTaskDetails(taskId: number, params?: GetServerTaskDetailsParams, config?: RequestConfig) {
+  return get<ServerTaskDetailsDto>(`/tasks/${taskId}/details`, { params, ...config })
 }
 
 export function getServerTaskLogs(taskId: number, params?: GetServerTaskLogsParams) {
@@ -194,7 +194,7 @@ export function cancelServerTask(taskId: number) {
   return post<void>(`/tasks/${taskId}/cancel`)
 }
 
-export function getServerTaskInterruptions(taskId: number) {
+export function getServerTaskInterruptions(taskId: number, config?: RequestConfig) {
   const normalizeInterruptionType = (value: unknown): InterruptionType => {
     const asNumber = Number(value)
     if (Number.isFinite(asNumber)) {
@@ -274,7 +274,7 @@ export function getServerTaskInterruptions(taskId: number) {
   }
 
   return axiosInstance
-    .get(`/tasks/${taskId}/interruptions`)
+    .get(`/tasks/${taskId}/interruptions`, config)
     .then((res) => {
       const body = res.data as any
 
