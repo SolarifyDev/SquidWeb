@@ -311,11 +311,12 @@ const Project: React.FC = () => {
 
   const importExportItems: MenuProps['items'] = [
     {
-      key: '1',
+      key: 'import',
       label: 'Import Projects',
+      onClick: () => navigate(`/${space.slug}/projects/import`),
     },
     {
-      key: '2',
+      key: 'export',
       label: 'Export Projects',
     },
   ];

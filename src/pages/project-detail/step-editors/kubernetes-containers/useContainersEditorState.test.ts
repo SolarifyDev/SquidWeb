@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { serializeToStep, validateIngressRules } from './useContainersEditorState'
+import { renderHook } from '@testing-library/react'
+import { serializeToStep, useContainersEditorState, validateIngressRules } from './useContainersEditorState'
 import { defaultEditorState } from './types'
 import type { IngressRule } from './types'
+import type { DeploymentStepDto } from 'pages/apis/deploymentProcess'
 
 const ruleWithBackend = (host: string): IngressRule => ({
   host,
@@ -45,5 +47,56 @@ describe('serializeToStep — standalone ingress step', () => {
     expect(ns?.propertyValue).toBe('squid-web-prd')
     expect(rules?.propertyValue).toBeDefined()
     expect(JSON.parse(rules!.propertyValue)[0].host).toBe('squid-deploy.solarifyai.com')
+  })
+})
+
+describe('useContainersEditorState — imported Kubernetes data', () => {
+  it('accepts imported key/value properties stored as JSON object maps', () => {
+    const step: DeploymentStepDto = {
+      id: 10,
+      processId: 1,
+      stepOrder: 0,
+      name: 'Configure and apply Kubernetes resources',
+      stepType: 'Action',
+      condition: 'Success',
+      startTrigger: 'StartAfterPrevious',
+      packageRequirement: 'LetSquidDecide',
+      isDisabled: false,
+      isRequired: false,
+      createdAt: '2026-08-27T00:00:00Z',
+      properties: [],
+      actions: [
+        {
+          id: 20,
+          stepId: 10,
+          actionOrder: 0,
+          name: 'Configure and apply Kubernetes resources',
+          actionType: 'Squid.KubernetesDeployContainers',
+          workerPoolId: null,
+          isDisabled: false,
+          isRequired: false,
+          canBeUsedForProjectVersioning: false,
+          createdAt: '2026-08-27T00:00:00Z',
+          environments: [],
+          excludedEnvironments: [],
+          channels: [],
+          properties: [
+            {
+              id: 30,
+              actionId: 20,
+              propertyName: 'Squid.Action.KubernetesContainers.DeploymentLabels',
+              propertyValue: JSON.stringify({ app: 'squid', tier: 'web' }),
+            },
+          ],
+        },
+      ],
+    }
+
+    const { result } = renderHook(() => useContainersEditorState(step))
+
+    expect(result.current.state.deploymentLabels).toEqual([
+      { key: 'app', value: 'squid' },
+      { key: 'tier', value: 'web' },
+    ])
   })
 })
