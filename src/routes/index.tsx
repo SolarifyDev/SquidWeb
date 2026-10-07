@@ -1,4 +1,5 @@
 import Project from 'pages/project'
+import ProjectGroupDetail from 'pages/project-group-detail'
 import NotFound from 'pages/notfound'
 import Tasks from 'pages/tasks'
 import VariableSets from 'pages/variablesets'
@@ -71,6 +72,11 @@ const routes = [
             path: "projects/import",
             component: ImportProjects,
             name: "ImportProjects",
+          },
+          {
+            path: "projects/project-groups/:projectGroupId",
+            component: ProjectGroupDetail,
+            name: "ProjectGroupDetail",
           },
           {
             path: "chat",

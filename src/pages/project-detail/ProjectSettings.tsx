@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Button, Dropdown, Input, Radio, Select, Spin, message } from 'antd'
+import { Button, Dropdown, Input, Modal, Radio, Select, Spin, message } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   AimOutlined,
@@ -35,9 +35,10 @@ import {
   MoreOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
-import { getProject, getProjects, updateProject, type ProjectDto } from 'pages/apis/project'
+import { useSpace } from 'contexts/SpaceContext'
+import { deleteProjects, getProject, getProjects, updateProject, type ProjectDto } from 'pages/apis/project'
 import { getProjectGroups, type ProjectGroupDto } from 'pages/apis/projectGroup'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 
@@ -197,6 +198,8 @@ function DetailPanel({
 
 const ProjectSettings: React.FC = () => {
   const { spaceId, projectName } = useParams<{ spaceId: string; projectName: string }>()
+  const { space } = useSpace()
+  const navigate = useNavigate()
 
   const [loading, setLoading] = useState(false)
   const [project, setProject] = useState<ProjectDto | null>(null)
@@ -206,6 +209,9 @@ const ProjectSettings: React.FC = () => {
   const [logoTab, setLogoTab] = useState<'icon' | 'customImage'>('icon')
   const [slugEditable, setSlugEditable] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingProject, setDeletingProject] = useState(false)
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
+  const [deleteProjectConfirmation, setDeleteProjectConfirmation] = useState('')
 
   const [form, setForm] = useState<ProjectSettingsFormState>({
     name: '',
@@ -311,6 +317,49 @@ const ProjectSettings: React.FC = () => {
     { type: 'divider' },
     { key: 'delete', label: 'Delete project', danger: true },
   ]
+
+  const projectDisplayName = project?.name || form.name || 'this project'
+  const canConfirmProjectDeletion = deleteProjectConfirmation === projectDisplayName
+
+  const handleOverflowClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'delete') {
+      setDeleteProjectConfirmation('')
+      setShowDeleteProjectModal(true)
+      return
+    }
+    if (key === 'audit') {
+      message.info('Audit Trail is not available yet.')
+    }
+  }
+
+  const handleCancelProjectDeletion = () => {
+    if (deletingProject) return
+    setShowDeleteProjectModal(false)
+    setDeleteProjectConfirmation('')
+  }
+
+  const handleConfirmProjectDeletion = async () => {
+    if (!project || !canConfirmProjectDeletion || deletingProject) return
+
+    setDeletingProject(true)
+    try {
+      const result = await deleteProjects({ ids: [project.id], spaceId: space.id })
+      if ((result?.failIds ?? []).includes(project.id)) {
+        message.error('Failed to delete project')
+        return
+      }
+
+      setShowDeleteProjectModal(false)
+      setDeleteProjectConfirmation('')
+      message.success('Project deleted')
+      navigate(`/${space.slug}/projects`)
+    } catch (error) {
+      console.error('Failed to delete project', error)
+      message.error('Failed to delete project')
+    } finally {
+      setDeletingProject(false)
+    }
+  }
 
   const allExpanded = Object.values(expanded).every(Boolean)
 
@@ -452,8 +501,13 @@ const ProjectSettings: React.FC = () => {
                 >
                   Save
                 </Button>
-                <Dropdown menu={{ items: overflowMenuItems }} trigger={['click']} placement="bottomRight">
-                  <Button icon={<MoreOutlined />} aria-label="Overflow Menu Button" />
+                <Dropdown
+                  menu={{ items: overflowMenuItems, onClick: handleOverflowClick }}
+                  trigger={['click']}
+                  placement="bottomRight"
+                  disabled={deletingProject}
+                >
+                  <Button icon={<MoreOutlined />} aria-label="Overflow Menu Button" disabled={deletingProject} />
                 </Dropdown>
               </div>
             </div>
@@ -839,6 +893,54 @@ const ProjectSettings: React.FC = () => {
             </div>
           </DetailPanel>
         </div>
+
+        <Modal
+          open={showDeleteProjectModal}
+          onCancel={handleCancelProjectDeletion}
+          title="Are you sure you want to delete this project?"
+          width={720}
+          footer={[
+            <Button
+              key="cancel"
+              onClick={handleCancelProjectDeletion}
+              disabled={deletingProject}
+              className="border-blue-600 text-blue-600 hover:bg-blue-50"
+            >
+              Cancel
+            </Button>,
+            <Button
+              key="delete"
+              type="primary"
+              danger
+              loading={deletingProject}
+              disabled={!canConfirmProjectDeletion || deletingProject}
+              onClick={handleConfirmProjectDeletion}
+            >
+              Delete
+            </Button>,
+          ]}
+        >
+          <div className="mb-5 border-l-4 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-900">
+            <div className="mb-1 flex items-center gap-2 font-semibold">
+              <WarningOutlined className="text-red-500" />
+              <span>This is a destructive action</span>
+            </div>
+            <div>
+              This action cannot be undone. This will permanently delete the {projectDisplayName} project
+              and all of its contents, including releases and deployment history.
+            </div>
+          </div>
+
+          <label className="mb-2 block text-sm font-medium text-slate-800">
+            Please type in the name of the project ({projectDisplayName}) to confirm.
+          </label>
+          <Input
+            autoFocus
+            value={deleteProjectConfirmation}
+            onChange={(event) => setDeleteProjectConfirmation(event.target.value)}
+            placeholder={projectDisplayName}
+          />
+        </Modal>
     </PageContainer>
   )
 }

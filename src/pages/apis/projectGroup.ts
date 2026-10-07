@@ -39,6 +39,7 @@ export function createProjectGroup(command: CreateProjectGroupCommand) {
 }
 
 export interface UpdateProjectGroupCommand {
+  id?: number
   projectGroup: ProjectGroupDto
 }
 
@@ -48,6 +49,7 @@ export function updateProjectGroup(command: UpdateProjectGroupCommand) {
 
 export interface DeleteProjectGroupsCommand {
   ids: number[]
+  spaceId?: number
 }
 
 export interface DeleteProjectGroupsResponseData {

@@ -144,6 +144,7 @@ export function updateProject(command: UpdateProjectCommand) {
 
 export interface DeleteProjectsCommand {
   ids: number[]
+  spaceId?: number
 }
 
 export interface DeleteProjectsResponseData {

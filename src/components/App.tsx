@@ -151,6 +151,9 @@ function App() {
   const isImportProjectsPage = Boolean(
     matchPath("/:spaceId/projects/import", location.pathname),
   );
+  const isProjectGroupDetailPage = Boolean(
+    matchPath("/:spaceId/projects/project-groups/:projectGroupId", location.pathname),
+  );
   const [isProjectHovered, setIsProjectHovered] = useState(false);
   const [showSpaceSwitcher, setShowSpaceSwitcher] = useState(false);
   const spaceSwitcherRef = useRef<HTMLDivElement>(null);
@@ -246,7 +249,8 @@ function App() {
   const isDeploySection = isDeployActive;
   const isProjectDetailPage =
     Boolean(matchPath("/:spaceId/projects/:projectName/*", location.pathname)) &&
-    !isImportProjectsPage;
+    !isImportProjectsPage &&
+    !isProjectGroupDetailPage;
   const showSidebarInline = isDeploySection && !isProjectDetailPage;
   const showSidebarOverlay = isDeploySection && isProjectDetailPage && isProjectHovered;
   const currentPath = `${location.pathname}${location.search}${location.hash}`;

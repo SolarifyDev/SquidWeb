@@ -118,6 +118,16 @@
   background: #f8fafc !important;
 }
 
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger:not(.ant-dropdown-menu-item-disabled),
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger:not(.ant-dropdown-menu-item-disabled) .ant-dropdown-menu-title-content {
+  color: #cf1322 !important;
+}
+
+.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger:not(.ant-dropdown-menu-item-disabled):hover {
+  background: #fff1f0 !important;
+  color: #cf1322 !important;
+}
+
 /* Native select helper class (for places that still use <select>) */
 .octo-native-select {
   width: 100%;
