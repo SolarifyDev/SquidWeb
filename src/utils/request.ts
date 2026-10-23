@@ -203,7 +203,7 @@ instance.interceptors.response.use(
 
 export interface ApiResponse<T = any> {
   data: T
-  msg: string
+  msg: string | null
   code: number
 }
 
@@ -222,7 +222,7 @@ export class ApiError extends Error {
   }
 }
 
-const SUCCESS_CODE = 200
+const SUCCESS_CODES = new Set([0, 200])
 
 export interface RequestConfig<T = any> extends AxiosRequestConfig<T> {
   // When true, this request is excluded from the global in-flight counter
@@ -237,7 +237,7 @@ function handleBusinessResponse<T>(
   res: AxiosResponse<ApiResponse<T>>,
 ): T {
   const body = res.data
-  if (body.code !== SUCCESS_CODE) {
+  if (!SUCCESS_CODES.has(body.code)) {
     throw new ApiError(body.msg || 'Request failed', body.code, res.status, body)
   }
   return body.data

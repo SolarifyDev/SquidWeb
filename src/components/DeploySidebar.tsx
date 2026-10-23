@@ -75,9 +75,12 @@ const DeploySidebar: React.FC = () => {
             );
           }
 
-          // Keep Projects active for the import flow without highlighting every project detail page.
+          // Keep Projects active for project-level flows without highlighting every project detail page.
           const isActive = location.pathname === item.path ||
-            (item.label === 'Projects' && location.pathname.startsWith(`${item.path}/import`)) ||
+            (item.label === 'Projects' && (
+              location.pathname.startsWith(`${item.path}/import`) ||
+              location.pathname.startsWith(`${item.path}/project-groups/`)
+            )) ||
             (item.label !== 'Projects' && location.pathname.startsWith(item.path));
 
           return (

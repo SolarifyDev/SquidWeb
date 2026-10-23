@@ -34,6 +34,7 @@ import {
   CodeOutlined,
   CloseOutlined,
   ReloadOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle';
 
@@ -672,15 +673,19 @@ const Project: React.FC = () => {
         {group.rows.map((row, i) => (
           <div
             key={row.key}
-            className={`grid items-center group cursor-pointer ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
+            className={`grid items-center group ${i < group.rows.length - 1 ? 'border-b border-slate-100' : ''}`}
             style={{ gridTemplateColumns: gridCols }}
-            onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}`)}
           >
             <div className="px-4 py-3.5 flex items-center gap-3 min-w-0">
               <ProjectOutlined className="text-gray-400 text-xl flex-shrink-0" />
-              <Tooltip title={row.name}>
-                <Text className="text-[15px] text-slate-700 font-medium truncate group-hover:text-squid-blue transition-colors">{row.name}</Text>
-              </Tooltip>
+              <button
+                type="button"
+                title={row.name}
+                onClick={() => navigate(`/${space.slug}/projects/${encodeURIComponent(row.name)}`)}
+                className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[15px] font-medium text-slate-700 transition-colors hover:text-squid-blue"
+              >
+                {row.name}
+              </button>
             </div>
             {group.environments.map((env) => (
               <div key={env.id} className="px-3 py-3">
@@ -829,12 +834,27 @@ const Project: React.FC = () => {
           ) : (
             projectGroupsData.map((group) => (
               <div key={group.id} className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
-                <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-slate-200 bg-transparent">
+                <div className="group flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-slate-200 bg-transparent">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Text strong className="text-sm sm:text-base !text-slate-900 truncate">{group.name}</Text>
+                    <button
+                      type="button"
+                      onClick={() => setSearchText(group.name)}
+                      title={`Filter by ${group.name}`}
+                      className="max-w-full truncate border-0 bg-transparent p-0 text-left text-sm font-semibold text-slate-900 transition-colors hover:text-squid-blue sm:text-base"
+                    >
+                      {group.name}
+                    </button>
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[11px] font-semibold leading-none flex-shrink-0">
                       {group.count}
                     </span>
+                      <button
+                        type="button"
+                        aria-label={`Edit ${group.name}`}
+                        onClick={() => navigate(`/${space.slug}/projects/project-groups/${group.id}`)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent text-slate-400 transition-all hover:bg-blue-50 hover:text-squid-blue focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-squid-blue/30 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      >
+                        <EditOutlined />
+                      </button>
                   </div>
                 </div>
 

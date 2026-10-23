@@ -97,7 +97,12 @@ const ProjectSearchPalette: React.FC = () => {
   // Global Ctrl+Space focuses the palette.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.code === 'Space') {
+      const target = event.target as HTMLElement | null
+      const isEditing = target?.tagName === 'INPUT'
+        || target?.tagName === 'TEXTAREA'
+        || target?.isContentEditable === true
+
+      if (event.ctrlKey && event.code === 'Space' && !isEditing && !event.isComposing) {
         event.preventDefault();
         inputRef.current?.focus();
         setOpen(true);
