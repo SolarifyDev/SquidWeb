@@ -138,8 +138,20 @@ export interface UpdateProjectCommand {
   project: ProjectDto
 }
 
-export function updateProject(command: UpdateProjectCommand) {
-  return post<ProjectDto>('/projects/update', command)
+type ProjectUpdatedListener = (project: ProjectDto) => void
+const projectUpdatedListeners = new Set<ProjectUpdatedListener>()
+
+export function subscribeProjectUpdated(listener: ProjectUpdatedListener) {
+  projectUpdatedListeners.add(listener)
+  return () => {
+    projectUpdatedListeners.delete(listener)
+  }
+}
+
+export async function updateProject(command: UpdateProjectCommand) {
+  const updatedProject = await post<ProjectDto>('/projects/update', command)
+  for (const listener of projectUpdatedListeners) listener(updatedProject)
+  return updatedProject
 }
 
 export interface DeleteProjectsCommand {

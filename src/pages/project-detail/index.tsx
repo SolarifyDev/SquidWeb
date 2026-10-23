@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, useLocation, useParams, Link } from "react-router-dom";
-import { getProjects, ProjectDto } from "pages/apis/project";
+import { getProjects, subscribeProjectUpdated, ProjectDto } from "pages/apis/project";
 import { getProjectGroups, ProjectGroupDto } from "pages/apis/projectGroup";
 import { addRecentProject } from "utils/recentProjects";
 
@@ -97,6 +97,13 @@ const ProjectDetail: React.FC = () => {
     addRecentProject(spaceId, { name: project.name, group: projectGroup?.name });
   }, [project, projectGroup, spaceId]);
 
+  useEffect(() => subscribeProjectUpdated((updatedProject) => {
+    setProject((currentProject) => {
+      if (currentProject && currentProject.id !== updatedProject.id) return currentProject;
+      return updatedProject;
+    });
+  }), []);
+
   const encodedProjectName = encodeURIComponent(projectName ?? "");
   const base = `/${spaceId}/projects/${encodedProjectName}`;
 
@@ -187,11 +194,16 @@ const ProjectDetail: React.FC = () => {
           {/* Name + star */}
           <div className="flex items-center gap-2 min-w-0">
             <h2
-              className="text-lg font-semibold text-slate-900 truncate"
+              className="min-w-0 text-lg font-semibold text-slate-900 truncate"
               title={displayName}
             >
               {displayName}
             </h2>
+            {project?.isDisabled === true && (
+              <span className="inline-flex flex-shrink-0 items-center rounded-full bg-slate-700 px-3 py-1 text-xs font-medium leading-5 text-slate-200">
+                Disabled
+              </span>
+            )}
             <button
               type="button"
               aria-label={`${isFavorite ? "Remove" : "Add"} project ${displayName} ${isFavorite ? "from" : "to"} favorites`}
