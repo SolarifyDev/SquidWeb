@@ -60,7 +60,15 @@ const progress = (projectIndex: number, done: boolean): OctopusHistoryFetchProgr
   phase: done ? OctopusHistoryFetchPhase.Done : OctopusHistoryFetchPhase.Deployments,
   projectIndex,
   projectCount: 2,
-  counts: { releases: projectIndex, deployments: projectIndex, serverTasks: 0, detailsFetched: 0, detailsSkipped: 0 },
+  counts: {
+    releases: projectIndex,
+    deployments: projectIndex,
+    serverTasks: 0,
+    detailsFetched: 0,
+    detailsSkipped: 0,
+    detailsTooLarge: 0,
+    projectsNotFound: 0,
+  },
   totalBytes: 0,
   done,
 });
@@ -445,5 +453,111 @@ describe('ImportProjects', () => {
     expect(screen.queryByText(/Connected to Octopus/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Load from server' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Connect$/ })).toBeEnabled();
+  });
+  it('connectsOnEnter_AndExplainsTheKeyIsNotStored', async () => {
+    renderPage();
+    fireEvent.click(screen.getByLabelText('Octopus server'));
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://octopus.example.com' } });
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-SECRET' } });
+
+    fireEvent.keyDown(screen.getByLabelText('API key'), { key: 'Enter', code: 'Enter', keyCode: 13 });
+
+    await screen.findByText(/Connected to Octopus 2024\.1/);
+    expect(api.probeOctopusServer).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/used only for this import and is never stored/)).toBeInTheDocument();
+    expect(screen.getByText('2 spaces available')).toBeInTheDocument();
+  });
+
+  it('autoSelectsTheOnlySpace_AndChangeResetsTheProbe', async () => {
+    api.probeOctopusServer.mockResolvedValue(ok({
+      octopusVersion: '2024.1',
+      installationId: 'install-1',
+      spaceless: false,
+      spaces: [{ id: 'Spaces-7', name: 'Ops', isDefault: false }],
+    }));
+    renderPage();
+    await connectToServer();
+
+    expect(screen.getByText('1 space available')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load from server' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+
+    expect(screen.queryByText(/Connected to Octopus/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load from server' })).toBeDisabled();
+  });
+
+  it('showsStepsPhaseAndCounts_AndDisablesServerInputs_WhileFetching', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok({
+        ...progress(1, false),
+        phase: OctopusHistoryFetchPhase.Releases,
+        counts: {
+          releases: 4, deployments: 6, serverTasks: 6, detailsFetched: 5, detailsSkipped: 1, detailsTooLarge: 0, projectsNotFound: 0,
+        },
+      }))
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    renderPage();
+    const steps = () => screen.getByTestId('server-import-steps');
+    expect(screen.queryByTestId('server-import-steps')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Octopus server'));
+    expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Connect');
+    fireEvent.click(screen.getByLabelText('Octopus server'));
+    await connectToServer();
+    expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Choose space');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+
+    const fetchProgress = await screen.findByTestId('history-fetch-progress');
+    expect(fetchProgress).toHaveTextContent('Reading releases (project 1 of 2)');
+    expect(fetchProgress).toHaveTextContent('4 releases, 6 deployments, 6 tasks, 5 details fetched, 1 unchanged');
+    expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Fetch history');
+    expect(screen.getByLabelText('Server URL')).toBeDisabled();
+    expect(screen.getByLabelText('API key')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Connect$/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  });
+
+  it('summarizesTheFetch_AndWarnsAboutMissingProjectsAndOversizedLogs', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(ok({
+      ...progress(2, true),
+      counts: {
+        releases: 3, deployments: 5, serverTasks: 5, detailsFetched: 4, detailsSkipped: 0, detailsTooLarge: 1, projectsNotFound: 1,
+      },
+    }));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+
+    await screen.findByText('By project');
+    expect(screen.getByTestId('fetch-tile-releases')).toHaveTextContent('3');
+    expect(screen.getByTestId('fetch-tile-tasks')).toHaveTextContent('5');
+    expect(screen.getByText(/1 project was not found in this Octopus space/).closest('.ant-alert'))
+      .toHaveClass('ant-alert-warning');
+    expect(screen.getByText(/1 task had logs too large to fetch/)).toBeInTheDocument();
+    expect(screen.getByTestId('server-import-steps').querySelector('.ant-steps-item-process'))
+      .toHaveTextContent('Preview');
+  });
+
+  it('showsAnError_WhenNoScopedProjectExistsInTheChosenSpace', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(ok({
+      ...progress(2, true),
+      counts: {
+        releases: 0, deployments: 0, serverTasks: 0, detailsFetched: 0, detailsSkipped: 0, detailsTooLarge: 0, projectsNotFound: 2,
+      },
+    }));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+
+    const notFound = await screen.findByText(/2 projects were not found in this Octopus space/);
+    expect(notFound.closest('.ant-alert')).toHaveClass('ant-alert-error');
+    expect(screen.getByText(/Choose another Octopus space/)).toBeInTheDocument();
+    expect(screen.queryByText(/logs too large/)).not.toBeInTheDocument();
   });
 });

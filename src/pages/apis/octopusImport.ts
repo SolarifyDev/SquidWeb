@@ -110,6 +110,10 @@ export interface OctopusHistoryFetchCounts {
   serverTasks: number;
   detailsFetched: number;
   detailsSkipped: number;
+  /** Tasks over the per-response cap; imported without their logs. */
+  detailsTooLarge?: number;
+  /** Scoped projects the Octopus space does not have (wrong space, or deleted there). */
+  projectsNotFound?: number;
 }
 
 export interface OctopusImportHistoryFetch {

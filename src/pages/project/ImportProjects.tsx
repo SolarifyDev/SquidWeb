@@ -8,6 +8,7 @@ import {
   Progress,
   Select,
   Spin,
+  Steps,
   Table,
   Tag,
   message,
@@ -44,9 +45,12 @@ import {
   validateOctopusImport,
 } from "pages/apis/octopusImport";
 import {
+  fetchPhaseLabel,
   fetchProgressPercent,
+  historyFetchNotices,
   isNothingNew,
   listedResources,
+  serverImportStep,
   summarizeActions,
   summarizeByProject,
   withoutHistoryRows,
@@ -87,6 +91,17 @@ const formatFileSize = (size: number) => {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+const SERVER_IMPORT_STEPS = [
+  { title: "Connect" },
+  { title: "Choose space" },
+  { title: "Fetch history" },
+  { title: "Preview" },
+  { title: "Import" },
+];
+
+const pluralize = (count: number, noun: string) =>
+  `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 const isZipFile = (file: File) => file.name.toLowerCase().endsWith(".zip");
 
@@ -205,6 +220,20 @@ const ImportProjects: React.FC = () => {
       !workflowError &&
       workflowPhase === "ready" &&
       !isFinalizingImport,
+  );
+  const serverStep = serverImportStep({
+    phase: workflowPhase,
+    probed: Boolean(probe),
+    fetchStarted: Boolean(resumableFetch),
+    fetchDone: Boolean(fetchProgress?.done),
+    previewed: Boolean(previewPlan),
+  });
+  const fetchNotices =
+    fetchProgress?.done && useServerSource
+      ? historyFetchNotices(fetchProgress)
+      : null;
+  const canProbe = Boolean(
+    serverUrl.trim() && apiKey.trim() && !isProcessingFile && !probing,
   );
   const showPreviewSection = Boolean(
     previewPlan ||
@@ -688,7 +717,7 @@ const ImportProjects: React.FC = () => {
   };
 
   const handleProbe = async () => {
-    if (!serverUrl.trim() || !apiKey.trim()) return;
+    if (!canProbe) return;
 
     resetProbe();
     const token = probeTokenRef.current;
@@ -1050,6 +1079,111 @@ const ImportProjects: React.FC = () => {
     );
   };
 
+  const renderFetchProgress = () => (
+    <div>
+      <div className="flex items-center gap-2">
+        <Progress
+          className="!mb-0 flex-1"
+          percent={fetchProgressPercent(fetchProgress)}
+          size="small"
+        />
+        <Button size="small" onClick={cancelHistoryFetch}>
+          Cancel
+        </Button>
+      </div>
+      {fetchProgress ? (
+        <div
+          data-testid="history-fetch-progress"
+          className="space-y-0.5 text-xs text-slate-500"
+        >
+          <div className="font-medium text-slate-700">
+            {fetchPhaseLabel(fetchProgress.phase)} (project{" "}
+            {fetchProgress.projectIndex} of {fetchProgress.projectCount})
+          </div>
+          <div>
+            {pluralize(fetchProgress.counts.releases, "release")},{" "}
+            {pluralize(fetchProgress.counts.deployments, "deployment")},{" "}
+            {pluralize(fetchProgress.counts.serverTasks, "task")},{" "}
+            {fetchProgress.counts.detailsFetched} details fetched,{" "}
+            {fetchProgress.counts.detailsSkipped} unchanged
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderFetchSummary = () => {
+    if (!fetchProgress || !fetchNotices) return null;
+
+    const summaryTiles = [
+      { key: "releases", label: "Releases", value: fetchProgress.counts.releases },
+      {
+        key: "deployments",
+        label: "Deployments",
+        value: fetchProgress.counts.deployments,
+      },
+      { key: "tasks", label: "Tasks", value: fetchProgress.counts.serverTasks },
+      {
+        key: "detailsFetched",
+        label: "Details fetched",
+        value: fetchProgress.counts.detailsFetched,
+      },
+      {
+        key: "unchanged",
+        label: "Unchanged",
+        value: fetchProgress.counts.detailsSkipped,
+      },
+    ];
+
+    return (
+      <div
+        data-testid="history-fetch-summary"
+        className="space-y-3 rounded-md border border-slate-200 p-4"
+      >
+        <div className="text-sm font-semibold text-slate-900">
+          History fetched from {pluralize(fetchProgress.projectCount, "project")}
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {summaryTiles.map((tile) => (
+            <div
+              key={tile.key}
+              data-testid={`fetch-tile-${tile.key}`}
+              className="rounded-md border border-slate-200 px-3 py-2"
+            >
+              <div className="text-xs font-medium uppercase text-slate-500">
+                {tile.label}
+              </div>
+              <div className="mt-1 text-lg font-semibold text-slate-900">
+                {tile.value}
+              </div>
+            </div>
+          ))}
+        </div>
+        {fetchNotices.projectsNotFound > 0 ? (
+          <Alert
+            type={fetchNotices.nothingFound ? "error" : "warning"}
+            showIcon
+            message={`${pluralize(fetchNotices.projectsNotFound, "project")} ${
+              fetchNotices.projectsNotFound === 1 ? "was" : "were"
+            } not found in this Octopus space — wrong space, or deleted in Octopus.`}
+            description={
+              fetchNotices.nothingFound
+                ? "No history was found for any project. Choose another Octopus space and load again."
+                : undefined
+            }
+          />
+        ) : null}
+        {fetchNotices.detailsTooLarge > 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            message={`${pluralize(fetchNotices.detailsTooLarge, "task")} had logs too large to fetch and will be imported without logs.`}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-full flex-col bg-white">
       <style>{`
@@ -1113,6 +1247,17 @@ const ImportProjects: React.FC = () => {
             </Button>
           </div>
 
+          {useServerSource ? (
+            <Steps
+              data-testid="server-import-steps"
+              className="mt-6"
+              size="small"
+              current={serverStep.current}
+              status={serverStep.status}
+              items={SERVER_IMPORT_STEPS}
+            />
+          ) : null}
+
           <div className="mt-10 border-t border-slate-200 pt-5">
             <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
               <div className="text-base font-semibold text-slate-900">
@@ -1152,6 +1297,7 @@ const ImportProjects: React.FC = () => {
                           setServerUrl(event.target.value);
                           resetProbe();
                         }}
+                        onPressEnter={() => void handleProbe()}
                         placeholder="https://octopus.example.com"
                         autoComplete="off"
                       />
@@ -1171,9 +1317,14 @@ const ImportProjects: React.FC = () => {
                           setApiKey(event.target.value);
                           resetProbe();
                         }}
+                        onPressEnter={() => void handleProbe()}
                         placeholder="API-XXXXXXXX"
                         autoComplete="new-password"
                       />
+                      <div className="mt-1 text-xs text-slate-500">
+                        The key is used only for this import and is never
+                        stored. A read-only Octopus user is enough.
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
@@ -1186,9 +1337,19 @@ const ImportProjects: React.FC = () => {
                         Connect
                       </Button>
                       {probe ? (
-                        <span className="text-sm text-emerald-700">
-                          Connected to Octopus {probe.octopusVersion}
-                        </span>
+                        <>
+                          <span className="text-sm text-emerald-700">
+                            Connected to Octopus {probe.octopusVersion}
+                          </span>
+                          <Button
+                            type="link"
+                            size="small"
+                            disabled={isProcessingFile}
+                            onClick={resetProbe}
+                          >
+                            Change
+                          </Button>
+                        </>
                       ) : null}
                     </div>
                     {probeError ? (
@@ -1201,6 +1362,9 @@ const ImportProjects: React.FC = () => {
                           className="mb-1.5 block text-sm font-medium text-slate-700"
                         >
                           Octopus space
+                          <span className="ml-2 text-xs font-normal text-slate-500">
+                            {pluralize(probe.spaces.length, "space")} available
+                          </span>
                         </label>
                         <Select
                           id="import-octopus-space"
@@ -1265,30 +1429,11 @@ const ImportProjects: React.FC = () => {
                       <Spin indicator={<LoadingOutlined spin />} />
                       {workflowMessage}
                     </div>
-                    {workflowPhase === "fetching" ? (
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Progress
-                            className="!mb-0 flex-1"
-                            percent={fetchProgressPercent(fetchProgress)}
-                            size="small"
-                          />
-                          <Button size="small" onClick={cancelHistoryFetch}>
-                            Cancel
-                          </Button>
-                        </div>
-                        {fetchProgress ? (
-                          <div className="text-xs text-slate-500">
-                            Project {fetchProgress.projectIndex} of{" "}
-                            {fetchProgress.projectCount}:{" "}
-                            {fetchProgress.counts.releases} releases,{" "}
-                            {fetchProgress.counts.deployments} deployments
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
+                    {workflowPhase === "fetching" ? renderFetchProgress() : null}
                   </div>
                 ) : null}
+
+                {renderFetchSummary()}
               </div>
             </div>
 

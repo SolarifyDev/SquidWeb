@@ -1,5 +1,7 @@
 import {
+  OctopusHistoryFetchPhase,
   OctopusImportPreviewAction,
+  type OctopusHistoryFetchCounts,
   type OctopusHistoryFetchProgress,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
@@ -127,4 +129,72 @@ export const fetchProgressPercent = (progress: OctopusHistoryFetchProgress | nul
   if (progress.projectCount <= 0) return 0;
 
   return Math.min(99, Math.floor((progress.projectIndex / progress.projectCount) * 100));
+};
+
+export const FETCH_PHASE_LABELS: Record<OctopusHistoryFetchPhase, string> = {
+  [OctopusHistoryFetchPhase.Releases]: 'Reading releases',
+  [OctopusHistoryFetchPhase.Deployments]: 'Reading deployments',
+  [OctopusHistoryFetchPhase.Done]: 'Finished reading history',
+};
+
+export const fetchPhaseLabel = (phase: OctopusHistoryFetchPhase) => FETCH_PHASE_LABELS[phase] ?? 'Reading history';
+
+export interface HistoryFetchNotices {
+  projectsNotFound: number;
+  detailsTooLarge: number;
+  /** Every scoped project was missing and nothing was read: almost always the wrong space. */
+  nothingFound: boolean;
+}
+
+const fetchedNothing = (counts: OctopusHistoryFetchCounts) =>
+  counts.releases === 0 && counts.deployments === 0 && counts.serverTasks === 0;
+
+export const historyFetchNotices = (progress: OctopusHistoryFetchProgress): HistoryFetchNotices => {
+  const projectsNotFound = progress.counts.projectsNotFound ?? 0;
+  const detailsTooLarge = progress.counts.detailsTooLarge ?? 0;
+  const allMissing = projectsNotFound > 0 && projectsNotFound >= progress.projectCount;
+
+  return { projectsNotFound, detailsTooLarge, nothingFound: allMissing && fetchedNothing(progress.counts) };
+};
+
+export type ServerImportStepStatus = 'process' | 'finish' | 'error';
+
+export interface ServerImportStepInput {
+  phase: string;
+  probed: boolean;
+  fetchStarted: boolean;
+  fetchDone: boolean;
+  previewed: boolean;
+}
+
+/** Steps: 0 Connect, 1 Choose space, 2 Fetch history, 3 Preview, 4 Import. */
+const PHASE_STEPS: Record<string, number> = {
+  connecting: 2,
+  fetching: 2,
+  extracting: 3,
+  previewing: 3,
+  ready: 3,
+  validating: 4,
+  confirming: 4,
+  statusUnknown: 4,
+  succeeded: 4,
+};
+
+const failedStep = (input: ServerImportStepInput) => {
+  if (input.previewed) return 4;
+  if (input.fetchDone) return 3;
+  return 2;
+};
+
+const idleStep = (input: ServerImportStepInput) => {
+  if (input.fetchStarted) return 2;
+  return input.probed ? 1 : 0;
+};
+
+export const serverImportStep = (input: ServerImportStepInput): { current: number; status: ServerImportStepStatus } => {
+  if (input.phase in PHASE_STEPS)
+    return { current: PHASE_STEPS[input.phase], status: input.phase === 'succeeded' ? 'finish' : 'process' };
+  if (input.phase === 'failed') return { current: failedStep(input), status: 'error' };
+
+  return { current: idleStep(input), status: 'process' };
 };

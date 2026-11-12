@@ -3,13 +3,17 @@ import {
   OctopusHistoryFetchPhase,
   OctopusImportPreviewAction,
   OctopusImportResourceOutcomeState,
+  type OctopusHistoryFetchProgress,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
 } from 'pages/apis/octopusImport';
 import {
+  fetchPhaseLabel,
   fetchProgressPercent,
+  historyFetchNotices,
   isNothingNew,
   listedResources,
+  serverImportStep,
   summarizeActions,
   summarizeByProject,
   withoutHistoryRows,
@@ -150,5 +154,66 @@ describe('importPreviewSummary', () => {
       : null;
 
     expect(fetchProgressPercent(progress)).toBe(expected);
+  });
+});
+
+describe('fetchPhaseLabel', () => {
+  it.each([
+    [OctopusHistoryFetchPhase.Releases, 'Reading releases'],
+    [OctopusHistoryFetchPhase.Deployments, 'Reading deployments'],
+    [OctopusHistoryFetchPhase.Done, 'Finished reading history'],
+  ])('labels phase %s', (phase, label) => {
+    expect(fetchPhaseLabel(phase)).toBe(label);
+  });
+});
+
+describe('historyFetchNotices', () => {
+  const fetched = (counts: Partial<OctopusHistoryFetchProgress['counts']>, projectCount = 2): OctopusHistoryFetchProgress => ({
+    phase: OctopusHistoryFetchPhase.Done,
+    projectIndex: projectCount,
+    projectCount,
+    counts: { releases: 0, deployments: 0, serverTasks: 0, detailsFetched: 0, detailsSkipped: 0, ...counts },
+    totalBytes: 0,
+    done: true,
+  });
+
+  it('treatsMissingFieldsAsZero_ForAnOlderServer', () => {
+    expect(historyFetchNotices(fetched({ releases: 1 }))).toEqual({ projectsNotFound: 0, detailsTooLarge: 0, nothingFound: false });
+  });
+
+  it('flagsNothingFound_OnlyWhenEveryProjectIsMissingAndNothingWasRead', () => {
+    expect(historyFetchNotices(fetched({ projectsNotFound: 2 })).nothingFound).toBe(true);
+    expect(historyFetchNotices(fetched({ projectsNotFound: 1 })).nothingFound).toBe(false);
+    expect(historyFetchNotices(fetched({ projectsNotFound: 2, releases: 1 })).nothingFound).toBe(false);
+  });
+
+  it('reportsOversizedDetails', () => {
+    expect(historyFetchNotices(fetched({ detailsTooLarge: 3 })).detailsTooLarge).toBe(3);
+  });
+});
+
+describe('serverImportStep', () => {
+  const input = (phase: string, overrides: Partial<Parameters<typeof serverImportStep>[0]> = {}) => ({
+    phase, probed: false, fetchStarted: false, fetchDone: false, previewed: false, ...overrides,
+  });
+
+  it.each([
+    ['idle', {}, 0, 'process'],
+    ['idle', { probed: true }, 1, 'process'],
+    ['idle', { probed: true, fetchStarted: true }, 2, 'process'],
+    ['connecting', { probed: true }, 2, 'process'],
+    ['fetching', { probed: true }, 2, 'process'],
+    ['extracting', { probed: true, fetchDone: true }, 3, 'process'],
+    ['previewing', { probed: true, fetchDone: true }, 3, 'process'],
+    ['ready', { probed: true, fetchDone: true, previewed: true }, 3, 'process'],
+    ['validating', { previewed: true }, 4, 'process'],
+    ['confirming', { previewed: true }, 4, 'process'],
+    ['statusUnknown', { previewed: true }, 4, 'process'],
+    ['succeeded', { previewed: true }, 4, 'finish'],
+    ['failed', { probed: true }, 2, 'error'],
+    ['failed', { probed: true, fetchDone: true }, 3, 'error'],
+    ['failed', { probed: true, fetchDone: true, previewed: true }, 4, 'error'],
+  ] as const)('maps %s %o to step %i (%s)', (phase, overrides, current, status) => {
+    expect(serverImportStep(input(phase, overrides))).toEqual({ current, status });
   });
 });
