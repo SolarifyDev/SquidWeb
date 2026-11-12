@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as importApi from 'pages/apis/octopusImport';
 import {
   OctopusHistoryFetchPhase,
@@ -90,7 +90,19 @@ const connectToServer = async () => {
   await screen.findByText(/Connected to Octopus 2024\.1/);
 };
 
+const failure = (code: number, msg: string | null = null) => ({ code, msg, data: null });
+
+const advance = async (ms: number) => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+};
+
 describe('ImportProjects', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     api.probeOctopusServer.mockResolvedValue(ok({
@@ -212,5 +224,226 @@ describe('ImportProjects', () => {
 
     await screen.findByText('Nothing new to import');
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it('retriesATransientChunkFailure_OnTheSameSession_WithoutRestarting', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok(progress(0, false)))
+      .mockResolvedValueOnce(failure(503))
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValueOnce(failure(409, 'A fetch chunk is already running.'))
+      .mockResolvedValueOnce(ok(progress(2, true)));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(2));
+    await advance(1000);
+    await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3));
+    await advance(3000);
+    await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(4));
+    await advance(8000);
+
+    await screen.findByText('By project');
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(5);
+    expect(api.fetchOctopusImportHistory.mock.calls.every(call => call[0] === 'session-1')).toBe(true);
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('keepsTheSession_AndResumesTheFetch_AfterAChunkFails', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok(progress(0, false)))
+      .mockResolvedValueOnce(failure(400, 'The Octopus server rejected the API key.'))
+      .mockResolvedValueOnce(ok(progress(2, true)));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await screen.findByText('The Octopus server rejected the API key.');
+    fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
+
+    await screen.findByText('By project');
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3);
+    expect(api.fetchOctopusImportHistory).toHaveBeenLastCalledWith(
+      'session-1',
+      1,
+      { serverUrl: 'https://octopus.example.com', apiKey: 'API-SECRET' },
+      'Spaces-1',
+      expect.anything(),
+    );
+  });
+
+  it('givesUpAfterRepeatedTransientFailures_ButKeepsTheFetchResumable', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValue(failure(502, 'Bad gateway.'));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(1));
+    await advance(1000);
+    await advance(3000);
+    await advance(8000);
+
+    await screen.findByText('Bad gateway.');
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(4);
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeEnabled();
+  });
+
+  it('disablesResume_WhenTheServerUrlChangedAfterTheFailure', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Rejected.'));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await screen.findByText('Rejected.');
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://other.example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Connect$/ }));
+    await screen.findByText(/Connected to Octopus 2024\.1/);
+
+    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeDisabled();
+  });
+
+  it('cancelsTheFetchLoop_ThenResumesOnTheSameSession', async () => {
+    let chunkSignal: AbortSignal | undefined;
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockImplementationOnce((_sessionId, _spaceId, _connection, _octopusSpaceId, signal) => {
+        chunkSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        });
+      })
+      .mockResolvedValueOnce(ok(progress(2, true)));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await screen.findByText(/History fetch cancelled/);
+    expect(chunkSignal?.aborted).toBe(true);
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
+    await screen.findByText('By project');
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
+    expect(api.fetchOctopusImportHistory).toHaveBeenLastCalledWith(
+      'session-1',
+      1,
+      expect.anything(),
+      'Spaces-1',
+      expect.anything(),
+    );
+  });
+
+  it('keepsPolling_WhenAStatusReadFails_AfterTheImportWasAccepted', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(failure(502))
+      .mockRejectedValueOnce(new Error('timeout of 60000ms exceeded'))
+      .mockResolvedValueOnce(ok({ session: session(OctopusImportSessionState.Importing), blockerSummary: noBlockers }))
+      .mockResolvedValueOnce(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 6 && !screen.queryByText('Project list'); i++) await advance(15000);
+
+    await screen.findByText('Project list');
+    expect(api.getOctopusImportStatus).toHaveBeenCalledTimes(4);
+    expect(api.confirmOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('reportsFailure_OnlyWhenTheSessionItselfFailed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(failure(500))
+      .mockResolvedValueOnce(ok({
+        session: {
+          ...session(OctopusImportSessionState.Failed),
+          result: { diagnostics: [{ message: 'Release Releases-1 could not be written.' }] },
+        } as OctopusImportSession,
+        blockerSummary: noBlockers,
+      }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Release Releases-1 could not be written.'); i++) await advance(15000);
+
+    await screen.findByText('Release Releases-1 could not be written.');
+    expect(screen.queryByText('Import did not return a final session state.')).not.toBeInTheDocument();
+    expect(api.getOctopusImportStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('offersCheckStatus_AfterThePollingDeadline_AndResumesPolling', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus.mockResolvedValue(ok({
+      session: session(OctopusImportSessionState.Importing),
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 60 && !screen.queryByRole('button', { name: 'Check status' }); i++) await advance(15000);
+
+    const checkStatus = await screen.findByRole('button', { name: 'Check status' });
+    expect(screen.getByText(/Polling stopped after 10 minutes/)).toBeInTheDocument();
+
+    api.getOctopusImportStatus.mockResolvedValue(ok({
+      session: session(OctopusImportSessionState.Succeeded),
+      blockerSummary: noBlockers,
+    }));
+    fireEvent.click(checkStatus);
+
+    await screen.findByText('Project list');
+    expect(api.confirmOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignoresAStaleProbeResponse_WhenTheServerUrlChangedMeanwhile', async () => {
+    type ProbeResult = Awaited<ReturnType<typeof api.probeOctopusServer>>;
+    let resolveProbe: (value: ProbeResult) => void = () => undefined;
+    api.probeOctopusServer.mockReset();
+    api.probeOctopusServer.mockReturnValueOnce(new Promise<ProbeResult>(resolve => {
+      resolveProbe = resolve;
+    }));
+    renderPage();
+    fireEvent.click(screen.getByLabelText('Octopus server'));
+    fireEvent.click(screen.getByLabelText('Export file'));
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://a.example.com' } });
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-SECRET' } });
+    fireEvent.click(screen.getByRole('button', { name: /Connect$/ }));
+
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://b.example.com' } });
+    await act(async () => {
+      resolveProbe(ok({
+        octopusVersion: '2024.1',
+        installationId: 'install-a',
+        spaceless: false,
+        spaces: [{ id: 'Spaces-1', name: 'Default', isDefault: true }],
+      }));
+    });
+
+    expect(screen.queryByText(/Connected to Octopus/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load from server' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Connect$/ })).toBeEnabled();
   });
 });

@@ -66,6 +66,7 @@ type WorkflowPhase =
   | "ready"
   | "validating"
   | "confirming"
+  | "statusUnknown"
   | "succeeded"
   | "failed";
 
@@ -73,6 +74,13 @@ const MAX_IMPORT_UPLOAD_BYTES = 100 * 1024 * 1024;
 const IMPORT_POLL_INITIAL_DELAY_MS = 1500;
 const IMPORT_POLL_MAX_DELAY_MS = 15000;
 const IMPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
+
+type ResumableHistoryFetch = {
+  session: OctopusImportSession;
+  serverUrl: string;
+  octopusSpaceId: string | null;
+};
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -87,8 +95,31 @@ const getErrorMessage = (error: unknown) => {
   return "Unexpected request failure.";
 };
 
-const wait = (ms: number) =>
-  new Promise((resolve) => window.setTimeout(resolve, ms));
+const isAbortError = (error: unknown) => {
+  const name = (error as Error)?.name;
+  return name === "AbortError" || name === "CanceledError";
+};
+
+// Lease conflicts, timeouts, rate limits and server errors are worth retrying.
+const isTransientStatus = (code: number) =>
+  code === 408 || code === 409 || code === 429 || code >= 500;
+
+const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 const ImportProjects: React.FC = () => {
   const navigate = useNavigate();
@@ -97,6 +128,7 @@ const ImportProjects: React.FC = () => {
   const validationTimerRef = useRef<number | null>(null);
   const workflowAbortRef = useRef<AbortController | null>(null);
   const workflowTokenRef = useRef(0);
+  const probeTokenRef = useRef(0);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<OctopusImportSession | null>(null);
@@ -129,6 +161,9 @@ const ImportProjects: React.FC = () => {
   const [octopusSpaceId, setOctopusSpaceId] = useState<string | null>(null);
   const [fetchProgress, setFetchProgress] =
     useState<OctopusHistoryFetchProgress | null>(null);
+  // The server keeps the fetch cursor on the session, so an interrupted fetch resumes on it.
+  const [resumableFetch, setResumableFetch] =
+    useState<ResumableHistoryFetch | null>(null);
 
   const projectListPath = `/${space.slug}/projects`;
   const useFileSource = sources.includes("file");
@@ -144,6 +179,13 @@ const ImportProjects: React.FC = () => {
     workflowPhase === "previewing";
   const isFinalizingImport =
     workflowPhase === "validating" || workflowPhase === "confirming";
+  const canResumeFetch = Boolean(
+    resumableFetch &&
+      isServerReady &&
+      serverUrl.trim() === resumableFetch.serverUrl &&
+      octopusSpaceId === resumableFetch.octopusSpaceId &&
+      (workflowPhase === "failed" || workflowPhase === "idle"),
+  );
   const hasPreviewBlockers = Boolean(
     blockerSummary?.hasBlockers ||
       previewPlan?.hasBlockers ||
@@ -340,22 +382,62 @@ const ImportProjects: React.FC = () => {
     return connectedSession;
   };
 
-  // Each call fetches one chunk; the server keeps the cursor, so loop until it reports done.
-  const fetchServerHistory = async (
+  // Transient failures are retried with backoff; the server resumes from its persisted cursor.
+  const fetchHistoryChunk = async (
     sessionId: string,
     connection: OctopusServerConnection,
+    fetchSpaceId: string | null,
+    signal: AbortSignal,
+  ) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const fetchEnvelope = await fetchOctopusImportHistory(
+          sessionId,
+          space.id,
+          connection,
+          fetchSpaceId,
+          signal,
+        );
+        if (fetchEnvelope.code === 200 && fetchEnvelope.data)
+          return fetchEnvelope;
+        if (
+          !isTransientStatus(fetchEnvelope.code) ||
+          attempt >= FETCH_RETRY_DELAYS_MS.length
+        )
+          return fetchEnvelope;
+      } catch (error) {
+        if (isAbortError(error) || attempt >= FETCH_RETRY_DELAYS_MS.length)
+          throw error;
+      }
+
+      setWorkflowMessage(
+        `Fetch interrupted. Retrying (${attempt + 1} of ${FETCH_RETRY_DELAYS_MS.length})...`,
+      );
+      await wait(FETCH_RETRY_DELAYS_MS[attempt], signal);
+    }
+  };
+
+  // Each call fetches one chunk; the server keeps the cursor, so loop until it reports done.
+  const fetchServerHistory = async (
+    sessionToFetch: OctopusImportSession,
+    connection: OctopusServerConnection,
+    fetchSpaceId: string | null,
     signal: AbortSignal,
     token: number,
   ) => {
     setWorkflowPhase("fetching");
     setWorkflowMessage("Fetching deployment history from Octopus...");
+    setResumableFetch({
+      session: sessionToFetch,
+      serverUrl: connection.serverUrl,
+      octopusSpaceId: fetchSpaceId,
+    });
 
     for (;;) {
-      const fetchEnvelope = await fetchOctopusImportHistory(
-        sessionId,
-        space.id,
+      const fetchEnvelope = await fetchHistoryChunk(
+        sessionToFetch.sessionId,
         connection,
-        octopusSpaceId,
+        fetchSpaceId,
         signal,
       );
       if (workflowTokenRef.current !== token) return false;
@@ -369,19 +451,50 @@ const ImportProjects: React.FC = () => {
       }
 
       setFetchProgress(progress);
-      if (progress.done) return true;
+      setWorkflowMessage("Fetching deployment history from Octopus...");
+      if (progress.done) {
+        setResumableFetch(null);
+        return true;
+      }
     }
   };
 
-  const runImportWorkflow = async (file: File | null) => {
+  const cancelHistoryFetch = () => {
+    workflowTokenRef.current += 1;
+    workflowAbortRef.current?.abort();
+    workflowAbortRef.current = null;
+    setWorkflowPhase("idle");
+    setWorkflowMessage(null);
+    setWorkflowError(null);
+    setWorkflowWarning(
+      "History fetch cancelled. Resume it to continue where it stopped.",
+    );
+  };
+
+  const beginWorkflow = () => {
     const token = ++workflowTokenRef.current;
     workflowAbortRef.current?.abort();
     clearWorkflow();
     const controller = new AbortController();
     workflowAbortRef.current = controller;
-    const connection: OctopusServerConnection | null = isServerReady
-      ? { serverUrl: serverUrl.trim(), apiKey }
-      : null;
+    return { token, controller };
+  };
+
+  const currentConnection = (): OctopusServerConnection | null =>
+    isServerReady ? { serverUrl: serverUrl.trim(), apiKey } : null;
+
+  const failWorkflow = (error: unknown, token: number) => {
+    if (workflowTokenRef.current !== token) return;
+    if (isAbortError(error)) return;
+    setWorkflowPhase("failed");
+    setWorkflowMessage(null);
+    setWorkflowError(getErrorMessage(error));
+  };
+
+  const runImportWorkflow = async (file: File | null) => {
+    const { token, controller } = beginWorkflow();
+    setResumableFetch(null);
+    const connection = currentConnection();
     let uploadCompleted = false;
 
     try {
@@ -391,105 +504,135 @@ const ImportProjects: React.FC = () => {
       if (!uploadSession || workflowTokenRef.current !== token) return;
       uploadCompleted = true;
 
-      if (connection) {
-        const fetched = await fetchServerHistory(
-          uploadSession.sessionId,
-          connection,
-          controller.signal,
-          token,
-        );
-        if (!fetched) return;
-      }
-
-      setWorkflowPhase("extracting");
-      setWorkflowMessage("Extracting archive...");
-
-      const extractEnvelope = await extractOctopusImport(
-        uploadSession.sessionId,
-        space.id,
+      await processImportSession(
+        uploadSession,
+        connection,
         controller.signal,
+        token,
       );
-      if (workflowTokenRef.current !== token) return;
-
-      const extractedSession = extractEnvelope.data?.session ?? uploadSession;
-      setSession(extractedSession);
-      const extractionData = extractEnvelope.data?.extraction ?? null;
-      const extractionBlockerSummary =
-        extractEnvelope.data?.blockerSummary ?? null;
-      setBlockerSummary(extractionBlockerSummary);
-
-      if (!extractionData) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError(extractEnvelope.msg || "Extraction failed.");
-        return;
-      }
-
-      if (
-        extractEnvelope.code !== 200 ||
-        extractionData.hasBlockers ||
-        extractionBlockerSummary?.hasBlockers
-      ) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError(
-          extractEnvelope.msg || "Extraction produced blocking diagnostics.",
-        );
-        return;
-      }
-
-      setWorkflowPhase("previewing");
-      setWorkflowMessage("Generating preview...");
-
-      const previewEnvelope = await previewOctopusImport(
-        uploadSession.sessionId,
-        space.id,
-        controller.signal,
-      );
-      if (workflowTokenRef.current !== token) return;
-
-      const previewSession = previewEnvelope.data?.session ?? extractedSession;
-      const previewData = previewEnvelope.data?.previewPlan ?? null;
-      const previewBlockerSummary =
-        previewEnvelope.data?.blockerSummary ?? null;
-      setSession(previewSession);
-      setPreviewPlan(previewData);
-      setBlockerSummary(previewBlockerSummary);
-      setWorkflowMessage(null);
-
-      if (!previewData) {
-        setWorkflowPhase("failed");
-        setWorkflowError(previewEnvelope.msg || "Preview failed.");
-        return;
-      }
-
-      setWorkflowPhase("ready");
-      if (
-        previewEnvelope.code !== 200 ||
-        previewData.hasBlockers ||
-        previewBlockerSummary?.hasBlockers
-      ) {
-        setWorkflowError(
-          previewEnvelope.code !== 200
-            ? previewEnvelope.msg || "Preview failed."
-            : null,
-        );
-      } else {
-        setWorkflowError(null);
-        setWorkflowWarning(null);
-      }
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
-      if ((error as Error)?.name === "AbortError") return;
+      if (isAbortError(error)) return;
       if (!uploadCompleted && file) {
         setWorkflowPhase("idle");
         setWorkflowMessage(null);
         setUploadError(getErrorMessage(error));
         return;
       }
+      failWorkflow(error, token);
+    }
+  };
+
+  const resumeHistoryFetch = async () => {
+    const connection = currentConnection();
+    if (!resumableFetch || !connection || !canResumeFetch) return;
+
+    const { token, controller } = beginWorkflow();
+    try {
+      await processImportSession(
+        resumableFetch.session,
+        connection,
+        controller.signal,
+        token,
+      );
+    } catch (error) {
+      failWorkflow(error, token);
+    }
+  };
+
+  const processImportSession = async (
+    uploadSession: OctopusImportSession,
+    connection: OctopusServerConnection | null,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    if (connection) {
+      const fetched = await fetchServerHistory(
+        uploadSession,
+        connection,
+        octopusSpaceId,
+        signal,
+        token,
+      );
+      if (!fetched) return;
+    }
+
+    setWorkflowPhase("extracting");
+    setWorkflowMessage("Extracting archive...");
+
+    const extractEnvelope = await extractOctopusImport(
+      uploadSession.sessionId,
+      space.id,
+      signal,
+    );
+    if (workflowTokenRef.current !== token) return;
+
+    const extractedSession = extractEnvelope.data?.session ?? uploadSession;
+    setSession(extractedSession);
+    const extractionData = extractEnvelope.data?.extraction ?? null;
+    const extractionBlockerSummary =
+      extractEnvelope.data?.blockerSummary ?? null;
+    setBlockerSummary(extractionBlockerSummary);
+
+    if (!extractionData) {
       setWorkflowPhase("failed");
       setWorkflowMessage(null);
-      setWorkflowError(getErrorMessage(error));
+      setWorkflowError(extractEnvelope.msg || "Extraction failed.");
+      return;
+    }
+
+    if (
+      extractEnvelope.code !== 200 ||
+      extractionData.hasBlockers ||
+      extractionBlockerSummary?.hasBlockers
+    ) {
+      setWorkflowPhase("failed");
+      setWorkflowMessage(null);
+      setWorkflowError(
+        extractEnvelope.msg || "Extraction produced blocking diagnostics.",
+      );
+      return;
+    }
+
+    setWorkflowPhase("previewing");
+    setWorkflowMessage("Generating preview...");
+
+    const previewEnvelope = await previewOctopusImport(
+      uploadSession.sessionId,
+      space.id,
+      signal,
+    );
+    if (workflowTokenRef.current !== token) return;
+
+    const previewSession = previewEnvelope.data?.session ?? extractedSession;
+    const previewData = previewEnvelope.data?.previewPlan ?? null;
+    const previewBlockerSummary =
+      previewEnvelope.data?.blockerSummary ?? null;
+    setSession(previewSession);
+    setPreviewPlan(previewData);
+    setBlockerSummary(previewBlockerSummary);
+    setWorkflowMessage(null);
+
+    if (!previewData) {
+      setWorkflowPhase("failed");
+      setWorkflowError(previewEnvelope.msg || "Preview failed.");
+      return;
+    }
+
+    setWorkflowPhase("ready");
+    if (
+      previewEnvelope.code !== 200 ||
+      previewData.hasBlockers ||
+      previewBlockerSummary?.hasBlockers
+    ) {
+      setWorkflowError(
+        previewEnvelope.code !== 200
+          ? previewEnvelope.msg || "Preview failed."
+          : null,
+      );
+    } else {
+      setWorkflowError(null);
+      setWorkflowWarning(null);
     }
   };
 
@@ -535,22 +678,27 @@ const ImportProjects: React.FC = () => {
     setSources(values);
   };
 
+  // Bumping the token makes any in-flight probe for the old inputs land as a no-op.
   const resetProbe = () => {
+    probeTokenRef.current += 1;
     setProbe(null);
     setProbeError(null);
     setOctopusSpaceId(null);
+    setProbing(false);
   };
 
   const handleProbe = async () => {
     if (!serverUrl.trim() || !apiKey.trim()) return;
 
-    setProbing(true);
     resetProbe();
+    const token = probeTokenRef.current;
+    setProbing(true);
     try {
       const probeEnvelope = await probeOctopusServer(
         { serverUrl: serverUrl.trim(), apiKey },
         space.id,
       );
+      if (probeTokenRef.current !== token) return;
       const probeData = probeEnvelope.data ?? null;
       if (probeEnvelope.code !== 200 || !probeData) {
         setProbeError(
@@ -565,9 +713,26 @@ const ImportProjects: React.FC = () => {
           null,
       );
     } catch (error) {
+      if (probeTokenRef.current !== token) return;
       setProbeError(getErrorMessage(error));
     } finally {
-      setProbing(false);
+      if (probeTokenRef.current === token) setProbing(false);
+    }
+  };
+
+  // A failed status read says nothing about the import itself, so keep polling until the deadline.
+  const readImportStatus = async (sessionId: string, signal: AbortSignal) => {
+    try {
+      const statusEnvelope = await getOctopusImportStatus(
+        sessionId,
+        space.id,
+        signal,
+      );
+      if (statusEnvelope.code !== 200) return null;
+      return statusEnvelope.data ?? null;
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return null;
     }
   };
 
@@ -586,27 +751,90 @@ const ImportProjects: React.FC = () => {
         );
       }
 
-      const statusEnvelope = await getOctopusImportStatus(
-        sessionId,
-        space.id,
-        signal,
-      );
+      const statusData = await readImportStatus(sessionId, signal);
       if (workflowTokenRef.current !== token) {
         throw new DOMException("Aborted", "AbortError");
       }
 
-      const statusSession = statusEnvelope.data?.session ?? null;
-      setBlockerSummary(statusEnvelope.data?.blockerSummary ?? null);
-      if (!statusSession) return null;
-      if (isImportTerminalState(statusSession.state)) return statusSession;
+      const statusSession = statusData?.session ?? null;
+      if (statusSession) {
+        setSession(statusSession);
+        setBlockerSummary(statusData?.blockerSummary ?? null);
+        if (isImportTerminalState(statusSession.state)) return statusSession;
+      }
 
-      await wait(delay);
+      await wait(delay, signal);
       delay = Math.min(
         Math.ceil(delay * 1.5),
         IMPORT_POLL_MAX_DELAY_MS,
       );
-      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     }
+  };
+
+  const applyFinalSession = (finalSession: OctopusImportSession) => {
+    setSession(finalSession);
+    if (finalSession.state === OctopusImportSessionState.Succeeded) {
+      setWorkflowPhase("succeeded");
+      setWorkflowMessage(null);
+      setWorkflowWarning(null);
+      setWorkflowError(null);
+      message.success("Import completed.");
+      navigate(projectListPath);
+      return;
+    }
+
+    if (finalSession.state === OctopusImportSessionState.Expired) {
+      setWorkflowPhase("failed");
+      setWorkflowMessage(null);
+      setWorkflowError(
+        "The import session expired. Upload the export file again.",
+      );
+      return;
+    }
+
+    setWorkflowPhase("failed");
+    setWorkflowMessage(null);
+    setWorkflowError(
+      finalSession.result?.diagnostics?.[0]?.message || "Import failed.",
+    );
+  };
+
+  // Once the confirmation was accepted the import runs on the server; the page only tracks it.
+  const awaitFinalSession = async (
+    sessionId: string,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    try {
+      const finalSession = await pollFinalStatus(sessionId, signal, token);
+      if (workflowTokenRef.current !== token) return;
+      applyFinalSession(finalSession);
+    } catch (error) {
+      if (workflowTokenRef.current !== token) return;
+      if (isAbortError(error)) return;
+      setWorkflowPhase("statusUnknown");
+      setWorkflowMessage(null);
+      setWorkflowWarning(
+        "Polling stopped after 10 minutes. The import may still be running; check its status again.",
+      );
+      setWorkflowError(null);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    if (!session?.sessionId) return;
+
+    const token = ++workflowTokenRef.current;
+    workflowAbortRef.current?.abort();
+    const controller = new AbortController();
+    workflowAbortRef.current = controller;
+
+    setWorkflowPhase("confirming");
+    setWorkflowMessage("Import is still running...");
+    setWorkflowWarning(null);
+    setWorkflowError(null);
+
+    await awaitFinalSession(session.sessionId, controller.signal, token);
   };
 
   const handleImport = async () => {
@@ -685,65 +913,19 @@ const ImportProjects: React.FC = () => {
 
       setSession(confirmedSession);
 
-      const finalSession = isImportTerminalState(confirmedSession.state)
-        ? confirmedSession
-        : await pollFinalStatus(
-            confirmedSession.sessionId,
-            controller.signal,
-            token,
-          );
-
-      if (workflowTokenRef.current !== token) return;
-
-      if (!finalSession) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError("Import did not return a final session state.");
+      if (isImportTerminalState(confirmedSession.state)) {
+        applyFinalSession(confirmedSession);
         return;
       }
 
-      setSession(finalSession);
-      if (finalSession.state === OctopusImportSessionState.Succeeded) {
-        setWorkflowPhase("succeeded");
-        setWorkflowMessage(null);
-        setWorkflowWarning(null);
-        setWorkflowError(null);
-        message.success("Import completed.");
-        navigate(projectListPath);
-        return;
-      }
-
-      if (finalSession.state === OctopusImportSessionState.Expired) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError(
-          "The import session expired. Upload the export file again.",
-        );
-        return;
-      }
-
-      setWorkflowPhase("failed");
-      setWorkflowMessage(null);
-      setWorkflowError(
-        finalSession.result?.diagnostics?.[0]?.message || "Import failed.",
+      await awaitFinalSession(
+        confirmedSession.sessionId,
+        controller.signal,
+        token,
       );
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
-      if ((error as Error)?.name === "AbortError") return;
-      if (
-        error instanceof Error &&
-        error.message.startsWith(
-          "The import is still running after 10 minutes.",
-        )
-      ) {
-        setWorkflowPhase("confirming");
-        setWorkflowMessage("Import is still running...");
-        setWorkflowWarning(
-          "Polling stopped after 10 minutes. Refresh the page or check back later.",
-        );
-        setWorkflowError(null);
-        return;
-      }
+      if (isAbortError(error)) return;
       setWorkflowPhase("ready");
       setWorkflowMessage(null);
       setWorkflowError(getErrorMessage(error));
@@ -813,6 +995,22 @@ const ImportProjects: React.FC = () => {
       key: "newDeployments",
     },
   ];
+
+  const workflowAction =
+    workflowPhase === "statusUnknown" ? (
+      <Button size="small" onClick={() => void handleCheckStatus()}>
+        Check status
+      </Button>
+    ) : resumableFetch &&
+      (workflowPhase === "failed" || workflowPhase === "idle") ? (
+      <Button
+        size="small"
+        disabled={!canResumeFetch}
+        onClick={() => void resumeHistoryFetch()}
+      >
+        Resume fetch
+      </Button>
+    ) : null;
 
   const renderBlockerSummary = (summary: OctopusImportBlockerSummary) => {
     if (!summary.hasBlockers) return null;
@@ -1069,10 +1267,16 @@ const ImportProjects: React.FC = () => {
                     </div>
                     {workflowPhase === "fetching" ? (
                       <div>
-                        <Progress
-                          percent={fetchProgressPercent(fetchProgress)}
-                          size="small"
-                        />
+                        <div className="flex items-center gap-2">
+                          <Progress
+                            className="!mb-0 flex-1"
+                            percent={fetchProgressPercent(fetchProgress)}
+                            size="small"
+                          />
+                          <Button size="small" onClick={cancelHistoryFetch}>
+                            Cancel
+                          </Button>
+                        </div>
                         {fetchProgress ? (
                           <div className="text-xs text-slate-500">
                             Project {fetchProgress.projectIndex} of{" "}
@@ -1110,6 +1314,7 @@ const ImportProjects: React.FC = () => {
                         workflowError ||
                         "Resolve the blocking issues before importing."
                       }
+                      action={workflowAction}
                     />
                   ) : null}
 
@@ -1117,7 +1322,12 @@ const ImportProjects: React.FC = () => {
                   workflowWarning &&
                   !workflowError &&
                   !isProcessingFile ? (
-                    <Alert type="warning" showIcon message={workflowWarning} />
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message={workflowWarning}
+                      action={workflowAction}
+                    />
                   ) : null}
 
                   {previewPlan ? (
