@@ -31,6 +31,9 @@ export enum OctopusImportPreviewAction {
   Skip,
   Unsupported,
   Blocked,
+  // Append-only: mirrors the backend ordinals.
+  AlreadyImported = 6,
+  Update = 7,
 }
 
 export enum OctopusImportResourceOutcomeState {
@@ -41,6 +44,14 @@ export enum OctopusImportResourceOutcomeState {
   Unsupported,
   Blocked,
   Failed,
+  // Append-only: mirrors the backend ordinals.
+  Updated = 7,
+}
+
+export enum OctopusHistoryFetchPhase {
+  Releases,
+  Deployments,
+  Done,
 }
 
 export enum OctopusImportCompatibilitySeverity {
@@ -93,6 +104,30 @@ export interface OctopusImportSourceFile {
   sha256: string | null;
 }
 
+export interface OctopusHistoryFetchCounts {
+  releases: number;
+  deployments: number;
+  serverTasks: number;
+  detailsFetched: number;
+  detailsSkipped: number;
+}
+
+export interface OctopusImportHistoryFetch {
+  serverHost: string | null;
+  octopusSpaceId: string | null;
+  installationId: string | null;
+  octopusVersion: string | null;
+  spaceless: boolean;
+  projectIds: string[];
+  projectIndex: number;
+  phase: OctopusHistoryFetchPhase;
+  counts: OctopusHistoryFetchCounts;
+  totalBytes: number;
+  done: boolean;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
 export interface OctopusImportSourceSummary {
   fileName: string;
   contentType: string;
@@ -100,6 +135,34 @@ export interface OctopusImportSourceSummary {
   detectedFormat: string;
   sha256: string | null;
   files?: OctopusImportSourceFile[];
+  historyFetch?: OctopusImportHistoryFetch | null;
+}
+
+export interface OctopusServerSpace {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+export interface OctopusServerProbe {
+  octopusVersion: string;
+  installationId: string;
+  spaceless: boolean;
+  spaces: OctopusServerSpace[];
+}
+
+export interface OctopusHistoryFetchProgress {
+  phase: OctopusHistoryFetchPhase;
+  projectIndex: number;
+  projectCount: number;
+  counts: OctopusHistoryFetchCounts;
+  totalBytes: number;
+  done: boolean;
+}
+
+export interface OctopusServerConnection {
+  serverUrl: string;
+  apiKey: string;
 }
 
 export interface OctopusImportSession {
@@ -143,6 +206,8 @@ export interface OctopusImportPreviewResource {
   previewAction: OctopusImportPreviewAction;
   outcomeState: OctopusImportResourceOutcomeState;
   destinationId: number | null;
+  /** The Octopus project the resource belongs to (the project itself for a project); null for shared resources. */
+  ownerProjectSourceId?: string | null;
   requiredInputs: OctopusImportRequiredInput[];
   diagnostics: OctopusImportDiagnostic[];
 }
@@ -205,6 +270,10 @@ export interface OctopusImportValidateResponseData {
 export interface OctopusImportConfirmResponseData {
   session: OctopusImportSession;
   blockerSummary: OctopusImportBlockerSummary;
+}
+
+export interface OctopusImportConnectResponseData {
+  session: OctopusImportSession;
 }
 
 export interface OctopusImportStatusResponseData {
@@ -353,14 +422,60 @@ export function confirmOctopusImport(
   sessionId: string,
   spaceId: number,
   signal?: AbortSignal,
+  runInBackground = false,
 ) {
   return requestImport<OctopusImportConfirmResponseData>(
     `/${sessionId}/confirm`,
     {
       method: "POST",
       spaceId,
-      query: { spaceId },
+      query: runInBackground ? { spaceId, runInBackground } : { spaceId },
       signal,
+    },
+  );
+}
+
+// The server URL and API key travel only in POST bodies, never in a query string.
+export function probeOctopusServer(
+  connection: OctopusServerConnection,
+  spaceId: number,
+  signal?: AbortSignal,
+) {
+  return requestImport<OctopusServerProbe>("/history/probe", {
+    method: "POST",
+    spaceId,
+    body: JSON.stringify({ spaceId, ...connection }),
+    includeJson: true,
+    signal,
+  });
+}
+
+export function connectOctopusImport(spaceId: number, signal?: AbortSignal) {
+  return requestImport<OctopusImportConnectResponseData>("/connect", {
+    method: "POST",
+    spaceId,
+    body: JSON.stringify({ spaceId }),
+    includeJson: true,
+    signal,
+  });
+}
+
+export function fetchOctopusImportHistory(
+  sessionId: string,
+  spaceId: number,
+  connection: OctopusServerConnection,
+  octopusSpaceId: string | null,
+  signal?: AbortSignal,
+) {
+  return requestImport<OctopusHistoryFetchProgress>(
+    `/${sessionId}/history/fetch`,
+    {
+      method: "POST",
+      spaceId,
+      body: JSON.stringify({ spaceId, ...connection, octopusSpaceId }),
+      includeJson: true,
+      signal,
+      timeout: IMPORT_UPLOAD_TIMEOUT_MS,
     },
   );
 }

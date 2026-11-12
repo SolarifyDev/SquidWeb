@@ -21,6 +21,8 @@ export interface ServerTaskSummaryDto {
   projectId: number
   environmentId: number
   durationSeconds: number
+  /** True when the task was imported from Octopus: read-only history. Filled on the task-details read only. */
+  isImported?: boolean
 }
 
 export interface ServerTaskProgressDto {

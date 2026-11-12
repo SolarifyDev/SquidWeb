@@ -1,5 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Input, Modal, Spin, message } from "antd";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Input,
+  Modal,
+  Progress,
+  Select,
+  Spin,
+  Table,
+  Tag,
+  message,
+} from "antd";
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -12,25 +24,43 @@ import { useNavigate } from "react-router-dom";
 import { useSpace } from "contexts/SpaceContext";
 import {
   confirmOctopusImport,
+  connectOctopusImport,
   extractOctopusImport,
+  fetchOctopusImportHistory,
   getOctopusImportStatus,
   isImportTerminalState,
-  OctopusImportPreviewAction,
   previewOctopusImport,
+  probeOctopusServer,
   OctopusImportSessionState,
+  type OctopusHistoryFetchProgress,
   type OctopusImportBlockerSummary,
   type OctopusImportPreviewPlan,
   type OctopusImportSession,
   type OctopusImportValidation,
   type OctopusImportUploadResponseData,
+  type OctopusServerConnection,
+  type OctopusServerProbe,
   uploadOctopusImport,
   validateOctopusImport,
 } from "pages/apis/octopusImport";
+import {
+  fetchProgressPercent,
+  isNothingNew,
+  listedResources,
+  summarizeActions,
+  summarizeByProject,
+  withoutHistoryRows,
+  type ListedPreviewResource,
+  type ProjectPreviewSummary,
+} from "./importPreviewSummary";
 
 type ValidationState = "idle" | "validating" | "valid" | "error";
+type ImportSourceKind = "file" | "server";
 type WorkflowPhase =
   | "idle"
   | "uploading"
+  | "connecting"
+  | "fetching"
   | "extracting"
   | "previewing"
   | "ready"
@@ -89,10 +119,27 @@ const ImportProjects: React.FC = () => {
   const [draftValidation, setDraftValidation] =
     useState<ValidationState>("idle");
   const [draftError, setDraftError] = useState("");
+  const [sources, setSources] = useState<ImportSourceKind[]>(["file"]);
+  const [serverUrl, setServerUrl] = useState("");
+  // Held in memory only for the fetch loop; never written to storage.
+  const [apiKey, setApiKey] = useState("");
+  const [probe, setProbe] = useState<OctopusServerProbe | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
+  const [octopusSpaceId, setOctopusSpaceId] = useState<string | null>(null);
+  const [fetchProgress, setFetchProgress] =
+    useState<OctopusHistoryFetchProgress | null>(null);
 
   const projectListPath = `/${space.slug}/projects`;
+  const useFileSource = sources.includes("file");
+  const useServerSource = sources.includes("server");
+  const isServerReady = Boolean(
+    useServerSource && probe && serverUrl.trim() && apiKey.trim(),
+  );
   const isProcessingFile =
     workflowPhase === "uploading" ||
+    workflowPhase === "connecting" ||
+    workflowPhase === "fetching" ||
     workflowPhase === "extracting" ||
     workflowPhase === "previewing";
   const isFinalizingImport =
@@ -108,8 +155,10 @@ const ImportProjects: React.FC = () => {
       previewPlan?.hasBlockers ||
       validation?.hasBlockers,
   );
+  const nothingNew = previewPlan ? isNothingNew(previewPlan.resources) : false;
   const canImport = Boolean(
     previewPlan &&
+      !nothingNew &&
       !hasPreviewBlockers &&
       !workflowError &&
       workflowPhase === "ready" &&
@@ -142,6 +191,7 @@ const ImportProjects: React.FC = () => {
     setWorkflowError(null);
     setUploadError(null);
     setBlockerSummary(null);
+    setFetchProgress(null);
   };
 
   const validateDraftFile = (file: File | null) => {
@@ -231,47 +281,125 @@ const ImportProjects: React.FC = () => {
     return uploadData.session;
   };
 
-  const runImportWorkflow = async (file: File) => {
+  const uploadFileSource = async (
+    file: File,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    setWorkflowPhase("uploading");
+    setWorkflowMessage("Uploading archive...");
+
+    const uploadEnvelope = await uploadOctopusImport(
+      file,
+      draftPassword,
+      space.id,
+      signal,
+    );
+    if (workflowTokenRef.current !== token) return null;
+
+    if (uploadEnvelope.code !== 200) {
+      setWorkflowPhase("idle");
+      setWorkflowMessage(null);
+      setUploadError(uploadEnvelope.msg || "Upload failed.");
+      return null;
+    }
+    setBlockerSummary(uploadEnvelope.data?.blockerSummary ?? null);
+
+    const uploadSession = applyUploadResult(
+      uploadEnvelope.data ?? null,
+      file,
+      token,
+    );
+    if (!uploadSession) {
+      setWorkflowPhase("idle");
+      setWorkflowMessage(null);
+      setWorkflowError(null);
+      setUploadError("Upload did not return a session.");
+      return null;
+    }
+    closePicker();
+    return uploadSession;
+  };
+
+  const connectServerSource = async (signal: AbortSignal, token: number) => {
+    setWorkflowPhase("connecting");
+    setWorkflowMessage("Creating import session...");
+
+    const connectEnvelope = await connectOctopusImport(space.id, signal);
+    if (workflowTokenRef.current !== token) return null;
+
+    const connectedSession = connectEnvelope.data?.session ?? null;
+    if (connectEnvelope.code !== 200 || !connectedSession?.sessionId) {
+      setWorkflowPhase("failed");
+      setWorkflowMessage(null);
+      setWorkflowError(connectEnvelope.msg || "Could not create a session.");
+      return null;
+    }
+    setSelectedFile(null);
+    setSession(connectedSession);
+    return connectedSession;
+  };
+
+  // Each call fetches one chunk; the server keeps the cursor, so loop until it reports done.
+  const fetchServerHistory = async (
+    sessionId: string,
+    connection: OctopusServerConnection,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    setWorkflowPhase("fetching");
+    setWorkflowMessage("Fetching deployment history from Octopus...");
+
+    for (;;) {
+      const fetchEnvelope = await fetchOctopusImportHistory(
+        sessionId,
+        space.id,
+        connection,
+        octopusSpaceId,
+        signal,
+      );
+      if (workflowTokenRef.current !== token) return false;
+
+      const progress = fetchEnvelope.data ?? null;
+      if (fetchEnvelope.code !== 200 || !progress) {
+        setWorkflowPhase("failed");
+        setWorkflowMessage(null);
+        setWorkflowError(fetchEnvelope.msg || "History fetch failed.");
+        return false;
+      }
+
+      setFetchProgress(progress);
+      if (progress.done) return true;
+    }
+  };
+
+  const runImportWorkflow = async (file: File | null) => {
     const token = ++workflowTokenRef.current;
     workflowAbortRef.current?.abort();
     clearWorkflow();
     const controller = new AbortController();
     workflowAbortRef.current = controller;
-    setWorkflowPhase("uploading");
-    setWorkflowMessage("Uploading archive...");
+    const connection: OctopusServerConnection | null = isServerReady
+      ? { serverUrl: serverUrl.trim(), apiKey }
+      : null;
     let uploadCompleted = false;
 
     try {
-      const uploadEnvelope = await uploadOctopusImport(
-        file,
-        draftPassword,
-        space.id,
-        controller.signal,
-      );
-      if (workflowTokenRef.current !== token) return;
-
-      if (uploadEnvelope.code !== 200) {
-        setWorkflowPhase("idle");
-        setWorkflowMessage(null);
-        setUploadError(uploadEnvelope.msg || "Upload failed.");
-        return;
-      }
-      setBlockerSummary(uploadEnvelope.data?.blockerSummary ?? null);
-
-      const uploadSession = applyUploadResult(
-        uploadEnvelope.data ?? null,
-        file,
-        token,
-      );
-      if (!uploadSession) {
-        setWorkflowPhase("idle");
-        setWorkflowMessage(null);
-        setWorkflowError(null);
-        setUploadError("Upload did not return a session.");
-        return;
-      }
+      const uploadSession = file
+        ? await uploadFileSource(file, controller.signal, token)
+        : await connectServerSource(controller.signal, token);
+      if (!uploadSession || workflowTokenRef.current !== token) return;
       uploadCompleted = true;
-      closePicker();
+
+      if (connection) {
+        const fetched = await fetchServerHistory(
+          uploadSession.sessionId,
+          connection,
+          controller.signal,
+          token,
+        );
+        if (!fetched) return;
+      }
 
       setWorkflowPhase("extracting");
       setWorkflowMessage("Extracting archive...");
@@ -353,7 +481,7 @@ const ImportProjects: React.FC = () => {
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if ((error as Error)?.name === "AbortError") return;
-      if (!uploadCompleted) {
+      if (!uploadCompleted && file) {
         setWorkflowPhase("idle");
         setWorkflowMessage(null);
         setUploadError(getErrorMessage(error));
@@ -398,7 +526,49 @@ const ImportProjects: React.FC = () => {
     if (!draftFile || draftValidation !== "valid" || !draftPassword.trim()) {
       return;
     }
+    if (useServerSource && !isServerReady) return;
     void runImportWorkflow(draftFile);
+  };
+
+  const handleSourcesChange = (values: ImportSourceKind[]) => {
+    if (!values.length) return;
+    setSources(values);
+  };
+
+  const resetProbe = () => {
+    setProbe(null);
+    setProbeError(null);
+    setOctopusSpaceId(null);
+  };
+
+  const handleProbe = async () => {
+    if (!serverUrl.trim() || !apiKey.trim()) return;
+
+    setProbing(true);
+    resetProbe();
+    try {
+      const probeEnvelope = await probeOctopusServer(
+        { serverUrl: serverUrl.trim(), apiKey },
+        space.id,
+      );
+      const probeData = probeEnvelope.data ?? null;
+      if (probeEnvelope.code !== 200 || !probeData) {
+        setProbeError(
+          probeEnvelope.msg || "Could not connect to the Octopus server.",
+        );
+        return;
+      }
+      setProbe(probeData);
+      setOctopusSpaceId(
+        probeData.spaces.find((item) => item.isDefault)?.id ??
+          probeData.spaces[0]?.id ??
+          null,
+      );
+    } catch (error) {
+      setProbeError(getErrorMessage(error));
+    } finally {
+      setProbing(false);
+    }
   };
 
   const pollFinalStatus = async (
@@ -465,7 +635,7 @@ const ImportProjects: React.FC = () => {
       const validateEnvelope = await validateOctopusImport(
         session.sessionId,
         space.id,
-        previewPlan,
+        withoutHistoryRows(previewPlan),
         controller.signal,
       );
       if (workflowTokenRef.current !== token) return;
@@ -495,16 +665,18 @@ const ImportProjects: React.FC = () => {
       setWorkflowPhase("confirming");
       setWorkflowMessage("Importing...");
 
+      // Large history imports run as a background job; the session is polled until it settles.
       const confirmEnvelope = await confirmOctopusImport(
         session.sessionId,
         space.id,
         controller.signal,
+        true,
       );
       if (workflowTokenRef.current !== token) return;
 
       const confirmedSession = confirmEnvelope.data?.session ?? null;
       setBlockerSummary(confirmEnvelope.data?.blockerSummary ?? null);
-      if (!confirmedSession) {
+      if (confirmEnvelope.code !== 200 || !confirmedSession) {
         setWorkflowPhase("failed");
         setWorkflowMessage(null);
         setWorkflowError(confirmEnvelope.msg || "Import confirmation failed.");
@@ -580,22 +752,67 @@ const ImportProjects: React.FC = () => {
 
   const previewResources = useMemo(() => {
     const resources = previewPlan?.resources ?? [];
-    const isImportable = (resource: (typeof resources)[number]) =>
-      resource.previewAction === OctopusImportPreviewAction.Create ||
-      resource.previewAction === OctopusImportPreviewAction.ReuseExisting;
-    const byType = (type: string) =>
-      resources.filter(
-        (resource) =>
-          isImportable(resource) &&
-          resource.sourceType.trim().toLowerCase() === type.toLowerCase(),
-      );
 
     return {
-      projects: byType("Project"),
-      environments: byType("Environment"),
-      lifecycles: byType("Lifecycle"),
+      projects: listedResources(resources, "Project"),
+      environments: listedResources(resources, "Environment"),
+      lifecycles: listedResources(resources, "Lifecycle"),
+      actionCounts: summarizeActions(resources),
+      projectRows: summarizeByProject(resources),
     };
   }, [previewPlan]);
+
+  const renderResourceName = ({ resource, label }: ListedPreviewResource) => (
+    <>
+      {resource.sourceName}
+      {label ? (
+        <Tag className="ml-2" color="default">
+          {label}
+        </Tag>
+      ) : null}
+    </>
+  );
+
+  const actionTiles = [
+    { key: "create", label: "Create", value: previewResources.actionCounts.create },
+    {
+      key: "alreadyImported",
+      label: "Already imported",
+      value: previewResources.actionCounts.alreadyImported,
+    },
+    { key: "update", label: "Update", value: previewResources.actionCounts.update },
+    { key: "skip", label: "Skipped", value: previewResources.actionCounts.skip },
+  ];
+
+  const projectColumns = [
+    { title: "Project", dataIndex: "projectName", key: "projectName" },
+    {
+      title: "Create",
+      key: "create",
+      render: (row: ProjectPreviewSummary) => row.counts.create,
+    },
+    {
+      title: "Already imported",
+      key: "alreadyImported",
+      render: (row: ProjectPreviewSummary) => row.counts.alreadyImported,
+    },
+    {
+      title: "Update",
+      key: "update",
+      render: (row: ProjectPreviewSummary) => row.counts.update,
+    },
+    {
+      title: "Skipped",
+      key: "skip",
+      render: (row: ProjectPreviewSummary) => row.counts.skip,
+    },
+    { title: "New releases", dataIndex: "newReleases", key: "newReleases" },
+    {
+      title: "New deployments",
+      dataIndex: "newDeployments",
+      key: "newDeployments",
+    },
+  ];
 
   const renderBlockerSummary = (summary: OctopusImportBlockerSummary) => {
     if (!summary.hasBlockers) return null;
@@ -705,27 +922,167 @@ const ImportProjects: React.FC = () => {
               </div>
 
               <div className="w-full space-y-5">
-                <div>
-                  <div className="text-base font-semibold text-slate-900">
-                    Select a Zip file to import projects.
-                  </div>
-                  {selectedFile ? (
-                    <div className="mt-4 text-sm font-medium text-slate-900">
-                      Selected file:{" "}
-                      <span className="font-semibold">{selectedFile.name}</span>
+                <Checkbox.Group
+                  value={sources}
+                  disabled={isProcessingFile || isFinalizingImport}
+                  onChange={(values) =>
+                    handleSourcesChange(values as ImportSourceKind[])
+                  }
+                  options={[
+                    { label: "Export file", value: "file" },
+                    { label: "Octopus server", value: "server" },
+                  ]}
+                />
+
+                {useServerSource ? (
+                  <div className="space-y-3 rounded-md border border-slate-200 p-4">
+                    <div className="text-base font-semibold text-slate-900">
+                      Fetch deployment history from an Octopus server.
                     </div>
-                  ) : null}
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <Button type="primary" ghost onClick={openPicker}>
-                      Select zip file
-                    </Button>
+                    <div>
+                      <label
+                        htmlFor="import-octopus-server-url"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        Server URL
+                      </label>
+                      <Input
+                        id="import-octopus-server-url"
+                        value={serverUrl}
+                        disabled={isProcessingFile}
+                        onChange={(event) => {
+                          setServerUrl(event.target.value);
+                          resetProbe();
+                        }}
+                        placeholder="https://octopus.example.com"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="import-octopus-api-key"
+                        className="mb-1.5 block text-sm font-medium text-slate-700"
+                      >
+                        API key
+                      </label>
+                      <Input.Password
+                        id="import-octopus-api-key"
+                        value={apiKey}
+                        disabled={isProcessingFile}
+                        onChange={(event) => {
+                          setApiKey(event.target.value);
+                          resetProbe();
+                        }}
+                        placeholder="API-XXXXXXXX"
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        onClick={() => void handleProbe()}
+                        loading={probing}
+                        disabled={
+                          !serverUrl.trim() || !apiKey.trim() || isProcessingFile
+                        }
+                      >
+                        Connect
+                      </Button>
+                      {probe ? (
+                        <span className="text-sm text-emerald-700">
+                          Connected to Octopus {probe.octopusVersion}
+                        </span>
+                      ) : null}
+                    </div>
+                    {probeError ? (
+                      <Alert type="error" showIcon message={probeError} />
+                    ) : null}
+                    {probe && !probe.spaceless ? (
+                      <div>
+                        <label
+                          htmlFor="import-octopus-space"
+                          className="mb-1.5 block text-sm font-medium text-slate-700"
+                        >
+                          Octopus space
+                        </label>
+                        <Select
+                          id="import-octopus-space"
+                          className="w-full max-w-md"
+                          value={octopusSpaceId ?? undefined}
+                          disabled={isProcessingFile}
+                          onChange={(value: string) => setOctopusSpaceId(value)}
+                          options={probe.spaces.map((item) => ({
+                            label: item.name,
+                            value: item.id,
+                          }))}
+                        />
+                      </div>
+                    ) : null}
+                    {!useFileSource ? (
+                      <Button
+                        type="primary"
+                        ghost
+                        disabled={!isServerReady || isProcessingFile}
+                        onClick={() => void runImportWorkflow(null)}
+                      >
+                        Load from server
+                      </Button>
+                    ) : null}
                   </div>
-                </div>
+                ) : null}
+
+                {useFileSource ? (
+                  <div>
+                    <div className="text-base font-semibold text-slate-900">
+                      Select a Zip file to import projects.
+                    </div>
+                    {useServerSource && !isServerReady ? (
+                      <div className="mt-2 text-sm text-slate-500">
+                        Connect to the Octopus server before selecting the file.
+                      </div>
+                    ) : null}
+                    {selectedFile ? (
+                      <div className="mt-4 text-sm font-medium text-slate-900">
+                        Selected file:{" "}
+                        <span className="font-semibold">
+                          {selectedFile.name}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="primary"
+                        ghost
+                        onClick={openPicker}
+                        disabled={useServerSource && !isServerReady}
+                      >
+                        Select zip file
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
 
                 {isProcessingFile ? (
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    <Spin indicator={<LoadingOutlined spin />} />
-                    {workflowMessage}
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <Spin indicator={<LoadingOutlined spin />} />
+                      {workflowMessage}
+                    </div>
+                    {workflowPhase === "fetching" ? (
+                      <div>
+                        <Progress
+                          percent={fetchProgressPercent(fetchProgress)}
+                          size="small"
+                        />
+                        {fetchProgress ? (
+                          <div className="text-xs text-slate-500">
+                            Project {fetchProgress.projectIndex} of{" "}
+                            {fetchProgress.projectCount}:{" "}
+                            {fetchProgress.counts.releases} releases,{" "}
+                            {fetchProgress.counts.deployments} deployments
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -765,17 +1122,58 @@ const ImportProjects: React.FC = () => {
 
                   {previewPlan ? (
                     <div className="space-y-5 text-sm text-slate-900">
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        {actionTiles.map((tile) => (
+                          <div
+                            key={tile.key}
+                            data-testid={`import-tile-${tile.key}`}
+                            className="rounded-md border border-slate-200 px-4 py-3"
+                          >
+                            <div className="text-xs font-medium uppercase text-slate-500">
+                              {tile.label}
+                            </div>
+                            <div className="mt-1 text-2xl font-semibold">
+                              {tile.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {nothingNew ? (
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="Nothing new to import"
+                          description="Everything in this source was already imported or is skipped."
+                        />
+                      ) : null}
+
+                      {previewResources.projectRows.length ? (
+                        <section>
+                          <h2 className="mb-3 text-base font-semibold">
+                            By project
+                          </h2>
+                          <Table
+                            size="small"
+                            pagination={false}
+                            rowKey="projectSourceId"
+                            columns={projectColumns}
+                            dataSource={previewResources.projectRows}
+                          />
+                        </section>
+                      ) : null}
+
                       {previewResources.projects.length ? (
                         <section>
                           <h2 className="mb-3 text-base font-semibold">
                             The following projects will be imported:
                           </h2>
                           <ul className="list-disc space-y-1 pl-8">
-                            {previewResources.projects.map((resource) => (
+                            {previewResources.projects.map((item) => (
                               <li
-                                key={`${resource.sourceType}-${resource.sourceId}`}
+                                key={`${item.resource.sourceType}-${item.resource.sourceId}`}
                               >
-                                {resource.sourceName}
+                                {renderResourceName(item)}
                               </li>
                             ))}
                           </ul>
@@ -791,15 +1189,13 @@ const ImportProjects: React.FC = () => {
                             <div>
                               <div className="font-semibold">Environments</div>
                               <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.environments.map(
-                                  (resource) => (
-                                    <li
-                                      key={`${resource.sourceType}-${resource.sourceId}`}
-                                    >
-                                      {resource.sourceName}
-                                    </li>
-                                  ),
-                                )}
+                                {previewResources.environments.map((item) => (
+                                  <li
+                                    key={`${item.resource.sourceType}-${item.resource.sourceId}`}
+                                  >
+                                    {renderResourceName(item)}
+                                  </li>
+                                ))}
                               </ul>
                             </div>
                           ) : null}
@@ -808,11 +1204,11 @@ const ImportProjects: React.FC = () => {
                             <div>
                               <div className="font-semibold">Lifecycles</div>
                               <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.lifecycles.map((resource) => (
+                                {previewResources.lifecycles.map((item) => (
                                   <li
-                                    key={`${resource.sourceType}-${resource.sourceId}`}
+                                    key={`${item.resource.sourceType}-${item.resource.sourceId}`}
                                   >
-                                    {resource.sourceName}
+                                    {renderResourceName(item)}
                                   </li>
                                 ))}
                               </ul>
@@ -823,12 +1219,12 @@ const ImportProjects: React.FC = () => {
                             <div>
                               <div className="font-semibold">Projects</div>
                               <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.projects.map((resource) => (
+                                {previewResources.projects.map((item) => (
                                   <li
-                                    key={`${resource.sourceType}-resource-${resource.sourceId}`}
+                                    key={`${item.resource.sourceType}-resource-${item.resource.sourceId}`}
                                   >
                                     <div className="font-semibold">
-                                      {resource.sourceName}
+                                      {renderResourceName(item)}
                                     </div>
                                     <div className="ml-4 italic">Channels</div>
                                   </li>
@@ -870,7 +1266,8 @@ const ImportProjects: React.FC = () => {
               !draftFile ||
               draftValidation !== "valid" ||
               !draftPassword.trim() ||
-              isProcessingFile
+              isProcessingFile ||
+              (useServerSource && !isServerReady)
             }
             onClick={handleConfirmPicker}
             className="!bg-squid-blue hover:!bg-blue-600 disabled:!bg-slate-200 disabled:!text-slate-500"
