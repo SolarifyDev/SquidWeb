@@ -28,7 +28,8 @@ export const IMPORT_SOURCE_CARDS: SourceCard[] = [
       "Everything the API can read in the whole space: the same configuration plus releases, deployments and task logs.",
     cannotImport:
       "Secret values (sensitive variables, feed passwords, account keys, certificate private keys): the API never returns them. "
-      + "They are imported as missing and listed; import the export file later to fill them.",
+      + "They are imported as missing and listed; importing the export file later fills sensitive variables and feed passwords, "
+      + "account keys and certificate private keys are set in Squid.",
   },
 ];
 

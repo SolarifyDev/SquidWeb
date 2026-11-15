@@ -147,6 +147,43 @@ describe('secrets panels', () => {
     expect(onFill).toHaveBeenCalledTimes(1);
   });
 
+  // The export file fills only sensitive variables and feed passwords: account keys and certificate private keys are set in Squid,
+  // so the panels offer the file (and say it fills them) only when at least one listed secret is fillable.
+  it.each([[true], [false]])('missingAfterImport_OffersTheExportFileOnlyWhenItCanFillSomething fillable=%s', fillable => {
+    renderInRouter(
+      <MissingSecretsAfterImport
+        spaceSlug="Spaces-1"
+        onFillFromFile={vi.fn()}
+        onDone={vi.fn()}
+        missing={[{
+          kind: fillable ? OctopusImportRequiredInputKind.SensitiveVariableValue : OctopusImportRequiredInputKind.AccountSecret, name: 'Secret', ownerName: null, ownerKind: null,
+          field: 'Password', scopeSummary: null, destinationId: 4, destinationOwnerId: null, fillable,
+        }]}
+      />,
+    );
+
+    const panel = screen.getByTestId('missing-secrets-after-import');
+    expect(within(panel).queryByRole('button', { name: 'Fill from export file' }) !== null).toBe(fillable);
+    expect(panel.textContent?.includes('Importing the Octopus export file')).toBe(fillable);
+    if (!fillable) expect(panel).toHaveTextContent('Set them in Squid');
+  });
+
+  it.each([[true], [false]])('withheldPanel_OffersTheExportFileOnlyWhenItCanFillSomething fillable=%s', fillable => {
+    const created: OctopusImportPreviewResource = {
+      ...resource('Certificate', 'Certificates-1', OctopusImportPreviewAction.Create, null),
+      requiredInputs: [{
+        kind: OctopusImportRequiredInputKind.CertificatePrivateKey, inputKey: 'key', sourceId: 'Certificates-1', sourceType: 'Certificate', name: 'Web cert',
+        fieldName: 'PrivateKey', valueType: 'Sensitive', hasSourceValue: false, isRequired: false, fillable, withheldByServer: true, sourceScopes: {},
+      }],
+    };
+
+    renderInRouter(<WithheldSecretsPanel resources={[created]} onFillFromFile={vi.fn()} />);
+
+    const panel = screen.getByTestId('withheld-secrets');
+    expect(within(panel).queryByRole('button', { name: 'Fill from export file' }) !== null).toBe(fillable);
+    expect(panel.textContent?.includes('Importing the Octopus export file')).toBe(fillable);
+  });
+
   it('pairingCheckbox_ReportsTheConfirmation', () => {
     const onChange = vi.fn();
     render(

@@ -329,8 +329,11 @@ export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; s
 
 // ── Secrets ──────────────────────────────────────────────────────────────────
 
-const FILL_LATER_HINT =
-  "Importing the Octopus export file of the same space later fills only these missing values; values you set in Squid are never overwritten.";
+// The export file fills sensitive variables and feed passwords only; account keys and certificate private keys are set in Squid.
+const fillHint = (anyFillable: boolean) =>
+  anyFillable
+    ? "Importing the Octopus export file of the same space later fills only the values marked \"From the export file\"; values you set in Squid are never overwritten. The others are set in Squid."
+    : "An Octopus export file cannot supply these. Set them in Squid.";
 
 const FillFromFileButton: React.FC<{ onFillFromFile: () => void; disabled?: boolean }> = ({ onFillFromFile, disabled }) => (
   <Button size="small" onClick={onFillFromFile} disabled={disabled}>
@@ -347,14 +350,16 @@ export const WithheldSecretsPanel: React.FC<{
   const rows = withheldSecrets(resources);
   if (!rows.length) return null;
 
+  const anyFillable = rows.some(row => row.fillable);
+
   return (
     <section data-testid="withheld-secrets" className="space-y-3">
       <Alert
         type="warning"
         showIcon
         message={`${pluralize(rows.length, "secret value")} will be imported as missing`}
-        description={`The Octopus API never returns secret values. These are created without their value, and deployments that use a missing variable value fail with a clear message until it is set. ${FILL_LATER_HINT}`}
-        action={<FillFromFileButton onFillFromFile={onFillFromFile} disabled={disabled} />}
+        description={`The Octopus API never returns secret values. These are created without their value, and deployments that use a missing variable value fail with a clear message until it is set. ${fillHint(anyFillable)}`}
+        action={anyFillable ? <FillFromFileButton onFillFromFile={onFillFromFile} disabled={disabled} /> : null}
       />
       <Table
         size="small"
@@ -384,16 +389,19 @@ export const MissingSecretsAfterImport: React.FC<{
   spaceSlug: string;
   onFillFromFile: () => void;
   onDone: () => void;
-}> = ({ missing, spaceSlug, onFillFromFile, onDone }) => (
+}> = ({ missing, spaceSlug, onFillFromFile, onDone }) => {
+  const anyFillable = missing.some(item => item.fillable);
+
+  return (
   <section data-testid="missing-secrets-after-import" className="space-y-3">
     <Alert
       type="success"
       showIcon
       message="Import completed"
-      description={`${pluralize(missing.length, "secret value")} could not be read from the Octopus API and ${missing.length === 1 ? "is" : "are"} still missing. ${FILL_LATER_HINT}`}
+      description={`${pluralize(missing.length, "secret value")} could not be read from the Octopus API and ${missing.length === 1 ? "is" : "are"} still missing. ${fillHint(anyFillable)}`}
       action={
         <div className="flex flex-col gap-2">
-          <FillFromFileButton onFillFromFile={onFillFromFile} />
+          {anyFillable ? <FillFromFileButton onFillFromFile={onFillFromFile} /> : null}
           <Button size="small" type="primary" onClick={onDone}>
             Go to projects
           </Button>
@@ -426,7 +434,8 @@ export const MissingSecretsAfterImport: React.FC<{
       ]}
     />
   </section>
-);
+  );
+};
 
 /** The first export file filling secrets of an API import: the user confirms it comes from the same Octopus installation. */
 export const FillPairingConfirmation: React.FC<{
