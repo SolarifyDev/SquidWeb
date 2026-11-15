@@ -1050,6 +1050,23 @@ describe('ImportProjects', () => {
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   });
 
+  it.each(['server', 'file'] as const)('%s_refusedOverAThirdOriginsRows_NamesWhoCreatedThem', async source => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(originPlan({ ...refusedOrigin, basis: 'other-origin-rows', creators: ['Octopus installation inst-z (server octopus-z.example.com, space Spaces-3)'], moreCreators: 0 }, {
+      hasBlockers: true,
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Blocker, code: 'octopus.preview.import_origin_unproven', message: 'Refused.' }],
+    }));
+    renderPage();
+    await reachPreview(source);
+
+    const notice = await screen.findByTestId('import-origin-notice');
+    expect(notice).toHaveTextContent('This import would link to resources another Octopus source created in this space');
+    expect(notice).toHaveTextContent('This source: Octopus installation inst-x (server octopus-x.example.com, space Spaces-2)');
+    expect(notice).toHaveTextContent('This space was imported from: an export file with fingerprint ABC123');
+    expect(notice).toHaveTextContent('Resources it would link to were created by: Octopus installation inst-z (server octopus-z.example.com, space Spaces-3)');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
   it.each(['server', 'file'] as const)('%s_pairingVerdict_AsksSameOctopusServerWithTheCount_AndPostsIt', async source => {
     api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
     const pairing = fillPlan(true).fillPairing!;

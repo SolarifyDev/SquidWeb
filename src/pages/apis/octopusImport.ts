@@ -312,6 +312,10 @@ export interface OctopusImportOriginEvidence {
   source: string;
   /** What the space was imported from. */
   recorded: string;
+  /** For other-origin-rows: the origins that created the resources it would link to (at most three); absent on older servers. */
+  creators?: string[] | null;
+  /** How many more such origins beyond `creators`. */
+  moreCreators?: number;
 }
 
 export interface OctopusImportChangeCounts {

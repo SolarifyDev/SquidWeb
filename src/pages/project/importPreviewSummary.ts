@@ -561,9 +561,19 @@ const ORIGIN_PROOF_BASIS: Record<string, string> = {
 const hasOriginVerdict = (plan: OctopusImportPreviewPlan | null | undefined, state: OctopusImportFillEvidenceState) =>
   plan?.origin != null && Number(plan.origin.state) === state;
 
+// "a, b and c", or "a, b, c and 2 more" beyond the origins the server names.
+const creatorsText = (creators: string[], more: number) => {
+  const names = more > 0 ? [...creators, `${more} more`] : creators;
+
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
+
+const creatorLines = (origin: OctopusImportOriginEvidence) =>
+  origin.creators?.length ? [`Resources it would link to were created by: ${creatorsText(origin.creators, origin.moreCreators ?? 0)}`] : [];
+
 const refusedOriginNotice = (origin: OctopusImportOriginEvidence): OriginNotice => ({
   title: ORIGIN_REFUSAL_TITLES[origin.basis ?? ''] ?? DIFFERENT_OCTOPUS_TITLE,
-  origins: [`This source: ${origin.source}`, `This space was imported from: ${origin.recorded}`],
+  origins: [`This source: ${origin.source}`, `This space was imported from: ${origin.recorded}`, ...creatorLines(origin)],
   hint: ORIGIN_REFUSAL_HINT,
 });
 

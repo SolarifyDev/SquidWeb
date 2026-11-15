@@ -663,6 +663,24 @@ describe('originNotice', () => {
     expect(notice?.hint).toContain('Nothing will be linked or written');
   });
 
+  // Rows a third origin created: the card also names the origins that created them (the server names at most three, counts the rest).
+  it.each([
+    [['Octopus installation inst-z (server octopus-z.example.com)'], 0, 'Resources it would link to were created by: Octopus installation inst-z (server octopus-z.example.com)'],
+    [['inst-1', 'inst-2'], 0, 'Resources it would link to were created by: inst-1 and inst-2'],
+    [['inst-1', 'inst-2', 'inst-3'], 2, 'Resources it would link to were created by: inst-1, inst-2, inst-3 and 2 more'],
+  ])('otherOriginRows_%j_NamesTheCreatorsAsAThirdLine', (creators, moreCreators, line) => {
+    const notice = originNotice(planOf([], { origin: { ...originOf(OctopusImportFillEvidenceState.Unproven, 'other-origin-rows'), creators, moreCreators } }));
+
+    expect(notice?.origins).toEqual(['This source: Octopus installation inst-x (server octopus-x.example.com)', 'This space was imported from: an export file with fingerprint ABC123', line]);
+  });
+
+  // A server without the field (or with none to name) renders as before.
+  it.each([undefined, null, []])('noCreators_%j_TwoLines', creators => {
+    const notice = originNotice(planOf([], { origin: { ...originOf(OctopusImportFillEvidenceState.Unproven, 'other-origin-rows'), creators } }));
+
+    expect(notice?.origins).toHaveLength(2);
+  });
+
   it.each([OctopusImportFillEvidenceState.PairingRequired, OctopusImportFillEvidenceState.Proven])('verdict_%s_NoNotice', state => {
     expect(originNotice(planOf([], { origin: originOf(state, 'installation') }))).toBeNull();
   });
