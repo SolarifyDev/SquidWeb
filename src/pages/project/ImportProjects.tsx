@@ -57,6 +57,7 @@ import {
   planToValidate,
   linksEarlierImport,
   originNotice,
+  originProof,
   summarizeActions,
   summarizeByProject,
   type FetchFailureRecovery,
@@ -1731,8 +1732,25 @@ const ImportProjects: React.FC = () => {
                       type="error"
                       showIcon
                       message={originNotice(previewPlan)?.title}
-                      description={originNotice(previewPlan)?.hint}
+                      description={
+                        <div className="space-y-2">
+                          {originNotice(previewPlan)?.origins.length ? (
+                            <ul className="list-disc pl-5">
+                              {originNotice(previewPlan)?.origins.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <div>{originNotice(previewPlan)?.hint}</div>
+                        </div>
+                      }
                     />
+                  ) : null}
+
+                  {originProof(previewPlan) ? (
+                    <div data-testid="import-origin-proof" className="text-xs text-slate-500">
+                      {originProof(previewPlan)}
+                    </div>
                   ) : null}
 
                   {previewPlan?.fillPairing?.required ? (

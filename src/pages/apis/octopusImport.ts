@@ -295,6 +295,25 @@ export interface OctopusImportFillPairing {
   matchingStructureIds: number;
 }
 
+/** The origin check's verdict on an import that would link to rows an import of another origin created. */
+export enum OctopusImportFillEvidenceState {
+  Proven,
+  PairingRequired,
+  Unproven,
+}
+
+export interface OctopusImportOriginEvidence {
+  state: OctopusImportFillEvidenceState;
+  /** installation / export-fingerprint (proven); installation-mismatch / other-origin-rows (refused); null when only process ids could tie it. */
+  basis: string | null;
+  /** Process step, action and lifecycle phase ids of this source that an import of the space's recorded origin created. */
+  matchingStructureIds: number;
+  /** The incoming source, named by the server (installation, server, space, version or export fingerprint). */
+  source: string;
+  /** What the space was imported from. */
+  recorded: string;
+}
+
 export interface OctopusImportChangeCounts {
   /** Imported by an earlier import: nothing is written. */
   alreadyImported: number;
@@ -381,6 +400,8 @@ export interface OctopusImportPreviewPlan {
   hasBlockers: boolean;
   /** Set when the import (its links to earlier imported rows, or its secret fills) needs the user to confirm the source's Octopus. */
   fillPairing?: OctopusImportFillPairing | null;
+  /** The origin check's verdict when the import would link to rows of another origin; absent when nothing needs proof. */
+  origin?: OctopusImportOriginEvidence | null;
   /** Totals, per-kind and per-project counts, skip reasons and the "up to date" flag. */
   summary?: OctopusImportPreviewSummary | null;
 }

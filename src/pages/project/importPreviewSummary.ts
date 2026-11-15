@@ -7,6 +7,8 @@ import {
   type OctopusHistoryFetchProgress,
   type OctopusImportFillDestination,
   type OctopusImportFillPairing,
+  type OctopusImportOriginEvidence,
+  OctopusImportFillEvidenceState,
   type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
@@ -491,6 +493,8 @@ export interface PairingCopy {
 
 export interface OriginNotice {
   title: string;
+  /** Both origins as the server names them; empty when the server sent no verdict. */
+  origins: string[];
   hint: string;
 }
 
@@ -529,7 +533,7 @@ export const pairingCopyOf = (pairing: OctopusImportFillPairing, links: boolean)
     intro: pairingIntro(pairing, links),
     incoming: incomingLines(pairing),
     recorded: recordedLines(pairing),
-    confirmLabel: server ? 'This Octopus server is the one this space was imported from' : 'This export file comes from that Octopus installation',
+    confirmLabel: server ? 'This is the same Octopus server this space was imported from' : 'This export file comes from the same Octopus server this space was imported from',
   };
 };
 
@@ -539,11 +543,42 @@ export const pairingCopy = (plan: OctopusImportPreviewPlan): PairingCopy => pair
 /** The origin check asks the pairing: the source would link to what an earlier import created. */
 export const linksEarlierImport = (plan: OctopusImportPreviewPlan | null | undefined) => hasDiagnostic(plan, IMPORT_ORIGIN_PAIRING_REQUIRED);
 
-/** Shown when the origin check refuses the import (the reason itself is the server's message in the blocker list). */
-export const originNotice = (plan: OctopusImportPreviewPlan | null | undefined): OriginNotice | null =>
-  hasDiagnostic(plan, IMPORT_ORIGIN_UNPROVEN)
-    ? {
-        title: 'This import comes from a different Octopus than this space',
-        hint: 'Ids like Projects-1 repeat across Octopus servers, and nothing ties this source to the Octopus this space was imported from. Nothing is linked or written. Import it into another space, or import the Octopus server or export file this space came from.',
-      }
+const DIFFERENT_OCTOPUS_TITLE = 'This import comes from a different Octopus than this space';
+
+const ORIGIN_REFUSAL_TITLES: Record<string, string> = {
+  'installation-mismatch': 'This import comes from another Octopus installation than this space',
+  'other-origin-rows': 'This import would link to resources another Octopus source created in this space',
+};
+
+const ORIGIN_REFUSAL_HINT = 'Ids like Projects-1 repeat across Octopus servers, and nothing ties this source to the Octopus this space was imported from. Nothing will be linked or written. Import it into another space, or import the Octopus server or export file this space came from.';
+
+const ORIGIN_PROOF_BASIS: Record<string, string> = {
+  installation: 'its installation id',
+  'export-fingerprint': 'its export file fingerprint',
+  'confirmed-pairing': 'the pairing you confirmed',
+};
+
+const hasOriginVerdict = (plan: OctopusImportPreviewPlan | null | undefined, state: OctopusImportFillEvidenceState) =>
+  plan?.origin != null && Number(plan.origin.state) === state;
+
+const refusedOriginNotice = (origin: OctopusImportOriginEvidence): OriginNotice => ({
+  title: ORIGIN_REFUSAL_TITLES[origin.basis ?? ''] ?? DIFFERENT_OCTOPUS_TITLE,
+  origins: [`This source: ${origin.source}`, `This space was imported from: ${origin.recorded}`],
+  hint: ORIGIN_REFUSAL_HINT,
+});
+
+/**
+ * Shown when the origin check refuses the import: the server's verdict names both origins; a server without the verdict is still
+ * recognised by its blocker diagnostic.
+ */
+export const originNotice = (plan: OctopusImportPreviewPlan | null | undefined): OriginNotice | null => {
+  if (hasOriginVerdict(plan, OctopusImportFillEvidenceState.Unproven)) return refusedOriginNotice(plan?.origin as OctopusImportOriginEvidence);
+
+  return hasDiagnostic(plan, IMPORT_ORIGIN_UNPROVEN) ? { title: DIFFERENT_OCTOPUS_TITLE, origins: [], hint: ORIGIN_REFUSAL_HINT } : null;
+};
+
+/** One quiet line when the import links to earlier imports of a proven Octopus: what proved it. */
+export const originProof = (plan: OctopusImportPreviewPlan | null | undefined): string | null =>
+  hasOriginVerdict(plan, OctopusImportFillEvidenceState.Proven)
+    ? `Same Octopus as this space, proven by ${ORIGIN_PROOF_BASIS[plan?.origin?.basis ?? ''] ?? 'its recorded origin'}: it links to what earlier imports created.`
     : null;

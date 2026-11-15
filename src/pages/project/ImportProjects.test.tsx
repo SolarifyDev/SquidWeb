@@ -5,6 +5,7 @@ import * as importApi from 'pages/apis/octopusImport';
 import {
   OctopusHistoryFetchPhase,
   OctopusImportCompatibilitySeverity,
+  OctopusImportFillEvidenceState,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
   OctopusImportRequiredInputKind,
@@ -12,6 +13,7 @@ import {
   OctopusImportSessionState,
   type OctopusHistoryFetchProgress,
   type OctopusImportChangeCounts,
+  type OctopusImportOriginEvidence,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
   type OctopusImportSession,
@@ -1006,6 +1008,84 @@ describe('ImportProjects', () => {
     expect(pairing).toHaveTextContent('octopus-x.example.com');
     expect(pairing).not.toHaveTextContent('fill secrets');
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  // The server's origin verdict, for both sources: refused names both origins; pairing asks "same Octopus server" with the count and
+  // posts it; proven shows only what proved it.
+  const originPlan = (origin: OctopusImportOriginEvidence, extra: Partial<OctopusImportPreviewPlan> = {}): OctopusImportPreviewPlan => ({
+    ...fillPlan(false),
+    origin,
+    ...extra,
+  });
+
+  const refusedOrigin: OctopusImportOriginEvidence = {
+    state: OctopusImportFillEvidenceState.Unproven, basis: null, matchingStructureIds: 0,
+    source: 'Octopus installation inst-x (server octopus-x.example.com, space Spaces-2)', recorded: 'an export file with fingerprint ABC123',
+  };
+
+  const reachPreview = async (source: 'server' | 'file') => {
+    if (source === 'file') {
+      await pickFile();
+      return;
+    }
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+  };
+
+  it.each(['server', 'file'] as const)('%s_refusedVerdict_NamesBothOrigins_NothingLinked_ImportBlocked', async source => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(originPlan(refusedOrigin, {
+      hasBlockers: true,
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Blocker, code: 'octopus.preview.import_origin_unproven', message: 'Refused.' }],
+    }));
+    renderPage();
+    await reachPreview(source);
+
+    const notice = await screen.findByTestId('import-origin-notice');
+    expect(notice).toHaveTextContent('This source: Octopus installation inst-x (server octopus-x.example.com, space Spaces-2)');
+    expect(notice).toHaveTextContent('This space was imported from: an export file with fingerprint ABC123');
+    expect(notice).toHaveTextContent('Nothing will be linked or written');
+    expect(screen.queryByTestId('fill-pairing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('import-origin-proof')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it.each(['server', 'file'] as const)('%s_pairingVerdict_AsksSameOctopusServerWithTheCount_AndPostsIt', async source => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    const pairing = fillPlan(true).fillPairing!;
+    mockPreview(originPlan({ ...refusedOrigin, state: OctopusImportFillEvidenceState.PairingRequired, matchingStructureIds: 3 }, {
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Warning, code: 'octopus.preview.import_origin_pairing_required', message: 'Confirm.' }],
+      fillPairing: source === 'server'
+        ? { ...pairing, installationId: null, serverHost: null, recordedExportSourceId: 'ABC123', sourceInstallationId: 'inst-x', sourceServerHost: 'octopus-x.example.com' }
+        : { ...pairing, fileExportSourceId: 'FFF000' },
+    }));
+    renderPage();
+    await reachPreview(source);
+
+    const card = await screen.findByTestId('fill-pairing');
+    expect(card).toHaveTextContent('3 matching step, action or phase ids');
+    expect(screen.queryByTestId('import-origin-notice')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+
+    const label = source === 'server' ? 'This is the same Octopus server this space was imported from' : 'This export file comes from the same Octopus server this space was imported from';
+    fireEvent.click(within(card).getByRole('checkbox', { name: label }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    await screen.findByText('Project list', {}, { timeout: 4000 });
+    expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
+  });
+
+  it.each(['server', 'file'] as const)('%s_provenVerdict_ShowsOnlyTheBasis', async source => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(originPlan({ ...refusedOrigin, state: OctopusImportFillEvidenceState.Proven, basis: source === 'server' ? 'installation' : 'export-fingerprint' }));
+    renderPage();
+    await reachPreview(source);
+
+    const proof = await screen.findByTestId('import-origin-proof');
+    expect(proof).toHaveTextContent(source === 'server' ? 'proven by its installation id' : 'proven by its export file fingerprint');
+    expect(screen.queryByTestId('import-origin-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('fill-pairing')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
   });
 
   it('staysAfterTheImport_ListingTheSecretsItLeftMissing', async () => {

@@ -221,6 +221,6 @@ describe('secrets panels', () => {
     expect(pairing).toHaveTextContent('1 matching step, action or phase id tie');
     expect(pairing).toHaveTextContent('This source: Server: octopus-x.example.com, Space: Spaces-2, Installation: inst-x');
     expect(pairing).toHaveTextContent('Export file fingerprint: ABC123');
-    expect(screen.getByRole('checkbox', { name: 'This Octopus server is the one this space was imported from' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'This is the same Octopus server this space was imported from' })).toBeInTheDocument();
   });
 });

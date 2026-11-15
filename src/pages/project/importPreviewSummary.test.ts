@@ -14,6 +14,8 @@ import {
   type OctopusImportRequiredInput,
   type OctopusImportFillPairing,
   OctopusImportCompatibilitySeverity,
+  OctopusImportFillEvidenceState,
+  type OctopusImportOriginEvidence,
 } from 'pages/apis/octopusImport';
 import {
   fetchPhaseLabel,
@@ -41,6 +43,7 @@ import {
   skippedResources,
   withheldSecrets,
   originNotice,
+  originProof,
   pairingCopy,
   IMPORT_ORIGIN_PAIRING_REQUIRED,
   IMPORT_ORIGIN_UNPROVEN,
@@ -612,7 +615,7 @@ describe('pairingCopy', () => {
     expect(copy.intro).toContain('2 matching step, action or phase ids');
     expect(copy.incoming).toEqual(['Server: octopus-x.example.com', 'Space: Spaces-2', 'Installation: inst-x']);
     expect(copy.recorded).toEqual(['Export file fingerprint: ABC123']);
-    expect(copy.confirmLabel).toBe('This Octopus server is the one this space was imported from');
+    expect(copy.confirmLabel).toBe('This is the same Octopus server this space was imported from');
     expect([copy.title, copy.intro, copy.confirmLabel].join(' ')).not.toContain('This export file');
   });
 
@@ -630,7 +633,7 @@ describe('pairingCopy', () => {
     expect(copy.intro).not.toContain('fill secrets');
     expect(copy.incoming).toEqual(['Export file fingerprint: FFF000']);
     expect(copy.recorded).toEqual(['Server: octopus.example.com', 'Space: Spaces-1', 'Version: unknown', 'Installation: inst-a']);
-    expect(copy.confirmLabel).toBe('This export file comes from that Octopus installation');
+    expect(copy.confirmLabel).toBe('This export file comes from the same Octopus server this space was imported from');
   });
 
   // The original case: a file filling secrets an API import left missing.
@@ -642,22 +645,64 @@ describe('pairingCopy', () => {
   });
 });
 
+const originOf = (state: OctopusImportFillEvidenceState, basis: string | null = null): OctopusImportOriginEvidence => ({
+  state, basis, matchingStructureIds: 0, source: 'Octopus installation inst-x (server octopus-x.example.com)', recorded: 'an export file with fingerprint ABC123',
+});
+
 describe('originNotice', () => {
+  // The server's verdict refuses: the card names both origins, why, and that nothing will be linked.
+  it.each([
+    [null, 'This import comes from a different Octopus than this space'],
+    ['installation-mismatch', 'This import comes from another Octopus installation than this space'],
+    ['other-origin-rows', 'This import would link to resources another Octopus source created in this space'],
+  ])('refusedVerdict_%s_NamesBothOrigins', (basis, title) => {
+    const notice = originNotice(planOf([], { origin: originOf(OctopusImportFillEvidenceState.Unproven, basis) }));
+
+    expect(notice?.title).toBe(title);
+    expect(notice?.origins).toEqual(['This source: Octopus installation inst-x (server octopus-x.example.com)', 'This space was imported from: an export file with fingerprint ABC123']);
+    expect(notice?.hint).toContain('Nothing will be linked or written');
+  });
+
+  it.each([OctopusImportFillEvidenceState.PairingRequired, OctopusImportFillEvidenceState.Proven])('verdict_%s_NoNotice', state => {
+    expect(originNotice(planOf([], { origin: originOf(state, 'installation') }))).toBeNull();
+  });
+
+  // A server without the verdict: the refusal is still recognised by its diagnostic, without naming the origins.
   it.each([
     [IMPORT_ORIGIN_UNPROVEN, OctopusImportCompatibilitySeverity.Blocker, true],
     [IMPORT_ORIGIN_PAIRING_REQUIRED, OctopusImportCompatibilitySeverity.Warning, false],
     ['octopus.preview.something_else', OctopusImportCompatibilitySeverity.Blocker, false],
-  ])('%s_NoticeOnlyWhenRefused', (code, severity, expected) => {
+  ])('noVerdict_%s_NoticeOnlyWhenRefused', (code, severity, expected) => {
     const notice = originNotice(planOf([], { diagnostics: [diagnostic(code, severity)] }));
 
     expect(notice !== null).toBe(expected);
     if (!expected) return;
     expect(notice?.title).toBe('This import comes from a different Octopus than this space');
-    expect(notice?.hint).toContain('Nothing is linked or written');
+    expect(notice?.origins).toEqual([]);
+    expect(notice?.hint).toContain('Nothing will be linked or written');
     expect(notice?.hint).toContain('Import it into another space');
   });
 
   it('noPlan_NoNotice', () => {
     expect(originNotice(null)).toBeNull();
+  });
+});
+
+describe('originProof', () => {
+  it.each([
+    ['installation', 'Same Octopus as this space, proven by its installation id: it links to what earlier imports created.'],
+    ['export-fingerprint', 'Same Octopus as this space, proven by its export file fingerprint: it links to what earlier imports created.'],
+    ['confirmed-pairing', 'Same Octopus as this space, proven by the pairing you confirmed: it links to what earlier imports created.'],
+  ])('proven_%s_NamesTheBasis', (basis, text) => {
+    expect(originProof(planOf([], { origin: originOf(OctopusImportFillEvidenceState.Proven, basis) }))).toBe(text);
+  });
+
+  it.each([OctopusImportFillEvidenceState.PairingRequired, OctopusImportFillEvidenceState.Unproven])('notProven_%s_NoProof', state => {
+    expect(originProof(planOf([], { origin: originOf(state, null) }))).toBeNull();
+  });
+
+  it('noVerdict_NoProof', () => {
+    expect(originProof(planOf([]))).toBeNull();
+    expect(originProof(null)).toBeNull();
   });
 });
