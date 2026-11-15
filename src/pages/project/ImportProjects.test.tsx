@@ -1,13 +1,17 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as importApi from 'pages/apis/octopusImport';
 import {
   OctopusHistoryFetchPhase,
   OctopusImportPreviewAction,
+  OctopusImportProjectDestinationState,
+  OctopusImportRequiredInputKind,
   OctopusImportResourceOutcomeState,
   OctopusImportSessionState,
   type OctopusHistoryFetchProgress,
+  type OctopusImportChangeCounts,
+  type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
   type OctopusImportSession,
 } from 'pages/apis/octopusImport';
@@ -91,14 +95,13 @@ const renderPage = () => render(
 
 const connectToServer = async () => {
   fireEvent.click(screen.getByLabelText('Octopus server'));
-  fireEvent.click(screen.getByLabelText('Export file'));
   fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://octopus.example.com' } });
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-SECRET' } });
   fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
   await screen.findByText(/Connected to Octopus 2024\.1/);
 };
 
-const failure = (code: number, msg: string | null = null) => ({ code, msg, data: null });
+const failure = (code: number, msg: string | null = null, errorKind: string | null = null) => ({ code, msg, data: null, errorKind });
 
 const advance = async (ms: number) => {
   await act(async () => {
@@ -169,10 +172,14 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     await screen.findByText('By project');
-    expect(api.connectOctopusImport).toHaveBeenCalledWith(1, expect.anything());
+    expect(api.connectOctopusImport).toHaveBeenCalledWith(
+      1,
+      { serverUrl: 'https://octopus.example.com', apiKey: 'API-SECRET', octopusSpaceId: 'Spaces-1' },
+      expect.anything(),
+    );
     expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3);
     expect(api.fetchOctopusImportHistory).toHaveBeenLastCalledWith(
       'session-1',
@@ -203,7 +210,7 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     await screen.findByText('The Octopus server rejected the API key.');
     expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(2);
@@ -228,7 +235,7 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     await screen.findByText('Nothing new to import');
     expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
@@ -246,7 +253,7 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(2));
     await advance(1000);
     await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3));
@@ -260,17 +267,18 @@ describe('ImportProjects', () => {
     expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
   });
 
-  it('keepsTheSession_AndResumesTheFetch_AfterAChunkFails', async () => {
+  it('keepsTheSession_AndResumesTheFetch_AfterTheServerWasUnreachable', async () => {
     api.fetchOctopusImportHistory.mockReset();
     api.fetchOctopusImportHistory
       .mockResolvedValueOnce(ok(progress(0, false)))
-      .mockResolvedValueOnce(failure(400, 'The Octopus server rejected the API key.'))
+      .mockResolvedValueOnce(failure(400, 'The Octopus server could not be reached.', 'Unreachable'))
       .mockResolvedValueOnce(ok(progress(2, true)));
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
-    await screen.findByText('The Octopus server rejected the API key.');
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('The Octopus server could not be reached.');
+    expect(screen.getByTestId('workflow-hint')).toHaveTextContent(/could not be reached/);
     fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
 
     await screen.findByText('By project');
@@ -292,7 +300,7 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(1));
     await advance(1000);
     await advance(3000);
@@ -304,19 +312,23 @@ describe('ImportProjects', () => {
     expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeEnabled();
   });
 
-  it('disablesResume_WhenTheServerUrlChangedAfterTheFailure', async () => {
+  it('dropsTheResumeTargetAndTheError_WhenTheServerUrlChangesAfterTheFailure', async () => {
     api.fetchOctopusImportHistory.mockReset();
-    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Rejected.'));
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(502, 'Bad gateway.'));
+    api.fetchOctopusImportHistory.mockResolvedValue(failure(502, 'Bad gateway.'));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
-    await screen.findByText('Rejected.');
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Bad gateway.'); i++) await advance(8000);
+    await screen.findByText('Bad gateway.');
     fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://other.example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /Connect$/ }));
     await screen.findByText(/Connected to Octopus 2024\.1/);
 
-    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Resume fetch' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Bad gateway.')).not.toBeInTheDocument();
   });
 
   it('cancelsTheFetchLoop_ThenResumesOnTheSameSession', async () => {
@@ -333,10 +345,10 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
-    await screen.findByText(/History fetch cancelled/);
+    await screen.findByText(/Reading from Octopus cancelled/);
     expect(chunkSignal?.aborted).toBe(true);
     expect(api.extractOctopusImport).not.toHaveBeenCalled();
 
@@ -362,7 +374,7 @@ describe('ImportProjects', () => {
       .mockResolvedValueOnce(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
     renderPage();
     await connectToServer();
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     await screen.findByText('By project');
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
@@ -387,7 +399,7 @@ describe('ImportProjects', () => {
       }));
     renderPage();
     await connectToServer();
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     await screen.findByText('By project');
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
@@ -407,7 +419,7 @@ describe('ImportProjects', () => {
     }));
     renderPage();
     await connectToServer();
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
     await screen.findByText('By project');
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
@@ -435,7 +447,6 @@ describe('ImportProjects', () => {
     }));
     renderPage();
     fireEvent.click(screen.getByLabelText('Octopus server'));
-    fireEvent.click(screen.getByLabelText('Export file'));
     fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://a.example.com' } });
     fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-SECRET' } });
     fireEvent.click(screen.getByRole('button', { name: /Connect$/ }));
@@ -451,7 +462,7 @@ describe('ImportProjects', () => {
     });
 
     expect(screen.queryByText(/Connected to Octopus/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Load from server' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Read from Octopus' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Connect$/ })).toBeEnabled();
   });
   it('connectsOnEnter_AndExplainsTheKeyIsNotStored', async () => {
@@ -479,12 +490,12 @@ describe('ImportProjects', () => {
     await connectToServer();
 
     expect(screen.getByText('1 space available')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Load from server' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Read from Octopus' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
 
     expect(screen.queryByText(/Connected to Octopus/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Load from server' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Read from Octopus' })).toBeDisabled();
   });
 
   it('showsStepsPhaseAndCounts_AndDisablesServerInputs_WhileFetching', async () => {
@@ -501,18 +512,19 @@ describe('ImportProjects', () => {
     renderPage();
     const steps = () => screen.getByTestId('server-import-steps');
     expect(screen.queryByTestId('server-import-steps')).not.toBeInTheDocument();
+    expect(screen.getByTestId('file-import-steps').querySelector('.ant-steps-item-process')).toHaveTextContent('Select file');
     fireEvent.click(screen.getByLabelText('Octopus server'));
+    expect(screen.queryByTestId('file-import-steps')).not.toBeInTheDocument();
     expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Connect');
-    fireEvent.click(screen.getByLabelText('Octopus server'));
     await connectToServer();
     expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Choose space');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     const fetchProgress = await screen.findByTestId('history-fetch-progress');
     expect(fetchProgress).toHaveTextContent('Reading releases (project 1 of 2)');
     expect(fetchProgress).toHaveTextContent('4 releases, 6 deployments, 6 tasks, 5 details fetched, 1 unchanged');
-    expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Fetch history');
+    expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Read from Octopus');
     expect(screen.getByLabelText('Server URL')).toBeDisabled();
     expect(screen.getByLabelText('API key')).toBeDisabled();
     expect(screen.getByRole('button', { name: /Connect$/ })).toBeDisabled();
@@ -530,7 +542,7 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     await screen.findByText('By project');
     expect(screen.getByTestId('fetch-tile-releases')).toHaveTextContent('3');
@@ -553,11 +565,490 @@ describe('ImportProjects', () => {
     renderPage();
     await connectToServer();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Load from server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
 
     const notFound = await screen.findByText(/2 projects were not found in this Octopus space/);
     expect(notFound.closest('.ant-alert')).toHaveClass('ant-alert-error');
     expect(screen.getByText(/Choose another Octopus space/)).toBeInTheDocument();
     expect(screen.queryByText(/logs too large/)).not.toBeInTheDocument();
   });
+
+  // ── Sources ────────────────────────────────────────────────────────────────
+
+  it('offersTwoExclusiveSources_EachSayingWhatItImportsAndCannot', () => {
+    renderPage();
+
+    expect(screen.getByLabelText('Export file')).toBeChecked();
+    expect(screen.getByLabelText('Octopus server')).not.toBeChecked();
+    expect(screen.getByTestId('import-source-file')).toHaveTextContent(/Cannot import:.*Deployment history/);
+    expect(screen.getByTestId('import-source-server')).toHaveTextContent(/Imports:.*releases, deployments and task logs/);
+    expect(screen.getByTestId('import-source-server')).toHaveTextContent(/Cannot import:.*Secret values/);
+    expect(screen.getByRole('button', { name: 'Select zip file' })).toBeEnabled();
+    expect(screen.queryByLabelText('Server URL')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Octopus server'));
+
+    expect(screen.getByLabelText('Octopus server')).toBeChecked();
+    expect(screen.getByLabelText('Export file')).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Select zip file' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Server URL')).toBeInTheDocument();
+  });
+
+  it('importsAnExportFile_WithoutEverTouchingTheServer', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    renderPage();
+
+    await pickFile();
+
+    await screen.findByText('By project');
+    expect(api.uploadOctopusImport).toHaveBeenCalledTimes(1);
+    expect(api.connectOctopusImport).not.toHaveBeenCalled();
+    expect(api.fetchOctopusImportHistory).not.toHaveBeenCalled();
+    expect(screen.getByTestId('file-import-steps').querySelector('.ant-steps-item-process')).toHaveTextContent('Preview');
+  });
+
+  // ── Stale errors ───────────────────────────────────────────────────────────
+
+  it('clearsThePreviousError_WhenTheSourceChanges', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Response too large.', 'TooLarge'));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Response too large.');
+
+    fireEvent.click(screen.getByLabelText('Export file'));
+
+    expect(screen.queryByText('Response too large.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Import cannot continue.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('file-import-steps').querySelector('.ant-steps-item-error')).toBeNull();
+  });
+
+  it.each([
+    ['the server URL', () => fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://b.example.com' } })],
+    ['the API key', () => fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-OTHER' } })],
+    ['the Change link', () => fireEvent.click(screen.getByRole('button', { name: 'Change' }))],
+  ])('clearsThePreviousError_WhenChanging %s', async (_name, change) => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Response too large.', 'TooLarge'));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Response too large.');
+
+    change();
+
+    expect(screen.queryByText('Response too large.')).not.toBeInTheDocument();
+  });
+
+  it('clearsThePreviousError_WhenAnotherSpaceIsChosen', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Response too large.', 'TooLarge'));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Response too large.');
+
+    fireEvent.mouseDown(screen.getByLabelText(/Octopus space/));
+    fireEvent.click(await screen.findByText('Other'));
+
+    expect(screen.queryByText('Response too large.')).not.toBeInTheDocument();
+  });
+
+  it('clearsThePreviousError_WhenANewFileIsPicked', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    api.extractOctopusImport.mockResolvedValueOnce({ code: 400, msg: 'The archive is corrupt.', data: null, errorKind: null });
+    renderPage();
+    await pickFile();
+    await screen.findByText('The archive is corrupt.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select zip file' }));
+
+    expect(screen.queryByText('The archive is corrupt.')).not.toBeInTheDocument();
+  });
+
+  it('ignoresALateResponseOfACancelledRead_AfterTheSourceChanged', async () => {
+    type FetchResult = Awaited<ReturnType<typeof api.fetchOctopusImportHistory>>;
+    let resolveChunk: (value: FetchResult) => void = () => undefined;
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockReturnValueOnce(new Promise<FetchResult>(resolve => {
+      resolveChunk = resolve;
+    }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await waitFor(() => expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByLabelText('Export file'));
+
+    await act(async () => {
+      resolveChunk(failure(400, 'Late failure.', 'TooLarge'));
+    });
+
+    expect(screen.queryByText('Late failure.')).not.toBeInTheDocument();
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+  });
+
+  // ── API key gate and recovery ──────────────────────────────────────────────
+
+  it('refusesARestrictedKeyAtConnect_WithTheReasonAndNoResume', async () => {
+    api.connectOctopusImport.mockResolvedValueOnce(failure(400, 'The key cannot read: ProjectView (restricted).', 'KeyRestricted'));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    await screen.findByText('The key cannot read: ProjectView (restricted).');
+    expect(screen.getByTestId('workflow-hint')).toHaveTextContent(/dedicated read-only service account/);
+    expect(api.fetchOctopusImportHistory).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Resume fetch' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('server-import-steps').querySelector('.ant-steps-item-error')).toHaveTextContent('Read from Octopus');
+  });
+
+  it('warnsBeforeReading_WhenTheProbeSaysTheKeyCannotReadTheSpace', async () => {
+    api.probeOctopusServer.mockResolvedValue(ok({
+      octopusVersion: '2024.1',
+      installationId: 'install-1',
+      spaceless: false,
+      spaces: [{ id: 'Spaces-1', name: 'Default', isDefault: true }, { id: 'Spaces-2', name: 'Other', isDefault: false }],
+      permissions: { octopusSpaceId: 'Spaces-1', sufficient: false, restricted: ['ProjectView'], missing: ['TaskView'], incomplete: false },
+    }));
+    renderPage();
+    await connectToServer();
+
+    const problem = screen.getByTestId('key-permission-problem');
+    expect(problem).toHaveTextContent('Limited to some projects, environments, tenants or project groups: ProjectView');
+    expect(problem).toHaveTextContent('Not granted: TaskView');
+  });
+
+  it.each([
+    ['Unauthorized'],
+    ['KeyRestricted'],
+    ['KeyUserMismatch'],
+    ['NotFound'],
+  ])('offersResume_OnlyAfterConnectingAgain_WhenTheReadFailedWith %s', async kind => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok(progress(0, false)))
+      .mockResolvedValueOnce(failure(400, `Failed: ${kind}.`, kind))
+      .mockResolvedValueOnce(ok(progress(2, true)));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText(`Failed: ${kind}.`);
+
+    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-NEW' } });
+    fireEvent.click(screen.getByRole('button', { name: /Connect$/ }));
+    await screen.findByText(/Connected to Octopus 2024\.1/);
+    fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
+
+    await screen.findByText('By project');
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
+    expect(api.fetchOctopusImportHistory).toHaveBeenLastCalledWith(
+      'session-1', 1, { serverUrl: 'https://octopus.example.com', apiKey: 'API-NEW' }, 'Spaces-1', expect.anything(),
+    );
+  });
+
+  it.each([
+    ['SessionNotFound', 404],
+    ['SessionStateConflict', 409],
+  ])('offersStartAgain_NotResume_WhenTheSessionCannotContinue %s', async (kind, code) => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(failure(code, 'Session gone.', kind))
+      .mockResolvedValueOnce(ok(progress(2, true)));
+    api.connectOctopusImport
+      .mockResolvedValueOnce(ok({ session: session(OctopusImportSessionState.Uploaded) }))
+      .mockResolvedValueOnce(ok({ session: { ...session(OctopusImportSessionState.Uploaded), sessionId: 'session-2' } }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Session gone.');
+
+    expect(screen.queryByRole('button', { name: 'Resume fetch' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Start again' }));
+
+    await screen.findByText('By project');
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(2);
+    expect(api.fetchOctopusImportHistory).toHaveBeenLastCalledWith('session-2', 1, expect.anything(), 'Spaces-1', expect.anything());
+  });
+
+  it.each([
+    ['TooLarge', 'TooLarge'],
+    ['no kind', null],
+  ])('offersNoResume_WhenRetryingCannotHelp %s', async (_name, kind) => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory.mockResolvedValueOnce(failure(400, 'Cannot continue.', kind));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Cannot continue.');
+
+    expect(screen.queryByRole('button', { name: 'Resume fetch' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start again' })).not.toBeInTheDocument();
+  });
+
+  it('hidesResume_WhenExtractionFailsAfterTheReadCompleted', async () => {
+    api.extractOctopusImport.mockResolvedValueOnce({ code: 400, msg: 'Extraction broke.', data: null, errorKind: null });
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    await screen.findByText('Extraction broke.');
+    expect(screen.queryByRole('button', { name: 'Resume fetch' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('server-import-steps').querySelector('.ant-steps-item-error')).toHaveTextContent('Preview');
+  });
+
+  it('showsConfigurationProgress_WhileReadingTheSpaceCatalog', async () => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok({
+        ...progress(0, false),
+        phase: OctopusHistoryFetchPhase.Catalog,
+        catalogIndex: 2,
+        catalogKindCount: 12,
+        counts: { ...progress(0, false).counts, configurationDocuments: 40 },
+      }))
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    const fetchProgress = await screen.findByTestId('history-fetch-progress');
+    expect(fetchProgress).toHaveTextContent('Reading space configuration (kind 3 of 12)');
+    expect(fetchProgress).toHaveTextContent('40 configuration documents');
+  });
+
+  // ── Incremental preview ────────────────────────────────────────────────────
+
+  it('showsWhereEachProjectLands_TheFieldChanges_AndTheSkipReasons', async () => {
+    mockPreview(incrementalPlan());
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    const projects = await screen.findByTestId('preview-projects');
+    expect(screen.getByTestId('summary-incremental')).toHaveTextContent('This import changes 2 resources in Squid; 5 already in Squid');
+    expect(screen.getByTestId('summary-tile-alreadyImported')).toHaveTextContent('5');
+    expect(screen.getByTestId('summary-tile-update')).toHaveTextContent('1');
+    expect(screen.getByTestId('summary-tile-create')).toHaveTextContent('1');
+    const existing = within(projects).getByRole('link', { name: 'Web (renamed in Squid)' });
+    expect(existing).toHaveAttribute('href', '/Spaces-1/projects/web');
+    expect(projects).toHaveTextContent('(id 501)');
+    expect(within(projects).getByText('New project')).toBeInTheDocument();
+    expect(screen.getByTestId('skip-reasons')).toHaveTextContent('Deployment targets are not imported.');
+
+    fireEvent.click(within(projects).getAllByRole('button', { name: /expand row/i })[1]);
+
+    const changes = await screen.findByTestId('changes-Deployment-Deployments-1');
+    expect(changes).toHaveTextContent('State');
+    expect(changes).toHaveTextContent('Executing');
+    expect(changes).toHaveTextContent('Success');
+  });
+
+  it('showsEverythingUpToDate_AndDisablesImport', async () => {
+    mockPreview({ ...incrementalPlan(), resources: [], summary: { ...incrementalPlan().summary!, isUpToDate: true } });
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    await screen.findByTestId('preview-up-to-date');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it('listsSecretsTheApiWithholds_AndFillFromExportFileSwitchesToTheFile', async () => {
+    mockPreview(incrementalPlan());
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    const secrets = await screen.findByTestId('withheld-secrets');
+    expect(secrets).toHaveTextContent('1 secret value will be imported as missing');
+    expect(secrets).toHaveTextContent('Db.Password');
+    expect(secrets).toHaveTextContent('Environment: Production');
+    expect(secrets).not.toHaveTextContent('hunter2');
+
+    fireEvent.click(within(secrets).getByRole('button', { name: 'Fill from export file' }));
+
+    expect(screen.getByLabelText('Export file')).toBeChecked();
+    expect(await screen.findByText('Upload file containing exported data')).toBeInTheDocument();
+    expect(screen.queryByTestId('withheld-secrets')).not.toBeInTheDocument();
+  });
+
+  it('listsTheSecretsAFileFills_WithTheirSquidDestination_AndNeverAValue', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(fillPlan(false));
+    renderPage();
+
+    await pickFile();
+
+    const fills = await screen.findByTestId('secret-fills');
+    expect(within(fills).getByRole('link', { name: 'project "Web"' })).toHaveAttribute('href', '/Spaces-1/projects/Web/variables');
+    expect(fills).toHaveTextContent('Db.Password');
+    expect(screen.getByTestId('summary-tile-fill')).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
+  });
+
+  it('requiresThePairingConfirmation_AndPostsIt', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(fillPlan(true));
+    renderPage();
+    await pickFile();
+
+    const pairing = await screen.findByTestId('fill-pairing');
+    expect(pairing).toHaveTextContent('octopus.example.com');
+    expect(pairing).toHaveTextContent('Spaces-1');
+    expect(pairing).toHaveTextContent('3 matching step, action or phase ids');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+
+    fireEvent.click(within(pairing).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    await screen.findByText('Project list', {}, { timeout: 4000 });
+    expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
+  });
+
+  it('staysAfterTheImport_ListingTheSecretsItLeftMissing', async () => {
+    api.getOctopusImportStatus.mockResolvedValue(ok({
+      session: {
+        ...session(OctopusImportSessionState.Succeeded),
+        result: {
+          succeeded: true, completedAt: '', resources: [], idMappings: [], diagnostics: [],
+          missingSensitiveValues: [{
+            kind: OctopusImportRequiredInputKind.SensitiveVariableValue, name: 'Db.Password', ownerName: 'Web', ownerKind: 'Project',
+            field: 'Value', scopeSummary: 'Environment: Production', destinationId: 9, destinationOwnerId: 501, fillable: true,
+          }],
+        },
+      },
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    const missing = await screen.findByTestId('missing-secrets-after-import', {}, { timeout: 4000 });
+    expect(within(missing).getByRole('link', { name: 'Db.Password' })).toHaveAttribute('href', '/Spaces-1/projects/Web/variables');
+    expect(screen.queryByText('Project list')).not.toBeInTheDocument();
+
+    fireEvent.click(within(missing).getByRole('button', { name: 'Go to projects' }));
+    await screen.findByText('Project list');
+  });
 });
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+
+function pickFile() {
+  fireEvent.click(screen.getByRole('button', { name: 'Select zip file' }));
+  const file = new File(['zip'], 'export.zip', { type: 'application/zip' });
+  fireEvent.change(document.getElementById('import-zip-file-input')!, { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+  return waitFor(() => expect(screen.getByRole('button', { name: 'Select' })).toBeEnabled(), { timeout: 2000 })
+    .then(() => fireEvent.click(screen.getByRole('button', { name: 'Select' })));
+}
+
+function mockPreview(plan: OctopusImportPreviewPlan) {
+  api.previewOctopusImport.mockResolvedValue(ok({
+    session: session(OctopusImportSessionState.Previewed),
+    previewPlan: plan,
+    blockerSummary: noBlockers,
+  }));
+}
+
+function counts(overrides: Partial<OctopusImportChangeCounts> = {}): OctopusImportChangeCounts {
+  const value = { alreadyImported: 0, reused: 0, create: 0, update: 0, fill: 0, skip: 0, unsupported: 0, blocked: 0, ...overrides };
+  const incremental = value.create + value.update + value.fill + value.reused;
+  return { ...value, total: incremental + value.alreadyImported + value.skip + value.unsupported + value.blocked, incremental };
+}
+
+function incrementalPlan(): OctopusImportPreviewPlan {
+  const withSecret = {
+    ...resource('Project', 'Projects-2', OctopusImportPreviewAction.Create, 'Projects-2'),
+    sourceName: 'Api',
+    requiredInputs: [{
+      kind: OctopusImportRequiredInputKind.SensitiveVariableValue, inputKey: 'k1', sourceId: 'v1', sourceType: 'Variable', name: 'Db.Password',
+      fieldName: 'Value', valueType: 'Sensitive', hasSourceValue: false, isRequired: false, fillable: true, withheldByServer: true,
+      sourceScopes: { Environment: ['Production'] },
+    }],
+  };
+  return {
+    generatedAt: '',
+    resources: [
+      { ...resource('Project', 'Projects-1', OctopusImportPreviewAction.AlreadyImported, 'Projects-1'), sourceName: 'Web' },
+      {
+        ...resource('Deployment', 'Deployments-1', OctopusImportPreviewAction.Update, 'Projects-1'),
+        changes: [{ field: 'State', oldValue: 'Executing', newValue: 'Success', valueHidden: false, description: null }],
+      },
+      withSecret,
+      {
+        ...resource('Machine', 'Machines-1', OctopusImportPreviewAction.Unsupported),
+        skipReason: { code: 'octopus.preview.unsupported', message: 'Deployment targets are not imported.' },
+      },
+    ],
+    requiredInputs: withSecret.requiredInputs,
+    diagnostics: [],
+    hasBlockers: false,
+    summary: {
+      isUpToDate: false,
+      counts: counts({ alreadyImported: 5, create: 1, update: 1, unsupported: 1 }),
+      kinds: [{ kind: 'Deployment', counts: counts({ alreadyImported: 3, update: 1 }) }],
+      projects: [
+        {
+          sourceId: 'Projects-1', sourceName: 'Web', counts: counts({ alreadyImported: 5, update: 1 }), isUpToDate: false,
+          kinds: [{ kind: 'Deployment', counts: counts({ alreadyImported: 3, update: 1 }) }],
+          destination: { state: OctopusImportProjectDestinationState.Existing, projectId: 501, projectName: 'Web (renamed in Squid)', projectSlug: 'web' },
+        },
+        {
+          sourceId: 'Projects-2', sourceName: 'Api', counts: counts({ create: 1 }), isUpToDate: false,
+          kinds: [{ kind: 'Project', counts: counts({ create: 1 }) }],
+          destination: { state: OctopusImportProjectDestinationState.New, projectId: null, projectName: null, projectSlug: null },
+        },
+      ],
+      space: { counts: counts({ unsupported: 1 }), kinds: [{ kind: 'Machine', counts: counts({ unsupported: 1 }) }], isUpToDate: true },
+      skipReasons: [{ resourceType: 'Machine', code: 'octopus.preview.unsupported', message: 'Deployment targets are not imported.', count: 1 }],
+    },
+  };
+}
+
+function fillPlan(pairingRequired: boolean): OctopusImportPreviewPlan {
+  return {
+    generatedAt: '',
+    resources: [
+      { ...resource('Project', 'Projects-1', OctopusImportPreviewAction.AlreadyImported, 'Projects-1'), sourceName: 'Web' },
+      {
+        ...resource('Variable', 'vs:abc', OctopusImportPreviewAction.FillMissingSecret, 'Projects-1'),
+        sourceName: 'Db.Password',
+        fillDestination: { ownerKind: 'Project', ownerId: 501, ownerName: 'Web', variableSetId: 601 },
+        changes: [{ field: 'Value', oldValue: null, newValue: null, valueHidden: true, description: 'Filled from the export file.' }],
+      },
+    ],
+    requiredInputs: [],
+    diagnostics: [],
+    hasBlockers: false,
+    fillPairing: pairingRequired
+      ? {
+        required: true, confirmed: false, installationId: 'install-1', serverHost: 'octopus.example.com', octopusSpaceId: 'Spaces-1',
+        octopusVersion: '2026.1', fileExportSourceId: null, recordedExportSourceId: null, matchingStructureIds: 3,
+      }
+      : null,
+    summary: {
+      isUpToDate: false,
+      counts: counts({ alreadyImported: 1, fill: 1 }),
+      kinds: [{ kind: 'Variable', counts: counts({ fill: 1 }) }],
+      projects: [{
+        sourceId: 'Projects-1', sourceName: 'Web', counts: counts({ alreadyImported: 1, fill: 1 }), isUpToDate: false,
+        kinds: [{ kind: 'Variable', counts: counts({ fill: 1 }) }],
+        destination: { state: OctopusImportProjectDestinationState.Existing, projectId: 501, projectName: 'Web', projectSlug: null },
+      }],
+      space: { counts: counts(), kinds: [], isUpToDate: true },
+      skipReasons: [],
+    },
+  };
+}

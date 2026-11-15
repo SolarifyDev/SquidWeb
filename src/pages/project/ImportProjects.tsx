@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
-  Checkbox,
   Input,
   Modal,
   Progress,
@@ -10,7 +9,6 @@ import {
   Spin,
   Steps,
   Table,
-  Tag,
   message,
 } from "antd";
 import {
@@ -35,6 +33,8 @@ import {
   OctopusImportSessionState,
   type OctopusHistoryFetchProgress,
   type OctopusImportBlockerSummary,
+  type OctopusImportEnvelope,
+  type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
   type OctopusImportSession,
   type OctopusImportValidation,
@@ -45,21 +45,31 @@ import {
   validateOctopusImport,
 } from "pages/apis/octopusImport";
 import {
-  fetchPhaseLabel,
+  errorKindHint,
+  fetchFailureRecovery,
+  fetchPositionLabel,
   fetchProgressPercent,
   historyFetchNotices,
-  isNothingNew,
-  listedResources,
-  serverImportStep,
+  importSteps,
+  isTransientStatus,
+  isUpToDate,
+  permissionProblem,
+  planToValidate,
   summarizeActions,
   summarizeByProject,
-  withoutHistoryRows,
-  type ListedPreviewResource,
+  type FetchFailureRecovery,
+  type ImportSource,
   type ProjectPreviewSummary,
 } from "./importPreviewSummary";
+import {
+  FillPairingConfirmation,
+  ImportPreviewOverview,
+  MissingSecretsAfterImport,
+  WithheldSecretsPanel,
+} from "./ImportPreviewDetails";
+import { ImportSourceCards } from "./ImportSourceCards";
 
 type ValidationState = "idle" | "validating" | "valid" | "error";
-type ImportSourceKind = "file" | "server";
 type WorkflowPhase =
   | "idle"
   | "uploading"
@@ -84,6 +94,8 @@ type ResumableHistoryFetch = {
   session: OctopusImportSession;
   serverUrl: string;
   octopusSpaceId: string | null;
+  /** `reconnect`: connect again (another key, or the right server) before resuming. */
+  recovery: "resume" | "reconnect";
 };
 
 const formatFileSize = (size: number) => {
@@ -91,14 +103,6 @@ const formatFileSize = (size: number) => {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
-
-const SERVER_IMPORT_STEPS = [
-  { title: "Connect" },
-  { title: "Choose space" },
-  { title: "Fetch history" },
-  { title: "Preview" },
-  { title: "Import" },
-];
 
 const pluralize = (count: number, noun: string) =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -115,9 +119,12 @@ const isAbortError = (error: unknown) => {
   return name === "AbortError" || name === "CanceledError";
 };
 
-// Lease conflicts, timeouts, rate limits and server errors are worth retrying.
-const isTransientStatus = (code: number) =>
-  code === 408 || code === 409 || code === 429 || code >= 500;
+// A transient status is retried in place, unless its kind says the session cannot continue (e.g. a 409 state conflict).
+const isRetryableChunkFailure = (
+  envelope: Pick<OctopusImportEnvelope<unknown>, "code" | "errorKind">,
+) =>
+  isTransientStatus(envelope.code) &&
+  fetchFailureRecovery(envelope.code, envelope.errorKind, false) === "resume";
 
 const wait = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -144,6 +151,8 @@ const ImportProjects: React.FC = () => {
   const workflowAbortRef = useRef<AbortController | null>(null);
   const workflowTokenRef = useRef(0);
   const probeTokenRef = useRef(0);
+  // The phase the workflow was in before it failed: the step bar marks that step.
+  const lastActivePhaseRef = useRef<WorkflowPhase | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [session, setSession] = useState<OctopusImportSession | null>(null);
@@ -152,10 +161,21 @@ const ImportProjects: React.FC = () => {
   const [validation, setValidation] = useState<OctopusImportValidation | null>(
     null,
   );
-  const [workflowPhase, setWorkflowPhase] = useState<WorkflowPhase>("idle");
+  const [workflowPhase, setWorkflowPhaseState] =
+    useState<WorkflowPhase>("idle");
   const [workflowMessage, setWorkflowMessage] = useState<string | null>(null);
   const [workflowWarning, setWorkflowWarning] = useState<string | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
+  // What the user can do about the error (from its errorKind).
+  const [workflowHint, setWorkflowHint] = useState<string | null>(null);
+  // Set when the failed session cannot continue and the import has to start again.
+  const [failureRecovery, setFailureRecovery] =
+    useState<FetchFailureRecovery | null>(null);
+  const [pairingConfirmed, setPairingConfirmed] = useState(false);
+  // Secrets the finished import left empty; the page stays to list them.
+  const [completedMissingSecrets, setCompletedMissingSecrets] = useState<
+    OctopusImportMissingSensitiveValue[] | null
+  >(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [blockerSummary, setBlockerSummary] =
     useState<OctopusImportBlockerSummary | null>(null);
@@ -166,7 +186,7 @@ const ImportProjects: React.FC = () => {
   const [draftValidation, setDraftValidation] =
     useState<ValidationState>("idle");
   const [draftError, setDraftError] = useState("");
-  const [sources, setSources] = useState<ImportSourceKind[]>(["file"]);
+  const [source, setSource] = useState<ImportSource>("file");
   const [serverUrl, setServerUrl] = useState("");
   // Held in memory only for the fetch loop; never written to storage.
   const [apiKey, setApiKey] = useState("");
@@ -181,8 +201,7 @@ const ImportProjects: React.FC = () => {
     useState<ResumableHistoryFetch | null>(null);
 
   const projectListPath = `/${space.slug}/projects`;
-  const useFileSource = sources.includes("file");
-  const useServerSource = sources.includes("server");
+  const useServerSource = source === "server";
   const isServerReady = Boolean(
     useServerSource && probe && serverUrl.trim() && apiKey.trim(),
   );
@@ -196,6 +215,7 @@ const ImportProjects: React.FC = () => {
     workflowPhase === "validating" || workflowPhase === "confirming";
   const canResumeFetch = Boolean(
     resumableFetch &&
+      resumableFetch.recovery === "resume" &&
       isServerReady &&
       serverUrl.trim() === resumableFetch.serverUrl &&
       octopusSpaceId === resumableFetch.octopusSpaceId &&
@@ -212,22 +232,29 @@ const ImportProjects: React.FC = () => {
       previewPlan?.hasBlockers ||
       validation?.hasBlockers,
   );
-  const nothingNew = previewPlan ? isNothingNew(previewPlan.resources) : false;
+  const nothingNew = previewPlan ? isUpToDate(previewPlan) : false;
+  const pairingPending = Boolean(
+    previewPlan?.fillPairing?.required && !pairingConfirmed,
+  );
   const canImport = Boolean(
     previewPlan &&
       !nothingNew &&
+      !pairingPending &&
       !hasPreviewBlockers &&
       !workflowError &&
       workflowPhase === "ready" &&
       !isFinalizingImport,
   );
-  const serverStep = serverImportStep({
+  const steps = importSteps(source, {
     phase: workflowPhase,
+    lastActivePhase: lastActivePhaseRef.current,
     probed: Boolean(probe),
     fetchStarted: Boolean(resumableFetch),
-    fetchDone: Boolean(fetchProgress?.done),
-    previewed: Boolean(previewPlan),
   });
+  const keyPermissionProblem = permissionProblem(
+    probe?.permissions,
+    probe?.spaceless ? null : octopusSpaceId,
+  );
   const fetchNotices =
     fetchProgress?.done && useServerSource
       ? historyFetchNotices(fetchProgress)
@@ -237,6 +264,7 @@ const ImportProjects: React.FC = () => {
   );
   const showPreviewSection = Boolean(
     previewPlan ||
+      completedMissingSecrets?.length ||
       validation ||
       blockerSummary?.hasBlockers ||
       workflowWarning ||
@@ -251,6 +279,11 @@ const ImportProjects: React.FC = () => {
     };
   }, []);
 
+  const setWorkflowPhase = (phase: WorkflowPhase) => {
+    if (phase !== "failed" && phase !== "idle") lastActivePhaseRef.current = phase;
+    setWorkflowPhaseState(phase);
+  };
+
   const clearWorkflow = () => {
     workflowAbortRef.current?.abort();
     workflowAbortRef.current = null;
@@ -260,9 +293,30 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage(null);
     setWorkflowWarning(null);
     setWorkflowError(null);
+    setWorkflowHint(null);
+    setFailureRecovery(null);
+    setPairingConfirmed(false);
+    setCompletedMissingSecrets(null);
     setUploadError(null);
     setBlockerSummary(null);
     setFetchProgress(null);
+  };
+
+  // An input changed: the previous attempt's result no longer describes what the user will import (inputs are disabled while
+  // a request runs, so nothing is in flight). The resume target survives only while it still matches the server and space.
+  const invalidateAttempt = (keepResume: boolean) => {
+    clearWorkflow();
+    if (!keepResume) setResumableFetch(null);
+  };
+
+  const failWith = (
+    envelope: Pick<OctopusImportEnvelope<unknown>, "msg" | "errorKind">,
+    fallback: string,
+  ) => {
+    setWorkflowPhase("failed");
+    setWorkflowMessage(null);
+    setWorkflowError(envelope.msg || fallback);
+    setWorkflowHint(errorKindHint(envelope.errorKind));
   };
 
   const validateDraftFile = (file: File | null) => {
@@ -303,6 +357,7 @@ const ImportProjects: React.FC = () => {
   };
 
   const openPicker = () => {
+    if (workflowPhase === "failed") invalidateAttempt(false);
     setDraftFile(selectedFile);
     setDraftPassword("");
     setDraftError("");
@@ -394,16 +449,19 @@ const ImportProjects: React.FC = () => {
 
   const connectServerSource = async (signal: AbortSignal, token: number) => {
     setWorkflowPhase("connecting");
-    setWorkflowMessage("Creating import session...");
+    setWorkflowMessage("Checking the API key and creating the import session...");
 
-    const connectEnvelope = await connectOctopusImport(space.id, signal);
+    // The key is checked before the session exists: a key that cannot read the whole space is refused here.
+    const connectEnvelope = await connectOctopusImport(
+      space.id,
+      { serverUrl: serverUrl.trim(), apiKey, octopusSpaceId },
+      signal,
+    );
     if (workflowTokenRef.current !== token) return null;
 
     const connectedSession = connectEnvelope.data?.session ?? null;
     if (connectEnvelope.code !== 200 || !connectedSession?.sessionId) {
-      setWorkflowPhase("failed");
-      setWorkflowMessage(null);
-      setWorkflowError(connectEnvelope.msg || "Could not create a session.");
+      failWith(connectEnvelope, "Could not create a session.");
       return null;
     }
     setSelectedFile(null);
@@ -430,7 +488,7 @@ const ImportProjects: React.FC = () => {
         if (fetchEnvelope.code === 200 && fetchEnvelope.data)
           return fetchEnvelope;
         if (
-          !isTransientStatus(fetchEnvelope.code) ||
+          !isRetryableChunkFailure(fetchEnvelope) ||
           attempt >= FETCH_RETRY_DELAYS_MS.length
         )
           return fetchEnvelope;
@@ -455,12 +513,14 @@ const ImportProjects: React.FC = () => {
     token: number,
   ) => {
     setWorkflowPhase("fetching");
-    setWorkflowMessage("Fetching deployment history from Octopus...");
-    setResumableFetch({
+    setWorkflowMessage("Reading from Octopus...");
+    const resumeTarget: ResumableHistoryFetch = {
       session: sessionToFetch,
       serverUrl: connection.serverUrl,
       octopusSpaceId: fetchSpaceId,
-    });
+      recovery: "resume",
+    };
+    setResumableFetch(resumeTarget);
 
     for (;;) {
       const fetchEnvelope = await fetchHistoryChunk(
@@ -473,19 +533,34 @@ const ImportProjects: React.FC = () => {
 
       const progress = fetchEnvelope.data ?? null;
       if (fetchEnvelope.code !== 200 || !progress) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError(fetchEnvelope.msg || "History fetch failed.");
+        failWith(fetchEnvelope, "Reading from Octopus failed.");
+        keepResumeTargetFor(
+          resumeTarget,
+          fetchFailureRecovery(fetchEnvelope.code, fetchEnvelope.errorKind, false),
+        );
         return false;
       }
 
       setFetchProgress(progress);
-      setWorkflowMessage("Fetching deployment history from Octopus...");
+      setWorkflowMessage("Reading from Octopus...");
       if (progress.done) {
         setResumableFetch(null);
         return true;
       }
     }
+  };
+
+  // A failure the same session can recover from keeps the resume target; otherwise "Start again" (or nothing) is offered.
+  const keepResumeTargetFor = (
+    target: ResumableHistoryFetch,
+    recovery: FetchFailureRecovery,
+  ) => {
+    if (recovery === "resume" || recovery === "reconnect") {
+      setResumableFetch({ ...target, recovery });
+      return;
+    }
+    setResumableFetch(null);
+    setFailureRecovery(recovery);
   };
 
   const cancelHistoryFetch = () => {
@@ -496,7 +571,7 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage(null);
     setWorkflowError(null);
     setWorkflowWarning(
-      "History fetch cancelled. Resume it to continue where it stopped.",
+      "Reading from Octopus cancelled. Resume it to continue where it stopped.",
     );
   };
 
@@ -509,6 +584,7 @@ const ImportProjects: React.FC = () => {
     return { token, controller };
   };
 
+  // Only the server source reads from Octopus; an export file is never combined with a server read.
   const currentConnection = (): OctopusServerConnection | null =>
     isServerReady ? { serverUrl: serverUrl.trim(), apiKey } : null;
 
@@ -604,9 +680,7 @@ const ImportProjects: React.FC = () => {
     setBlockerSummary(extractionBlockerSummary);
 
     if (!extractionData) {
-      setWorkflowPhase("failed");
-      setWorkflowMessage(null);
-      setWorkflowError(extractEnvelope.msg || "Extraction failed.");
+      failWith(extractEnvelope, "Extraction failed.");
       return;
     }
 
@@ -643,8 +717,7 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage(null);
 
     if (!previewData) {
-      setWorkflowPhase("failed");
-      setWorkflowError(previewEnvelope.msg || "Preview failed.");
+      failWith(previewEnvelope, "Preview failed.");
       return;
     }
 
@@ -698,13 +771,42 @@ const ImportProjects: React.FC = () => {
     if (!draftFile || draftValidation !== "valid" || !draftPassword.trim()) {
       return;
     }
-    if (useServerSource && !isServerReady) return;
     void runImportWorkflow(draftFile);
   };
 
-  const handleSourcesChange = (values: ImportSourceKind[]) => {
-    if (!values.length) return;
-    setSources(values);
+  const handleSourceChange = (next: ImportSource) => {
+    if (next === source) return;
+    setSource(next);
+    invalidateAttempt(false);
+  };
+
+  // The secrets an API import left missing are filled by importing the export file of the same space.
+  const fillFromExportFile = () => {
+    handleSourceChange("file");
+    openPicker();
+  };
+
+  const handleServerUrlChange = (value: string) => {
+    setServerUrl(value);
+    resetProbe();
+    invalidateAttempt(value.trim() === resumableFetch?.serverUrl);
+  };
+
+  // A new key may resume the same session (after connecting with it), so the resume target is kept.
+  const handleApiKeyChange = (value: string) => {
+    setApiKey(value);
+    resetProbe();
+    invalidateAttempt(true);
+  };
+
+  const handleOctopusSpaceChange = (value: string) => {
+    setOctopusSpaceId(value);
+    invalidateAttempt(value === resumableFetch?.octopusSpaceId);
+  };
+
+  const handleChangeConnection = () => {
+    resetProbe();
+    invalidateAttempt(true);
   };
 
   // Bumping the token makes any in-flight probe for the old inputs land as a no-op.
@@ -736,6 +838,10 @@ const ImportProjects: React.FC = () => {
         return;
       }
       setProbe(probeData);
+      // Connecting again (e.g. with a new key) is what a "reconnect" failure waits for before resuming.
+      setResumableFetch((current) =>
+        current ? { ...current, recovery: "resume" } : current,
+      );
       setOctopusSpaceId(
         probeData.spaces.find((item) => item.isDefault)?.id ??
           probeData.spaces[0]?.id ??
@@ -808,6 +914,12 @@ const ImportProjects: React.FC = () => {
       setWorkflowWarning(null);
       setWorkflowError(null);
       message.success("Import completed.");
+      const missing = finalSession.result?.missingSensitiveValues ?? [];
+      // Secrets the import left empty are listed before leaving, so the user knows what to fill.
+      if (missing.length) {
+        setCompletedMissingSecrets(missing);
+        return;
+      }
       navigate(projectListPath);
       return;
     }
@@ -816,7 +928,9 @@ const ImportProjects: React.FC = () => {
       setWorkflowPhase("failed");
       setWorkflowMessage(null);
       setWorkflowError(
-        "The import session expired. Upload the export file again.",
+        useServerSource
+          ? "The import session expired. Read from the Octopus server again."
+          : "The import session expired. Upload the export file again.",
       );
       return;
     }
@@ -892,7 +1006,7 @@ const ImportProjects: React.FC = () => {
       const validateEnvelope = await validateOctopusImport(
         session.sessionId,
         space.id,
-        withoutHistoryRows(previewPlan),
+        planToValidate(previewPlan, pairingConfirmed),
         controller.signal,
       );
       if (workflowTokenRef.current !== token) return;
@@ -916,6 +1030,7 @@ const ImportProjects: React.FC = () => {
             ? validateEnvelope.msg || "Validation failed."
             : null,
         );
+        setWorkflowHint(errorKindHint(validateEnvelope.errorKind));
         return;
       }
 
@@ -934,9 +1049,7 @@ const ImportProjects: React.FC = () => {
       const confirmedSession = confirmEnvelope.data?.session ?? null;
       setBlockerSummary(confirmEnvelope.data?.blockerSummary ?? null);
       if (confirmEnvelope.code !== 200 || !confirmedSession) {
-        setWorkflowPhase("failed");
-        setWorkflowMessage(null);
-        setWorkflowError(confirmEnvelope.msg || "Import confirmation failed.");
+        failWith(confirmEnvelope, "Import confirmation failed.");
         return;
       }
 
@@ -961,28 +1074,15 @@ const ImportProjects: React.FC = () => {
     }
   };
 
+  // Plans of a server without the incremental summary fall back to counts computed from the resources.
   const previewResources = useMemo(() => {
     const resources = previewPlan?.resources ?? [];
 
     return {
-      projects: listedResources(resources, "Project"),
-      environments: listedResources(resources, "Environment"),
-      lifecycles: listedResources(resources, "Lifecycle"),
       actionCounts: summarizeActions(resources),
       projectRows: summarizeByProject(resources),
     };
   }, [previewPlan]);
-
-  const renderResourceName = ({ resource, label }: ListedPreviewResource) => (
-    <>
-      {resource.sourceName}
-      {label ? (
-        <Tag className="ml-2" color="default">
-          {label}
-        </Tag>
-      ) : null}
-    </>
-  );
 
   const actionTiles = [
     { key: "create", label: "Create", value: previewResources.actionCounts.create },
@@ -1030,16 +1130,52 @@ const ImportProjects: React.FC = () => {
       <Button size="small" onClick={() => void handleCheckStatus()}>
         Check status
       </Button>
-    ) : resumableFetch &&
-      (workflowPhase === "failed" || workflowPhase === "idle") ? (
+    ) : failureRecovery === "restart" && useServerSource ? (
       <Button
         size="small"
-        disabled={!canResumeFetch}
-        onClick={() => void resumeHistoryFetch()}
+        disabled={!isServerReady}
+        onClick={() => void runImportWorkflow(null)}
       >
-        Resume fetch
+        Start again
       </Button>
     ) : null;
+
+  const showResumeNotice = Boolean(
+    resumableFetch &&
+      useServerSource &&
+      (workflowPhase === "failed" || workflowPhase === "idle"),
+  );
+
+  const resumeNoticeText = () => {
+    if (!resumableFetch) return "";
+    if (resumableFetch.recovery === "reconnect")
+      return "Fix the cause below and connect again (for example with a new API key), then resume. Everything read so far is kept.";
+    if (
+      serverUrl.trim() !== resumableFetch.serverUrl ||
+      octopusSpaceId !== resumableFetch.octopusSpaceId
+    )
+      return `This read belongs to ${resumableFetch.serverUrl}${resumableFetch.octopusSpaceId ? ` (${resumableFetch.octopusSpaceId})` : ""}. Switch back to it to resume.`;
+    return "Resume continues on the same import session where it stopped; nothing read so far is read again.";
+  };
+
+  const renderResumeNotice = () => (
+    <Alert
+      data-testid="resume-notice"
+      type="info"
+      showIcon
+      message="Reading from Octopus stopped"
+      description={resumeNoticeText()}
+      action={
+        <Button
+          size="small"
+          disabled={!canResumeFetch}
+          onClick={() => void resumeHistoryFetch()}
+        >
+          Resume fetch
+        </Button>
+      }
+    />
+  );
 
   const renderBlockerSummary = (summary: OctopusImportBlockerSummary) => {
     if (!summary.hasBlockers) return null;
@@ -1097,11 +1233,14 @@ const ImportProjects: React.FC = () => {
           className="space-y-0.5 text-xs text-slate-500"
         >
           <div className="font-medium text-slate-700">
-            {fetchPhaseLabel(fetchProgress.phase)} (project{" "}
-            {fetchProgress.projectIndex} of {fetchProgress.projectCount})
+            {fetchPositionLabel(fetchProgress)}
           </div>
           <div>
-            {pluralize(fetchProgress.counts.releases, "release")},{" "}
+            {pluralize(
+              fetchProgress.counts.configurationDocuments ?? 0,
+              "configuration document",
+            )}
+            , {pluralize(fetchProgress.counts.releases, "release")},{" "}
             {pluralize(fetchProgress.counts.deployments, "deployment")},{" "}
             {pluralize(fetchProgress.counts.serverTasks, "task")},{" "}
             {fetchProgress.counts.detailsFetched} details fetched,{" "}
@@ -1115,7 +1254,15 @@ const ImportProjects: React.FC = () => {
   const renderFetchSummary = () => {
     if (!fetchProgress || !fetchNotices) return null;
 
+    const skippedItems =
+      (fetchProgress.counts.itemsRejected ?? 0) +
+      (fetchProgress.counts.itemsAbandoned ?? 0);
     const summaryTiles = [
+      {
+        key: "configuration",
+        label: "Configuration",
+        value: fetchProgress.counts.configurationDocuments ?? 0,
+      },
       { key: "releases", label: "Releases", value: fetchProgress.counts.releases },
       {
         key: "deployments",
@@ -1133,6 +1280,11 @@ const ImportProjects: React.FC = () => {
         label: "Unchanged",
         value: fetchProgress.counts.detailsSkipped,
       },
+      {
+        key: "secretsWithheld",
+        label: "Secrets withheld",
+        value: fetchProgress.counts.secretsWithheld ?? 0,
+      },
     ];
 
     return (
@@ -1141,9 +1293,10 @@ const ImportProjects: React.FC = () => {
         className="space-y-3 rounded-md border border-slate-200 p-4"
       >
         <div className="text-sm font-semibold text-slate-900">
-          History fetched from {pluralize(fetchProgress.projectCount, "project")}
+          Read from Octopus{octopusSpaceId ? ` space ${octopusSpaceId}` : ""}:{" "}
+          {pluralize(fetchProgress.projectCount, "project")}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
           {summaryTiles.map((tile) => (
             <div
               key={tile.key}
@@ -1171,6 +1324,13 @@ const ImportProjects: React.FC = () => {
                 ? "No history was found for any project. Choose another Octopus space and load again."
                 : undefined
             }
+          />
+        ) : null}
+        {skippedItems > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`${pluralize(skippedItems, "item")} could not be read (the Octopus server refused the request, or it kept timing out) and ${skippedItems === 1 ? "was" : "were"} skipped.`}
           />
         ) : null}
         {fetchNotices.detailsTooLarge > 0 ? (
@@ -1247,16 +1407,14 @@ const ImportProjects: React.FC = () => {
             </Button>
           </div>
 
-          {useServerSource ? (
-            <Steps
-              data-testid="server-import-steps"
-              className="mt-6"
-              size="small"
-              current={serverStep.current}
-              status={serverStep.status}
-              items={SERVER_IMPORT_STEPS}
-            />
-          ) : null}
+          <Steps
+            data-testid={`${source}-import-steps`}
+            className="mt-6"
+            size="small"
+            current={steps.current}
+            status={steps.status}
+            items={steps.titles.map((title) => ({ title }))}
+          />
 
           <div className="mt-10 border-t border-slate-200 pt-5">
             <div className="grid grid-cols-1 gap-5 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -1265,22 +1423,16 @@ const ImportProjects: React.FC = () => {
               </div>
 
               <div className="w-full space-y-5">
-                <Checkbox.Group
-                  value={sources}
+                <ImportSourceCards
+                  value={source}
                   disabled={isProcessingFile || isFinalizingImport}
-                  onChange={(values) =>
-                    handleSourcesChange(values as ImportSourceKind[])
-                  }
-                  options={[
-                    { label: "Export file", value: "file" },
-                    { label: "Octopus server", value: "server" },
-                  ]}
+                  onChange={handleSourceChange}
                 />
 
                 {useServerSource ? (
                   <div className="space-y-3 rounded-md border border-slate-200 p-4">
                     <div className="text-base font-semibold text-slate-900">
-                      Fetch deployment history from an Octopus server.
+                      Read the whole space from an Octopus server.
                     </div>
                     <div>
                       <label
@@ -1293,10 +1445,7 @@ const ImportProjects: React.FC = () => {
                         id="import-octopus-server-url"
                         value={serverUrl}
                         disabled={isProcessingFile}
-                        onChange={(event) => {
-                          setServerUrl(event.target.value);
-                          resetProbe();
-                        }}
+                        onChange={(event) => handleServerUrlChange(event.target.value)}
                         onPressEnter={() => void handleProbe()}
                         placeholder="https://octopus.example.com"
                         autoComplete="off"
@@ -1313,17 +1462,17 @@ const ImportProjects: React.FC = () => {
                         id="import-octopus-api-key"
                         value={apiKey}
                         disabled={isProcessingFile}
-                        onChange={(event) => {
-                          setApiKey(event.target.value);
-                          resetProbe();
-                        }}
+                        onChange={(event) => handleApiKeyChange(event.target.value)}
                         onPressEnter={() => void handleProbe()}
                         placeholder="API-XXXXXXXX"
                         autoComplete="new-password"
                       />
                       <div className="mt-1 text-xs text-slate-500">
                         The key is used only for this import and is never
-                        stored. A read-only Octopus user is enough.
+                        stored. It must be able to read the whole space: use a
+                        dedicated read-only service account. Keep this tab open
+                        while reading; closing it pauses the read, and resuming
+                        needs the key again.
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1345,7 +1494,7 @@ const ImportProjects: React.FC = () => {
                             type="link"
                             size="small"
                             disabled={isProcessingFile}
-                            onClick={resetProbe}
+                            onClick={handleChangeConnection}
                           >
                             Change
                           </Button>
@@ -1371,7 +1520,7 @@ const ImportProjects: React.FC = () => {
                           className="w-full max-w-md"
                           value={octopusSpaceId ?? undefined}
                           disabled={isProcessingFile}
-                          onChange={(value: string) => setOctopusSpaceId(value)}
+                          onChange={(value: string) => handleOctopusSpaceChange(value)}
                           options={probe.spaces.map((item) => ({
                             label: item.name,
                             value: item.id,
@@ -1379,29 +1528,42 @@ const ImportProjects: React.FC = () => {
                         />
                       </div>
                     ) : null}
-                    {!useFileSource ? (
-                      <Button
-                        type="primary"
-                        ghost
-                        disabled={!isServerReady || isProcessingFile}
-                        onClick={() => void runImportWorkflow(null)}
-                      >
-                        Load from server
-                      </Button>
+                    {keyPermissionProblem ? (
+                      <Alert
+                        data-testid="key-permission-problem"
+                        type="error"
+                        showIcon
+                        message="This API key cannot read the whole space, so the import will be refused."
+                        description={
+                          <div className="space-y-1">
+                            <ul className="list-disc pl-5">
+                              {keyPermissionProblem.map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                            <div>
+                              Use a dedicated read-only service account with
+                              unrestricted view permissions in this space, ideally
+                              with an expiring key.
+                            </div>
+                          </div>
+                        }
+                      />
                     ) : null}
+                    <Button
+                      type="primary"
+                      ghost
+                      disabled={!isServerReady || isProcessingFile}
+                      onClick={() => void runImportWorkflow(null)}
+                    >
+                      Read from Octopus
+                    </Button>
                   </div>
-                ) : null}
-
-                {useFileSource ? (
+                ) : (
                   <div>
                     <div className="text-base font-semibold text-slate-900">
                       Select a Zip file to import projects.
                     </div>
-                    {useServerSource && !isServerReady ? (
-                      <div className="mt-2 text-sm text-slate-500">
-                        Connect to the Octopus server before selecting the file.
-                      </div>
-                    ) : null}
                     {selectedFile ? (
                       <div className="mt-4 text-sm font-medium text-slate-900">
                         Selected file:{" "}
@@ -1411,17 +1573,12 @@ const ImportProjects: React.FC = () => {
                       </div>
                     ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <Button
-                        type="primary"
-                        ghost
-                        onClick={openPicker}
-                        disabled={useServerSource && !isServerReady}
-                      >
+                      <Button type="primary" ghost onClick={openPicker}>
                         Select zip file
                       </Button>
                     </div>
                   </div>
-                ) : null}
+                )}
 
                 {isProcessingFile ? (
                   <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -1433,6 +1590,8 @@ const ImportProjects: React.FC = () => {
                   </div>
                 ) : null}
 
+                {showResumeNotice ? renderResumeNotice() : null}
+
                 {renderFetchSummary()}
               </div>
             </div>
@@ -1443,6 +1602,15 @@ const ImportProjects: React.FC = () => {
                   Import Preview
                 </div>
                 <div className="space-y-5 px-4 py-4">
+                  {completedMissingSecrets?.length ? (
+                    <MissingSecretsAfterImport
+                      missing={completedMissingSecrets}
+                      spaceSlug={space.slug}
+                      onFillFromFile={fillFromExportFile}
+                      onDone={() => navigate(projectListPath)}
+                    />
+                  ) : null}
+
                   {blockerSummary?.hasBlockers && !isProcessingFile
                     ? renderBlockerSummary(blockerSummary)
                     : null}
@@ -1456,8 +1624,15 @@ const ImportProjects: React.FC = () => {
                       icon={<ExclamationCircleOutlined />}
                       message="Import cannot continue."
                       description={
-                        workflowError ||
-                        "Resolve the blocking issues before importing."
+                        <div className="space-y-1">
+                          <div>
+                            {workflowError ||
+                              "Resolve the blocking issues before importing."}
+                          </div>
+                          {workflowHint ? (
+                            <div data-testid="workflow-hint">{workflowHint}</div>
+                          ) : null}
+                        </div>
                       }
                       action={workflowAction}
                     />
@@ -1475,7 +1650,28 @@ const ImportProjects: React.FC = () => {
                     />
                   ) : null}
 
-                  {previewPlan ? (
+                  {previewPlan?.fillPairing?.required ? (
+                    <FillPairingConfirmation
+                      pairing={previewPlan.fillPairing}
+                      confirmed={pairingConfirmed}
+                      disabled={isFinalizingImport || workflowPhase === "succeeded"}
+                      onChange={setPairingConfirmed}
+                    />
+                  ) : null}
+
+                  {previewPlan && !completedMissingSecrets ? (
+                    <WithheldSecretsPanel
+                      resources={previewPlan.resources}
+                      onFillFromFile={fillFromExportFile}
+                      disabled={isFinalizingImport}
+                    />
+                  ) : null}
+
+                  {previewPlan?.summary ? (
+                    <ImportPreviewOverview plan={previewPlan} spaceSlug={space.slug} />
+                  ) : null}
+
+                  {previewPlan && !previewPlan.summary ? (
                     <div className="space-y-5 text-sm text-slate-900">
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                         {actionTiles.map((tile) => (
@@ -1517,78 +1713,6 @@ const ImportProjects: React.FC = () => {
                           />
                         </section>
                       ) : null}
-
-                      {previewResources.projects.length ? (
-                        <section>
-                          <h2 className="mb-3 text-base font-semibold">
-                            The following projects will be imported:
-                          </h2>
-                          <ul className="list-disc space-y-1 pl-8">
-                            {previewResources.projects.map((item) => (
-                              <li
-                                key={`${item.resource.sourceType}-${item.resource.sourceId}`}
-                              >
-                                {renderResourceName(item)}
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      ) : null}
-
-                      <section>
-                        <h2 className="mb-3 text-base font-semibold">
-                          The following resources will be imported:
-                        </h2>
-                        <div className="space-y-1">
-                          {previewResources.environments.length ? (
-                            <div>
-                              <div className="font-semibold">Environments</div>
-                              <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.environments.map((item) => (
-                                  <li
-                                    key={`${item.resource.sourceType}-${item.resource.sourceId}`}
-                                  >
-                                    {renderResourceName(item)}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-
-                          {previewResources.lifecycles.length ? (
-                            <div>
-                              <div className="font-semibold">Lifecycles</div>
-                              <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.lifecycles.map((item) => (
-                                  <li
-                                    key={`${item.resource.sourceType}-${item.resource.sourceId}`}
-                                  >
-                                    {renderResourceName(item)}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-
-                          {previewResources.projects.length ? (
-                            <div>
-                              <div className="font-semibold">Projects</div>
-                              <ul className="list-disc space-y-1 pl-8">
-                                {previewResources.projects.map((item) => (
-                                  <li
-                                    key={`${item.resource.sourceType}-resource-${item.resource.sourceId}`}
-                                  >
-                                    <div className="font-semibold">
-                                      {renderResourceName(item)}
-                                    </div>
-                                    <div className="ml-4 italic">Channels</div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          ) : null}
-                        </div>
-                      </section>
                     </div>
                   ) : null}
                 </div>
@@ -1597,7 +1721,6 @@ const ImportProjects: React.FC = () => {
           </div>
         </div>
       </div>
-
       <Modal
         title="Select Zip File"
         open={isPickerOpen}
@@ -1621,8 +1744,7 @@ const ImportProjects: React.FC = () => {
               !draftFile ||
               draftValidation !== "valid" ||
               !draftPassword.trim() ||
-              isProcessingFile ||
-              (useServerSource && !isServerReady)
+              isProcessingFile
             }
             onClick={handleConfirmPicker}
             className="!bg-squid-blue hover:!bg-blue-600 disabled:!bg-slate-200 disabled:!text-slate-500"

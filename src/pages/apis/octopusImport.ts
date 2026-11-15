@@ -11,6 +11,8 @@ export interface OctopusImportEnvelope<T> {
   msg: string | null;
   code: number;
   data: T | null;
+  /** Machine-readable failure kind (`SquidResponse.errorKind`); null for success and for failures without one. */
+  errorKind?: string | null;
 }
 
 export enum OctopusImportSessionState {
@@ -34,6 +36,7 @@ export enum OctopusImportPreviewAction {
   // Append-only: mirrors the backend ordinals.
   AlreadyImported = 6,
   Update = 7,
+  FillMissingSecret = 8,
 }
 
 export enum OctopusImportResourceOutcomeState {
@@ -46,12 +49,17 @@ export enum OctopusImportResourceOutcomeState {
   Failed,
   // Append-only: mirrors the backend ordinals.
   Updated = 7,
+  SecretFilled = 8,
 }
 
 export enum OctopusHistoryFetchPhase {
   Releases,
   Deployments,
   Done,
+  // Append-only: mirrors the backend ordinals.
+  Catalog = 3,
+  ProjectConfiguration = 4,
+  Closure = 5,
 }
 
 export enum OctopusImportCompatibilitySeverity {
@@ -62,6 +70,17 @@ export enum OctopusImportCompatibilitySeverity {
 
 export enum OctopusImportRequiredInputKind {
   SensitiveVariableValue,
+  // Append-only: mirrors the backend ordinals.
+  FeedPassword = 1,
+  AccountSecret = 2,
+  CertificatePrivateKey = 3,
+  SensitiveActionProperty = 4,
+}
+
+export enum OctopusImportProjectDestinationState {
+  New,
+  Existing,
+  NotImported,
 }
 
 export interface OctopusImportDiagnostic {
@@ -94,6 +113,10 @@ export interface OctopusImportRequiredInput {
   valueType: string;
   hasSourceValue: boolean;
   isRequired: boolean;
+  /** A later import of the Octopus export file can supply this value. */
+  fillable?: boolean;
+  /** The Octopus server API never returns this secret; it is imported empty and listed as missing. */
+  withheldByServer?: boolean;
   sourceScopes: Record<string, string[]>;
 }
 
@@ -114,6 +137,14 @@ export interface OctopusHistoryFetchCounts {
   detailsTooLarge?: number;
   /** Scoped projects the Octopus space does not have (wrong space, or deleted there). */
   projectsNotFound?: number;
+  /** Requests the Octopus server refused; each item is skipped. */
+  itemsRejected?: number;
+  /** Items skipped after outliving the chunk deadline too many times. */
+  itemsAbandoned?: number;
+  /** Configuration documents read (everything but releases, deployments and tasks). */
+  configurationDocuments?: number;
+  /** Secret values the server did not return; imported as "value missing". */
+  secretsWithheld?: number;
 }
 
 export interface OctopusImportHistoryFetch {
@@ -148,17 +179,31 @@ export interface OctopusServerSpace {
   isDefault: boolean;
 }
 
+/** Whether an API key can read a whole Octopus space; an import with an insufficient key is refused. */
+export interface OctopusServerPermissions {
+  octopusSpaceId: string | null;
+  sufficient: boolean;
+  restricted: string[];
+  missing: string[];
+  incomplete: boolean;
+}
+
 export interface OctopusServerProbe {
   octopusVersion: string;
   installationId: string;
   spaceless: boolean;
   spaces: OctopusServerSpace[];
+  /** What the key can read in the default space; null when unknown. */
+  permissions?: OctopusServerPermissions | null;
 }
 
 export interface OctopusHistoryFetchProgress {
   phase: OctopusHistoryFetchPhase;
   projectIndex: number;
   projectCount: number;
+  /** The catalog kind being read, of `catalogKindCount`, while the phase is Catalog. */
+  catalogIndex?: number;
+  catalogKindCount?: number;
   counts: OctopusHistoryFetchCounts;
   totalBytes: number;
   done: boolean;
@@ -167,6 +212,11 @@ export interface OctopusHistoryFetchProgress {
 export interface OctopusServerConnection {
   serverUrl: string;
   apiKey: string;
+}
+
+/** The server and space an import session reads; the key is checked before the session exists. */
+export interface OctopusServerTarget extends OctopusServerConnection {
+  octopusSpaceId: string | null;
 }
 
 export interface OctopusImportSession {
@@ -203,6 +253,101 @@ export interface OctopusImportExtraction {
   hasBlockers: boolean;
 }
 
+export interface OctopusImportFieldChange {
+  field: string;
+  /** Squid's current value; null when Squid holds none or the value is hidden. */
+  oldValue: string | null;
+  /** The value the import writes; null when it writes none or the value is hidden. */
+  newValue: string | null;
+  /** A secret: only the field is named, never a value. */
+  valueHidden: boolean;
+  description: string | null;
+}
+
+export interface OctopusImportSkipReason {
+  code: string;
+  message: string;
+}
+
+/** The Squid project, library variable set or feed a missing secret is (or would be) filled in. */
+export interface OctopusImportFillDestination {
+  ownerKind: 'Project' | 'LibraryVariableSet' | 'Feed' | string;
+  ownerId: number;
+  ownerName: string | null;
+  variableSetId: number | null;
+}
+
+export interface OctopusImportFillPairing {
+  required: boolean;
+  confirmed: boolean;
+  installationId: string | null;
+  serverHost: string | null;
+  octopusSpaceId: string | null;
+  octopusVersion: string | null;
+  fileExportSourceId: string | null;
+  recordedExportSourceId: string | null;
+  matchingStructureIds: number;
+}
+
+export interface OctopusImportChangeCounts {
+  /** Imported by an earlier import: nothing is written. */
+  alreadyImported: number;
+  /** An existing Squid resource is linked as-is. */
+  reused: number;
+  create: number;
+  update: number;
+  fill: number;
+  skip: number;
+  unsupported: number;
+  blocked: number;
+  total: number;
+  /** create + update + fill + reused (serialized by the server; ignored when posted back). */
+  incremental: number;
+}
+
+export interface OctopusImportKindChangeCounts {
+  kind: string;
+  counts: OctopusImportChangeCounts;
+}
+
+export interface OctopusImportPreviewGroup {
+  counts: OctopusImportChangeCounts;
+  kinds: OctopusImportKindChangeCounts[];
+  isUpToDate: boolean;
+}
+
+export interface OctopusImportProjectDestination {
+  state: OctopusImportProjectDestinationState;
+  /** The existing Squid project; null for a new or not imported project. */
+  projectId: number | null;
+  /** The Squid project's current name (it may differ from the Octopus name). */
+  projectName: string | null;
+  projectSlug: string | null;
+}
+
+export interface OctopusImportProjectPreview extends OctopusImportPreviewGroup {
+  sourceId: string;
+  sourceName: string;
+  destination: OctopusImportProjectDestination;
+}
+
+export interface OctopusImportSkipReasonCount {
+  resourceType: string;
+  code: string;
+  message: string;
+  count: number;
+}
+
+export interface OctopusImportPreviewSummary {
+  isUpToDate: boolean;
+  counts: OctopusImportChangeCounts;
+  kinds: OctopusImportKindChangeCounts[];
+  projects: OctopusImportProjectPreview[];
+  /** Resources no Octopus project owns (environments, feeds, library variable sets, teams, ...). */
+  space: OctopusImportPreviewGroup;
+  skipReasons: OctopusImportSkipReasonCount[];
+}
+
 export interface OctopusImportPreviewResource {
   sourceId: string;
   sourceType: string;
@@ -212,6 +357,12 @@ export interface OctopusImportPreviewResource {
   destinationId: number | null;
   /** The Octopus project the resource belongs to (the project itself for a project); null for shared resources. */
   ownerProjectSourceId?: string | null;
+  /** For a resource that fills a secret an earlier import left missing: where it is filled. */
+  fillDestination?: OctopusImportFillDestination | null;
+  /** For an Update or a Fill: the fields written, old -> new (a secret is named, never shown). */
+  changes?: OctopusImportFieldChange[];
+  /** For a resource that is not imported (Skip, Unsupported): why. */
+  skipReason?: OctopusImportSkipReason | null;
   requiredInputs: OctopusImportRequiredInput[];
   diagnostics: OctopusImportDiagnostic[];
 }
@@ -222,6 +373,10 @@ export interface OctopusImportPreviewPlan {
   requiredInputs: OctopusImportRequiredInput[];
   diagnostics: OctopusImportDiagnostic[];
   hasBlockers: boolean;
+  /** Set when filling missing secrets needs the user to confirm the export file's installation. */
+  fillPairing?: OctopusImportFillPairing | null;
+  /** Totals, per-kind and per-project counts, skip reasons and the "up to date" flag. */
+  summary?: OctopusImportPreviewSummary | null;
 }
 
 export interface OctopusImportValidation {
@@ -239,12 +394,27 @@ export interface OctopusImportIdMapping {
   outcomeState: OctopusImportResourceOutcomeState;
 }
 
+/** A secret an import wrote empty because the Octopus server withheld it. Names only, never a value. */
+export interface OctopusImportMissingSensitiveValue {
+  kind: OctopusImportRequiredInputKind;
+  name: string;
+  ownerName: string | null;
+  /** `Project` or `LibraryVariableSet` when `ownerName` is set. */
+  ownerKind: string | null;
+  field: string;
+  scopeSummary: string | null;
+  destinationId: number | null;
+  destinationOwnerId: number | null;
+  fillable: boolean;
+}
+
 export interface OctopusImportResult {
   succeeded: boolean;
   completedAt: string;
   resources: OctopusImportPreviewResource[];
   idMappings: OctopusImportIdMapping[];
   diagnostics: OctopusImportDiagnostic[];
+  missingSensitiveValues?: OctopusImportMissingSensitiveValue[];
 }
 
 export interface OctopusImportUploadResponseData {
@@ -298,6 +468,7 @@ function toEnvelope<T>(body: any, status: number): OctopusImportEnvelope<T> {
       msg: body.msg ?? null,
       code: Number(body.code ?? status) || status,
       data: (body.data ?? null) as T | null,
+      errorKind: body.errorKind ?? null,
     };
   }
 
@@ -306,6 +477,7 @@ function toEnvelope<T>(body: any, status: number): OctopusImportEnvelope<T> {
       msg: body.msg ?? null,
       code: Number(body.code ?? status) || status,
       data: null,
+      errorKind: body.errorKind ?? null,
     };
   }
 
@@ -454,11 +626,16 @@ export function probeOctopusServer(
   });
 }
 
-export function connectOctopusImport(spaceId: number, signal?: AbortSignal) {
+// With a target the key is checked before the session exists: a key that cannot read the whole space is refused.
+export function connectOctopusImport(
+  spaceId: number,
+  target: OctopusServerTarget | null,
+  signal?: AbortSignal,
+) {
   return requestImport<OctopusImportConnectResponseData>("/connect", {
     method: "POST",
     spaceId,
-    body: JSON.stringify({ spaceId }),
+    body: JSON.stringify({ spaceId, ...(target ?? {}) }),
     includeJson: true,
     signal,
   });
