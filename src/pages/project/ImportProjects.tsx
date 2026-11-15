@@ -90,6 +90,11 @@ const IMPORT_POLL_MAX_DELAY_MS = 15000;
 const IMPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
+// The step that failed after the read, and the session it left: extract and preview redo only themselves, "import" validates again.
+type RetryStep =
+  | { step: "extract" | "preview"; session: OctopusImportSession }
+  | { step: "import" };
+
 type ResumableHistoryFetch = {
   session: OctopusImportSession;
   serverUrl: string;
@@ -199,6 +204,8 @@ const ImportProjects: React.FC = () => {
   // The server keeps the fetch cursor on the session, so an interrupted fetch resumes on it.
   const [resumableFetch, setResumableFetch] =
     useState<ResumableHistoryFetch | null>(null);
+  // A step after the read (extract, preview, validate) that failed for a passing reason: "Try again" redoes only that step.
+  const [retryStep, setRetryStep] = useState<RetryStep | null>(null);
 
   const projectListPath = `/${space.slug}/projects`;
   const useServerSource = source === "server";
@@ -295,6 +302,7 @@ const ImportProjects: React.FC = () => {
     setWorkflowError(null);
     setWorkflowHint(null);
     setFailureRecovery(null);
+    setRetryStep(null);
     setPairingConfirmed(false);
     setCompletedMissingSecrets(null);
     setUploadError(null);
@@ -628,6 +636,27 @@ const ImportProjects: React.FC = () => {
     }
   };
 
+  // Redo only the step that failed after the read, on the same session: the session stays where the step left it.
+  const retryFailedStep = async () => {
+    if (!retryStep) return;
+    if (retryStep.step === "import") {
+      await handleImport();
+      return;
+    }
+
+    const { token, controller } = beginWorkflow();
+    try {
+      await continueAfterRead(
+        retryStep.session,
+        retryStep.step,
+        controller.signal,
+        token,
+      );
+    } catch (error) {
+      failWorkflow(error, token);
+    }
+  };
+
   const resumeHistoryFetch = async () => {
     const connection = currentConnection();
     if (!resumableFetch || !connection || !canResumeFetch) return;
@@ -662,6 +691,31 @@ const ImportProjects: React.FC = () => {
       if (!fetched) return;
     }
 
+    await continueAfterRead(uploadSession, "extract", signal, token);
+  };
+
+  // Extract (unless it already succeeded), then preview. Until the preview arrives, a failure keeps the step to retry.
+  const continueAfterRead = async (
+    uploadSession: OctopusImportSession,
+    from: "extract" | "preview",
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    const extractedSession =
+      from === "extract"
+        ? await extractSession(uploadSession, signal, token)
+        : uploadSession;
+    if (!extractedSession) return;
+
+    await previewSession(extractedSession, signal, token);
+  };
+
+  const extractSession = async (
+    uploadSession: OctopusImportSession,
+    signal: AbortSignal,
+    token: number,
+  ): Promise<OctopusImportSession | null> => {
+    setRetryStep({ step: "extract", session: uploadSession });
     setWorkflowPhase("extracting");
     setWorkflowMessage("Extracting archive...");
 
@@ -670,7 +724,7 @@ const ImportProjects: React.FC = () => {
       space.id,
       signal,
     );
-    if (workflowTokenRef.current !== token) return;
+    if (workflowTokenRef.current !== token) return null;
 
     const extractedSession = extractEnvelope.data?.session ?? uploadSession;
     setSession(extractedSession);
@@ -681,7 +735,7 @@ const ImportProjects: React.FC = () => {
 
     if (!extractionData) {
       failWith(extractEnvelope, "Extraction failed.");
-      return;
+      return null;
     }
 
     if (
@@ -689,19 +743,30 @@ const ImportProjects: React.FC = () => {
       extractionData.hasBlockers ||
       extractionBlockerSummary?.hasBlockers
     ) {
+      // The source itself blocks: trying again cannot help.
+      setRetryStep(null);
       setWorkflowPhase("failed");
       setWorkflowMessage(null);
       setWorkflowError(
         extractEnvelope.msg || "Extraction produced blocking diagnostics.",
       );
-      return;
+      return null;
     }
 
+    return extractedSession;
+  };
+
+  const previewSession = async (
+    extractedSession: OctopusImportSession,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    setRetryStep({ step: "preview", session: extractedSession });
     setWorkflowPhase("previewing");
     setWorkflowMessage("Generating preview...");
 
     const previewEnvelope = await previewOctopusImport(
-      uploadSession.sessionId,
+      extractedSession.sessionId,
       space.id,
       signal,
     );
@@ -721,6 +786,7 @@ const ImportProjects: React.FC = () => {
       return;
     }
 
+    setRetryStep(null);
     setWorkflowPhase("ready");
     if (
       previewEnvelope.code !== 200 ||
@@ -995,6 +1061,7 @@ const ImportProjects: React.FC = () => {
     const controller = new AbortController();
     workflowAbortRef.current = controller;
 
+    setRetryStep(null);
     setWorkflowPhase("validating");
     setWorkflowMessage("Validating preview plan...");
     setWorkflowWarning(null);
@@ -1031,6 +1098,7 @@ const ImportProjects: React.FC = () => {
             : null,
         );
         setWorkflowHint(errorKindHint(validateEnvelope.errorKind));
+        if (validateEnvelope.code !== 200) setRetryStep({ step: "import" });
         return;
       }
 
@@ -1071,6 +1139,7 @@ const ImportProjects: React.FC = () => {
       setWorkflowPhase("ready");
       setWorkflowMessage(null);
       setWorkflowError(getErrorMessage(error));
+      setRetryStep({ step: "import" });
     }
   };
 
@@ -1137,6 +1206,10 @@ const ImportProjects: React.FC = () => {
         onClick={() => void runImportWorkflow(null)}
       >
         Start again
+      </Button>
+    ) : retryStep && (workflowPhase === "failed" || workflowPhase === "ready") ? (
+      <Button size="small" onClick={() => void retryFailedStep()}>
+        Try again
       </Button>
     ) : null;
 

@@ -801,6 +801,62 @@ describe('ImportProjects', () => {
     expect(screen.getByTestId('server-import-steps').querySelector('.ant-steps-item-error')).toHaveTextContent('Preview');
   });
 
+  // A step after a long read fails for a passing reason: "Try again" redoes only that step on the same session, never the read.
+  it.each([
+    ['extract envelope', 'extract', 'envelope'],
+    ['extract thrown', 'extract', 'thrown'],
+    ['preview envelope', 'preview', 'envelope'],
+    ['preview thrown', 'preview', 'thrown'],
+  ])('retriesOnlyTheFailedStepAfterTheRead_WhenExtractOrPreviewFails %s', async (_name, step, mode) => {
+    const target = step === 'extract' ? api.extractOctopusImport : api.previewOctopusImport;
+    if (mode === 'thrown') target.mockRejectedValueOnce(new Error('Network dropped.'));
+    else target.mockResolvedValueOnce({ code: 500, msg: 'Network dropped.', data: null, errorKind: null });
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Network dropped.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await screen.findByText('By project');
+    expect(api.connectOctopusImport).toHaveBeenCalledTimes(1);
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3);
+    expect(api.extractOctopusImport).toHaveBeenCalledTimes(step === 'extract' ? 2 : 1);
+    expect(api.previewOctopusImport).toHaveBeenCalledTimes(step === 'preview' ? 2 : 1);
+    expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
+  });
+
+  it.each([['envelope'], ['thrown']])('retriesTheImport_WhenValidationFailsForAPassingReason %s', async mode => {
+    if (mode === 'thrown') api.validateOctopusImport.mockRejectedValueOnce(new Error('Network dropped.'));
+    else api.validateOctopusImport.mockResolvedValueOnce({ code: 500, msg: 'Network dropped.', data: null, errorKind: null });
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('By project');
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    await screen.findByText('Network dropped.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await screen.findByText('Project list', {}, { timeout: 4000 });
+    expect(api.validateOctopusImport).toHaveBeenCalledTimes(2);
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it('offersNoRetry_WhenExtractionReportsBlockers', async () => {
+    api.extractOctopusImport.mockResolvedValueOnce(ok({
+      session: session(OctopusImportSessionState.Uploaded),
+      extraction: { extractedAt: '', documentCount: 1, resourceCount: 1, counts: [], files: [], diagnostics: [], hasBlockers: true },
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+    await screen.findByText('Extraction produced blocking diagnostics.');
+
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
   it('showsConfigurationProgress_WhileReadingTheSpaceCatalog', async () => {
     api.fetchOctopusImportHistory.mockReset();
     api.fetchOctopusImportHistory
