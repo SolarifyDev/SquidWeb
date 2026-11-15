@@ -12,6 +12,8 @@ import {
   type OctopusImportPreviewResource,
   type OctopusImportPreviewSummary,
   type OctopusImportRequiredInput,
+  type OctopusImportFillPairing,
+  OctopusImportCompatibilitySeverity,
 } from 'pages/apis/octopusImport';
 import {
   fetchPhaseLabel,
@@ -38,6 +40,10 @@ import {
   scopeSummary,
   skippedResources,
   withheldSecrets,
+  originNotice,
+  pairingCopy,
+  IMPORT_ORIGIN_PAIRING_REQUIRED,
+  IMPORT_ORIGIN_UNPROVEN,
 } from './importPreviewSummary';
 
 const resource = (
@@ -581,5 +587,77 @@ describe('withheldSecrets', () => {
   it('scopeSummary_EmptyForUnscoped', () => {
     expect(scopeSummary({})).toBe('');
     expect(scopeSummary({ Environment: [] })).toBe('');
+  });
+});
+
+const pairingOf = (extra: Partial<OctopusImportFillPairing> = {}): OctopusImportFillPairing => ({
+  required: true, confirmed: false, installationId: null, serverHost: null, octopusSpaceId: null, octopusVersion: null,
+  fileExportSourceId: null, recordedExportSourceId: null, matchingStructureIds: 2, ...extra,
+});
+
+const diagnostic = (code: string, severity = OctopusImportCompatibilitySeverity.Warning) => ({ code, severity, message: 'server message' });
+
+describe('pairingCopy', () => {
+  // A server read into a space an export file created: the copy names the server and the file's fingerprint, never "export file" as the source.
+  it('serverSource_LinkingToAFileSpace_NamesTheServerAndTheRecordedFingerprint', () => {
+    const plan = planOf([], {
+      diagnostics: [diagnostic(IMPORT_ORIGIN_PAIRING_REQUIRED)],
+      fillPairing: pairingOf({ sourceInstallationId: 'inst-x', sourceServerHost: 'octopus-x.example.com', sourceOctopusSpaceId: 'Spaces-2', recordedExportSourceId: 'ABC123' }),
+    });
+
+    const copy = pairingCopy(plan);
+
+    expect(copy.title).toBe('Confirm this is the Octopus server this space came from');
+    expect(copy.intro).toContain('This Octopus server would link to what an earlier import created in this space');
+    expect(copy.intro).toContain('2 matching step, action or phase ids');
+    expect(copy.incoming).toEqual(['Server: octopus-x.example.com', 'Space: Spaces-2', 'Installation: inst-x']);
+    expect(copy.recorded).toEqual(['Export file fingerprint: ABC123']);
+    expect(copy.confirmLabel).toBe('This Octopus server is the one this space was imported from');
+    expect([copy.title, copy.intro, copy.confirmLabel].join(' ')).not.toContain('This export file');
+  });
+
+  // An export file linking to what a server import created (no secret to fill): it links, it does not fill.
+  it('fileSource_LinkingToAServerSpace_SaysItLinks', () => {
+    const plan = planOf([], {
+      diagnostics: [diagnostic(IMPORT_ORIGIN_PAIRING_REQUIRED)],
+      fillPairing: pairingOf({ installationId: 'inst-a', serverHost: 'octopus.example.com', octopusSpaceId: 'Spaces-1', fileExportSourceId: 'FFF000' }),
+    });
+
+    const copy = pairingCopy(plan);
+
+    expect(copy.title).toBe('Confirm where this export file comes from');
+    expect(copy.intro).toContain('This export file would link to what an earlier import created in this space');
+    expect(copy.intro).not.toContain('fill secrets');
+    expect(copy.incoming).toEqual(['Export file fingerprint: FFF000']);
+    expect(copy.recorded).toEqual(['Server: octopus.example.com', 'Space: Spaces-1', 'Version: unknown', 'Installation: inst-a']);
+    expect(copy.confirmLabel).toBe('This export file comes from that Octopus installation');
+  });
+
+  // The original case: a file filling secrets an API import left missing.
+  it('fileSource_FillingSecrets_SaysItFills', () => {
+    const copy = pairingCopy(planOf([], { fillPairing: pairingOf({ serverHost: 'octopus.example.com' }) }));
+
+    expect(copy.intro).toContain('This export file would fill secrets an earlier import read from the Octopus API');
+    expect(copy.recorded).toContain('Server: octopus.example.com');
+  });
+});
+
+describe('originNotice', () => {
+  it.each([
+    [IMPORT_ORIGIN_UNPROVEN, OctopusImportCompatibilitySeverity.Blocker, true],
+    [IMPORT_ORIGIN_PAIRING_REQUIRED, OctopusImportCompatibilitySeverity.Warning, false],
+    ['octopus.preview.something_else', OctopusImportCompatibilitySeverity.Blocker, false],
+  ])('%s_NoticeOnlyWhenRefused', (code, severity, expected) => {
+    const notice = originNotice(planOf([], { diagnostics: [diagnostic(code, severity)] }));
+
+    expect(notice !== null).toBe(expected);
+    if (!expected) return;
+    expect(notice?.title).toBe('This import comes from a different Octopus than this space');
+    expect(notice?.hint).toContain('Nothing is linked or written');
+    expect(notice?.hint).toContain('Import it into another space');
+  });
+
+  it('noPlan_NoNotice', () => {
+    expect(originNotice(null)).toBeNull();
   });
 });

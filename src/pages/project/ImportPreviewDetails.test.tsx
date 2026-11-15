@@ -201,4 +201,26 @@ describe('secrets panels', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     expect(onChange).toHaveBeenCalledWith(true);
   });
+
+  it('pairingOfAServerSource_NamesTheServer_NotAnExportFile', () => {
+    render(
+      <FillPairingConfirmation
+        confirmed={false}
+        onChange={vi.fn()}
+        linksEarlierImport
+        pairing={{
+          required: true, confirmed: false, installationId: null, serverHost: null, octopusSpaceId: null, octopusVersion: null,
+          sourceInstallationId: 'inst-x', sourceServerHost: 'octopus-x.example.com', sourceOctopusSpaceId: 'Spaces-2',
+          fileExportSourceId: null, recordedExportSourceId: 'ABC123', matchingStructureIds: 1,
+        }}
+      />,
+    );
+
+    const pairing = screen.getByTestId('fill-pairing');
+    expect(pairing).toHaveTextContent('This Octopus server would link to what an earlier import created in this space');
+    expect(pairing).toHaveTextContent('1 matching step, action or phase id tie');
+    expect(pairing).toHaveTextContent('This source: Server: octopus-x.example.com, Space: Spaces-2, Installation: inst-x');
+    expect(pairing).toHaveTextContent('Export file fingerprint: ABC123');
+    expect(screen.getByRole('checkbox', { name: 'This Octopus server is the one this space was imported from' })).toBeInTheDocument();
+  });
 });

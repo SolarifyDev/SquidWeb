@@ -19,6 +19,7 @@ import {
   fillDestinationLink,
   fillResources,
   missingSecretLink,
+  pairingCopyOf,
   projectDestinationLink,
   requiredInputKindLabel,
   skippedResources,
@@ -437,34 +438,40 @@ export const MissingSecretsAfterImport: React.FC<{
   );
 };
 
-/** The first export file filling secrets of an API import: the user confirms it comes from the same Octopus installation. */
+/**
+ * The first pairing of an import source (an export file or an Octopus server) with the Octopus this space was imported from: the
+ * user confirms both are the same Octopus before the import links to what earlier imports created, or fills secrets they left missing.
+ */
 export const FillPairingConfirmation: React.FC<{
   pairing: OctopusImportFillPairing;
   confirmed: boolean;
   onChange: (confirmed: boolean) => void;
+  /** The import would link to earlier imported resources (otherwise it fills secrets). */
+  linksEarlierImport?: boolean;
   disabled?: boolean;
-}> = ({ pairing, confirmed, onChange, disabled }) => (
-  <Alert
-    data-testid="fill-pairing"
-    type="warning"
-    showIcon
-    message="Confirm where this export file comes from"
-    description={
-      <div className="space-y-2">
-        <div>
-          This export file would fill secrets an earlier import read from the Octopus API. The file carries no proof of its installation,
-          only {pluralize(pairing.matchingStructureIds, "matching step, action or phase id")}. Fill only if it was exported from:
+}> = ({ pairing, confirmed, onChange, linksEarlierImport = false, disabled }) => {
+  const copy = pairingCopyOf(pairing, linksEarlierImport);
+
+  return (
+    <Alert
+      data-testid="fill-pairing"
+      type="warning"
+      showIcon
+      message={copy.title}
+      description={
+        <div className="space-y-2">
+          <div>{copy.intro}</div>
+          <ul className="list-disc pl-5">
+            {copy.recorded.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {copy.incoming.length ? <div>This source: {copy.incoming.join(", ")}</div> : null}
+          <Checkbox checked={confirmed} disabled={disabled} onChange={(event) => onChange(event.target.checked)}>
+            {copy.confirmLabel}
+          </Checkbox>
         </div>
-        <ul className="list-disc pl-5">
-          <li>Server: {pairing.serverHost ?? "unknown"}</li>
-          <li>Space: {pairing.octopusSpaceId ?? "unknown"}</li>
-          <li>Version: {pairing.octopusVersion ?? "unknown"}</li>
-          <li>Installation: {pairing.installationId ?? "unknown"}</li>
-        </ul>
-        <Checkbox checked={confirmed} disabled={disabled} onChange={(event) => onChange(event.target.checked)}>
-          This export file comes from that Octopus installation
-        </Checkbox>
-      </div>
-    }
-  />
-);
+      }
+    />
+  );
+};

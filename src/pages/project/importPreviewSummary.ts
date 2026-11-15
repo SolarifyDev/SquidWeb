@@ -6,6 +6,7 @@ import {
   type OctopusHistoryFetchCounts,
   type OctopusHistoryFetchProgress,
   type OctopusImportFillDestination,
+  type OctopusImportFillPairing,
   type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
@@ -471,3 +472,78 @@ export const withheldSecrets = (resources: OctopusImportPreviewResource[]): With
         scope: scopeSummary(input.sourceScopes),
         fillable: Boolean(input.fillable),
       })));
+
+/** The preview's origin check: the source would link to rows of another Octopus and nothing proves it is the same one. */
+export const IMPORT_ORIGIN_UNPROVEN = 'octopus.preview.import_origin_unproven';
+
+/** The preview's origin check: matching process ids tie the source to the space's Octopus; the user confirms the pairing. */
+export const IMPORT_ORIGIN_PAIRING_REQUIRED = 'octopus.preview.import_origin_pairing_required';
+
+export interface PairingCopy {
+  title: string;
+  intro: string;
+  /** The incoming source, as the pairing names it. */
+  incoming: string[];
+  /** What the space was imported from. */
+  recorded: string[];
+  confirmLabel: string;
+}
+
+export interface OriginNotice {
+  title: string;
+  hint: string;
+}
+
+const hasDiagnostic = (plan: OctopusImportPreviewPlan | null | undefined, code: string) => Boolean(plan?.diagnostics?.some(d => d.code === code));
+
+const countOf = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+const listed = (lines: Array<[string, string | null | undefined]>) => lines.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
+
+const isServerSource = (pairing: OctopusImportFillPairing) => Boolean(pairing.sourceInstallationId);
+
+const incomingLines = (pairing: OctopusImportFillPairing) =>
+  isServerSource(pairing)
+    ? listed([['Server', pairing.sourceServerHost], ['Space', pairing.sourceOctopusSpaceId], ['Installation', pairing.sourceInstallationId]])
+    : listed([['Export file fingerprint', pairing.fileExportSourceId]]);
+
+// The space's API import names its server (unknown parts shown as such); a file-imported space names the pinned fingerprint.
+const recordedLines = (pairing: OctopusImportFillPairing) =>
+  pairing.installationId || !pairing.recordedExportSourceId
+    ? [`Server: ${pairing.serverHost ?? 'unknown'}`, `Space: ${pairing.octopusSpaceId ?? 'unknown'}`, `Version: ${pairing.octopusVersion ?? 'unknown'}`, `Installation: ${pairing.installationId ?? 'unknown'}`]
+    : listed([['Export file fingerprint', pairing.recordedExportSourceId]]);
+
+const pairingIntro = (pairing: OctopusImportFillPairing, links: boolean) => {
+  const subject = isServerSource(pairing) ? 'This Octopus server' : 'This export file';
+  const action = links ? 'link to what an earlier import created in this space' : 'fill secrets an earlier import read from the Octopus API';
+
+  return `${subject} would ${action}. Ids like Projects-1 repeat across Octopus servers, and only ${countOf(pairing.matchingStructureIds, 'matching step, action or phase id')} tie it to this space's Octopus. Continue only if it comes from:`;
+};
+
+/** The words of the pairing confirmation: who the incoming source is (server or export file), and whether it links or fills. */
+export const pairingCopyOf = (pairing: OctopusImportFillPairing, links: boolean): PairingCopy => {
+  const server = isServerSource(pairing);
+
+  return {
+    title: server ? 'Confirm this is the Octopus server this space came from' : 'Confirm where this export file comes from',
+    intro: pairingIntro(pairing, links),
+    incoming: incomingLines(pairing),
+    recorded: recordedLines(pairing),
+    confirmLabel: server ? 'This Octopus server is the one this space was imported from' : 'This export file comes from that Octopus installation',
+  };
+};
+
+/** The pairing's words for a preview plan: it links when the origin check asks for the pairing, otherwise it fills. */
+export const pairingCopy = (plan: OctopusImportPreviewPlan): PairingCopy => pairingCopyOf(plan.fillPairing as OctopusImportFillPairing, linksEarlierImport(plan));
+
+/** The origin check asks the pairing: the source would link to what an earlier import created. */
+export const linksEarlierImport = (plan: OctopusImportPreviewPlan | null | undefined) => hasDiagnostic(plan, IMPORT_ORIGIN_PAIRING_REQUIRED);
+
+/** Shown when the origin check refuses the import (the reason itself is the server's message in the blocker list). */
+export const originNotice = (plan: OctopusImportPreviewPlan | null | undefined): OriginNotice | null =>
+  hasDiagnostic(plan, IMPORT_ORIGIN_UNPROVEN)
+    ? {
+        title: 'This import comes from a different Octopus than this space',
+        hint: 'Ids like Projects-1 repeat across Octopus servers, and nothing ties this source to the Octopus this space was imported from. Nothing is linked or written. Import it into another space, or import the Octopus server or export file this space came from.',
+      }
+    : null;

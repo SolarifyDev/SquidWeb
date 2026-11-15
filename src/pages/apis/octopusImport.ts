@@ -284,6 +284,12 @@ export interface OctopusImportFillPairing {
   serverHost: string | null;
   octopusSpaceId: string | null;
   octopusVersion: string | null;
+  /** The Octopus installation the incoming source reads (an Octopus server); null for an export file. */
+  sourceInstallationId?: string | null;
+  /** The Octopus server (host[:port]) the incoming source reads; null for an export file or when unknown. */
+  sourceServerHost?: string | null;
+  /** The Octopus space the incoming source reads; null for an export file or when unknown. */
+  sourceOctopusSpaceId?: string | null;
   fileExportSourceId: string | null;
   recordedExportSourceId: string | null;
   matchingStructureIds: number;
@@ -373,7 +379,7 @@ export interface OctopusImportPreviewPlan {
   requiredInputs: OctopusImportRequiredInput[];
   diagnostics: OctopusImportDiagnostic[];
   hasBlockers: boolean;
-  /** Set when filling missing secrets needs the user to confirm the export file's installation. */
+  /** Set when the import (its links to earlier imported rows, or its secret fills) needs the user to confirm the source's Octopus. */
   fillPairing?: OctopusImportFillPairing | null;
   /** Totals, per-kind and per-project counts, skip reasons and the "up to date" flag. */
   summary?: OctopusImportPreviewSummary | null;

@@ -55,6 +55,8 @@ import {
   isUpToDate,
   permissionProblem,
   planToValidate,
+  linksEarlierImport,
+  originNotice,
   summarizeActions,
   summarizeByProject,
   type FetchFailureRecovery,
@@ -1723,9 +1725,20 @@ const ImportProjects: React.FC = () => {
                     />
                   ) : null}
 
+                  {originNotice(previewPlan) ? (
+                    <Alert
+                      data-testid="import-origin-notice"
+                      type="error"
+                      showIcon
+                      message={originNotice(previewPlan)?.title}
+                      description={originNotice(previewPlan)?.hint}
+                    />
+                  ) : null}
+
                   {previewPlan?.fillPairing?.required ? (
                     <FillPairingConfirmation
                       pairing={previewPlan.fillPairing}
+                      linksEarlierImport={linksEarlierImport(previewPlan)}
                       confirmed={pairingConfirmed}
                       disabled={isFinalizingImport || workflowPhase === "succeeded"}
                       onChange={setPairingConfirmed}

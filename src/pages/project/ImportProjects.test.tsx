@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as importApi from 'pages/apis/octopusImport';
 import {
   OctopusHistoryFetchPhase,
+  OctopusImportCompatibilitySeverity,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
   OctopusImportRequiredInputKind,
@@ -967,6 +968,44 @@ describe('ImportProjects', () => {
 
     await screen.findByText('Project list', {}, { timeout: 4000 });
     expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
+  });
+
+  // The origin check refused the source (another Octopus than the space's): the page explains it and nothing can be imported.
+  it('refusedOrigin_ShowsTheNotice_AndBlocksTheImport', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview({
+      ...fillPlan(false),
+      hasBlockers: true,
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Blocker, code: 'octopus.preview.import_origin_unproven', message: 'This import would link to resources an earlier import created in this space.' }],
+    });
+    renderPage();
+    await pickFile();
+
+    const notice = await screen.findByTestId('import-origin-notice');
+    expect(notice).toHaveTextContent('This import comes from a different Octopus than this space');
+    expect(notice).toHaveTextContent('Import it into another space');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  // A pairing asked by the origin check speaks of linking, and of the source the user picked.
+  it('originPairing_SaysTheImportLinks_AndNamesTheRecordedFingerprint', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    const plan = fillPlan(true);
+    mockPreview({
+      ...plan,
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Warning, code: 'octopus.preview.import_origin_pairing_required', message: 'Confirm the pairing.' }],
+      fillPairing: { ...plan.fillPairing!, installationId: null, serverHost: null, octopusSpaceId: null, octopusVersion: null, recordedExportSourceId: 'ABC123', sourceInstallationId: 'inst-x', sourceServerHost: 'octopus-x.example.com' },
+    });
+    renderPage();
+    await pickFile();
+
+    const pairing = await screen.findByTestId('fill-pairing');
+    expect(pairing).toHaveTextContent('Confirm this is the Octopus server this space came from');
+    expect(pairing).toHaveTextContent('This Octopus server would link to what an earlier import created in this space');
+    expect(pairing).toHaveTextContent('Export file fingerprint: ABC123');
+    expect(pairing).toHaveTextContent('octopus-x.example.com');
+    expect(pairing).not.toHaveTextContent('fill secrets');
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
   });
 
   it('staysAfterTheImport_ListingTheSecretsItLeftMissing', async () => {
