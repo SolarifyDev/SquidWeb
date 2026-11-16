@@ -304,7 +304,11 @@ export enum OctopusImportFillEvidenceState {
 
 export interface OctopusImportOriginEvidence {
   state: OctopusImportFillEvidenceState;
-  /** installation / export-fingerprint (proven); installation-mismatch / other-origin-rows (refused); null when only process ids could tie it. */
+  /**
+   * installation / export-fingerprint / confirmed-pairing (proven); installation-mismatch / other-origin-rows (refused);
+   * export-fingerprint-mismatch (an export file whose fingerprint the space does not know: refused without process ids in common, pairing
+   * with them); null when only process ids could tie it.
+   */
   basis: string | null;
   /** Process step, action and lifecycle phase ids of this source that an import of the space's recorded origin created. */
   matchingStructureIds: number;

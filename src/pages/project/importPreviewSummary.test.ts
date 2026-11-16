@@ -655,6 +655,7 @@ describe('originNotice', () => {
     [null, 'This import comes from a different Octopus than this space'],
     ['installation-mismatch', 'This import comes from another Octopus installation than this space'],
     ['other-origin-rows', 'This import would link to resources another Octopus source created in this space'],
+    ['export-fingerprint-mismatch', "This export file's fingerprint is not one this space was imported from"],
   ])('refusedVerdict_%s_NamesBothOrigins', (basis, title) => {
     const notice = originNotice(planOf([], { origin: originOf(OctopusImportFillEvidenceState.Unproven, basis) }));
 

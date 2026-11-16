@@ -548,6 +548,7 @@ const DIFFERENT_OCTOPUS_TITLE = 'This import comes from a different Octopus than
 const ORIGIN_REFUSAL_TITLES: Record<string, string> = {
   'installation-mismatch': 'This import comes from another Octopus installation than this space',
   'other-origin-rows': 'This import would link to resources another Octopus source created in this space',
+  'export-fingerprint-mismatch': "This export file's fingerprint is not one this space was imported from",
 };
 
 const ORIGIN_REFUSAL_HINT = 'Ids like Projects-1 repeat across Octopus servers, and nothing ties this source to the Octopus this space was imported from. Nothing will be linked or written. Import it into another space, or import the Octopus server or export file this space came from.';

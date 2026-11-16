@@ -1092,6 +1092,57 @@ describe('ImportProjects', () => {
     expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
   });
 
+  // An export file whose fingerprint the space does not know: with no process id in common it is refused, naming both fingerprints;
+  // with matching ones it asks the file pairing (both fingerprints shown) and posts the confirmation.
+  const fileFingerprintOrigin: OctopusImportOriginEvidence = {
+    state: OctopusImportFillEvidenceState.Unproven, basis: 'export-fingerprint-mismatch', matchingStructureIds: 0,
+    source: 'an export file with fingerprint FFF000', recorded: 'an export file with fingerprint ABC123',
+  };
+
+  it('file_unknownFingerprint_NoProcessIdInCommon_RefusedNamingBothFingerprints', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(originPlan(fileFingerprintOrigin, {
+      hasBlockers: true,
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Blocker, code: 'octopus.preview.import_origin_unproven', message: 'Refused.' }],
+    }));
+    renderPage();
+    await pickFile();
+
+    const notice = await screen.findByTestId('import-origin-notice');
+    expect(notice).toHaveTextContent("This export file's fingerprint is not one this space was imported from");
+    expect(notice).toHaveTextContent('This source: an export file with fingerprint FFF000');
+    expect(notice).toHaveTextContent('This space was imported from: an export file with fingerprint ABC123');
+    expect(notice).toHaveTextContent('Nothing will be linked or written');
+    expect(screen.queryByTestId('fill-pairing')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+  });
+
+  it('file_unknownFingerprint_MatchingProcessIds_AsksTheFilePairing_AndPostsIt', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    const pairing = fillPlan(true).fillPairing!;
+    mockPreview(originPlan({ ...fileFingerprintOrigin, state: OctopusImportFillEvidenceState.PairingRequired, matchingStructureIds: 2 }, {
+      diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Warning, code: 'octopus.preview.import_origin_pairing_required', message: 'Confirm.' }],
+      fillPairing: { ...pairing, installationId: null, serverHost: null, sourceInstallationId: null, fileExportSourceId: 'FFF000', recordedExportSourceId: 'ABC123', matchingStructureIds: 2 },
+    }));
+    renderPage();
+    await pickFile();
+
+    const card = await screen.findByTestId('fill-pairing');
+    expect(card).toHaveTextContent('Confirm where this export file comes from');
+    expect(card).toHaveTextContent('This export file would link to what an earlier import created in this space');
+    expect(card).toHaveTextContent('Export file fingerprint: FFF000');
+    expect(card).toHaveTextContent('Export file fingerprint: ABC123');
+    expect(card).toHaveTextContent('2 matching step, action or phase ids');
+    expect(screen.queryByTestId('import-origin-notice')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+
+    fireEvent.click(within(card).getByRole('checkbox', { name: 'This export file comes from the same Octopus server this space was imported from' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    await screen.findByText('Project list', {}, { timeout: 4000 });
+    expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
+  });
+
   it.each(['server', 'file'] as const)('%s_provenVerdict_ShowsOnlyTheBasis', async source => {
     api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
     mockPreview(originPlan({ ...refusedOrigin, state: OctopusImportFillEvidenceState.Proven, basis: source === 'server' ? 'installation' : 'export-fingerprint' }));
