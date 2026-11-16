@@ -14,6 +14,10 @@ import {
   type OctopusImportSkipReasonCount,
 } from "pages/apis/octopusImport";
 import {
+  choiceGroups,
+  choiceKindText,
+  followersText,
+  type ChoiceRow,
   changedResources,
   describeFillDestination,
   fillDestinationLink,
@@ -260,13 +264,104 @@ const FillList: React.FC<{ resources: OctopusImportPreviewResource[]; spaceSlug:
   </section>
 );
 
+// ── Choices (deleted in Squid, added in Octopus since) ───────────────────────
+
+export interface PreviewChoiceProps {
+  /** Ticks or unticks the given choice rows; without it the choices are shown read-only. */
+  onChoiceChange?: (sourceIds: string[], selected: boolean) => void;
+  /** The ticks differ from the plan the counts were computed for. */
+  choicesPending?: boolean;
+  choicesDisabled?: boolean;
+}
+
+const CHOICE_SECTIONS = [
+  {
+    id: "deleted",
+    title: "Deleted in Squid",
+    hint: "Imported before, then deleted (or renamed) in Squid. They stay deleted unless you tick them. A channel you tick is created again and takes back the releases and deployments imported on it.",
+  },
+  {
+    id: "added",
+    title: "Added in Octopus since the last import",
+    hint: "Added in Octopus after what they belong to was imported. Imported configuration is never changed unless you tick it: ticked items are added, and nothing already in Squid is overwritten. New channels are ticked because their releases and deployments need them.",
+  },
+] as const;
+
+const choiceRowKey = (row: ChoiceRow) => row.resource.sourceId;
+
+const projectNameOf = (plan: OctopusImportPreviewPlan, projectSourceId: string | null | undefined) =>
+  plan.summary?.projects.find((project) => project.sourceId === projectSourceId)?.sourceName ?? "";
+
+const ChoiceName: React.FC<{ row: ChoiceRow }> = ({ row }) => {
+  const followers = followersText(row.followers);
+
+  return (
+    <span>
+      {row.resource.sourceName}
+      {followers ? <span className="ml-1 text-xs text-slate-500">{followers}</span> : null}
+    </span>
+  );
+};
+
+const ChoiceSection: React.FC<{ id: string; title: string; hint: string; rows: ChoiceRow[]; plan: OctopusImportPreviewPlan } & PreviewChoiceProps> = ({ id, title, hint, rows, plan, onChoiceChange, choicesDisabled }) => (
+  <div data-testid={`choices-${id}`}>
+    <h2 className="mb-1 text-base font-semibold">{title}</h2>
+    <div className="mb-3 text-xs text-slate-500">{hint}</div>
+    <Table
+      size="small"
+      pagination={false}
+      rowKey={choiceRowKey}
+      dataSource={rows}
+      rowSelection={{
+        selectedRowKeys: rows.filter((row) => row.resource.choice?.selected).map(choiceRowKey),
+        getCheckboxProps: () => ({ disabled: !onChoiceChange || choicesDisabled }),
+        onSelect: (row: ChoiceRow, selected: boolean) => onChoiceChange?.([choiceRowKey(row)], selected),
+        onSelectAll: (selected: boolean) => onChoiceChange?.(rows.map(choiceRowKey), selected),
+      }}
+      columns={[
+        { title: "Kind", key: "kind", width: 140, render: (row: ChoiceRow) => choiceKindText(row.resource.sourceType) },
+        { title: "Name", key: "name", render: (row: ChoiceRow) => <ChoiceName row={row} /> },
+        { title: "In", key: "owner", render: (row: ChoiceRow) => row.resource.choice?.ownerName ?? "" },
+        { title: "Project", key: "project", render: (row: ChoiceRow) => projectNameOf(plan, row.resource.ownerProjectSourceId) },
+      ]}
+    />
+  </div>
+);
+
+/** What the user decides on: items deleted in Squid after an earlier import, and items added in Octopus since. */
+const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan } & PreviewChoiceProps> = ({ plan, ...choiceProps }) => {
+  const groups = choiceGroups(plan.resources);
+  if (!groups.deleted.length && !groups.added.length) return null;
+
+  return (
+    <section data-testid="preview-choices" className="space-y-4">
+      {choiceProps.choicesPending ? (
+        <Alert
+          data-testid="choices-pending"
+          type="info"
+          showIcon
+          message="You changed what to import. Update the preview to see the new counts before importing."
+        />
+      ) : null}
+      {CHOICE_SECTIONS.filter((section) => groups[section.id].length).map((section) => (
+        <ChoiceSection key={section.id} {...section} rows={groups[section.id]} plan={plan} {...choiceProps} />
+      ))}
+      <div data-testid="choices-footer" className="text-xs text-slate-500">
+        Unticked items are not remembered: the next import offers them again.
+      </div>
+    </section>
+  );
+};
+
 /** The incremental preview: overall and per-project counts, where each project lands in Squid, field-level changes, fills and skips. */
-export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string }> = ({ plan, spaceSlug }) => {
+export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string } & PreviewChoiceProps> = ({ plan, spaceSlug, ...choiceProps }) => {
   const summary = plan.summary;
   if (!summary) return null;
 
   const fills = fillResources(plan.resources);
   const rows = groupRows(plan);
+  const choices = choiceGroups(plan.resources);
+  const offersLeft = choices.deleted.length + choices.added.length > 0;
 
   return (
     <div className="space-y-6">
@@ -276,11 +371,17 @@ export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; s
           type="success"
           showIcon
           message="Everything is up to date"
-          description="Everything this source contains is already in Squid. Importing again would change nothing."
+          description={
+            offersLeft
+              ? "Everything this source contains is already in Squid, except the items offered below. Importing again would change nothing unless you tick one of them."
+              : "Everything this source contains is already in Squid. Importing again would change nothing."
+          }
         />
       ) : null}
 
       <OverallSummary counts={summary.counts} />
+
+      <ChoicesPanel plan={plan} {...choiceProps} />
 
       {rows.length ? (
         <section>

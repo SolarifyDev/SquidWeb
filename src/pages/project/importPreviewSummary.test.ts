@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   OctopusHistoryFetchPhase,
+  OctopusImportChoiceReason,
   OctopusImportPreviewAction,
   OctopusImportResourceOutcomeState,
   type OctopusHistoryFetchProgress,
@@ -18,6 +19,10 @@ import {
   type OctopusImportOriginEvidence,
 } from 'pages/apis/octopusImport';
 import {
+  choiceGroups,
+  followersText,
+  selectionChanged,
+  withSelection,
   fetchPhaseLabel,
   fetchProgressPercent,
   historyFetchNotices,
@@ -723,5 +728,93 @@ describe('originProof', () => {
   it('noVerdict_NoProof', () => {
     expect(originProof(planOf([]))).toBeNull();
     expect(originProof(null)).toBeNull();
+  });
+});
+
+const chosen = (
+  sourceType: string,
+  sourceId: string,
+  reason: OctopusImportChoiceReason,
+  selected: boolean,
+  followsSourceId: string | null = null,
+): OctopusImportPreviewResource => ({
+  ...resource(sourceType, sourceId, selected ? Create : Skip, 'Projects-1'),
+  choice: { reason, selected, defaultSelected: selected, followsSourceId, ownerName: "Deployment process of 'Web'" },
+});
+
+const { DeletedInSquid, AddedInOctopus } = OctopusImportChoiceReason;
+
+const choicePlan = () => planOf([
+  resource('Project', 'Projects-1', AlreadyImported, 'Projects-1'),
+  chosen('DeploymentStep', 'Steps-2', DeletedInSquid, false),
+  chosen('DeploymentStep', 'Steps-7', AddedInOctopus, false),
+  chosen('DeploymentAction', 'Actions-71', AddedInOctopus, false, 'Steps-7'),
+  chosen('DeploymentAction', 'Actions-72', AddedInOctopus, false, 'Steps-7'),
+  chosen('Channel', 'Channels-3', AddedInOctopus, true),
+  resource('Release', 'Releases-9', Create, 'Projects-1'),
+]);
+
+describe('choices', () => {
+  it('reasonOrdinals_matchBackend', () => {
+    expect([DeletedInSquid, AddedInOctopus]).toEqual([0, 1]);
+  });
+
+  it('choiceGroups_GroupsRootsByReason_CountsFollowers_AndNeverListsAFollower', () => {
+    const groups = choiceGroups(choicePlan().resources);
+
+    expect(groups.deleted.map(row => row.resource.sourceId)).toEqual(['Steps-2']);
+    expect(groups.added.map(row => row.resource.sourceId)).toEqual(['Steps-7', 'Channels-3']);
+    expect(groups.added[0].followers.map(row => row.sourceId)).toEqual(['Actions-71', 'Actions-72']);
+    expect(groups.added[1].followers).toEqual([]);
+    expect(groups.deleted[0].followers).toEqual([]);
+  });
+
+  it('choiceGroups_IsEmpty_ForAPlanWithoutChoices', () => {
+    expect(choiceGroups([resource('Project', 'Projects-1', Create)])).toEqual({ deleted: [], added: [] });
+  });
+
+  it('followersText_NamesTheKind_OrItems_WhenMixed', () => {
+    const groups = choiceGroups(choicePlan().resources);
+
+    expect(followersText(groups.added[0].followers)).toBe('+2 actions');
+    expect(followersText(groups.added[0].followers.slice(0, 1))).toBe('+1 action');
+    expect(followersText([])).toBeNull();
+    expect(followersText([...groups.added[0].followers, resource('Variable', 'v-1', Create)])).toBe('+3 items');
+  });
+
+  it('withSelection_SetsOnlyTheNamedRoots_AndLeavesThePlanUntouched', () => {
+    const plan = choicePlan();
+
+    const next = withSelection(plan, ['Steps-7', 'Actions-71', 'Releases-9'], true);
+
+    const selected = (items: OctopusImportPreviewResource[], id: string) => items.find(item => item.sourceId === id)?.choice?.selected;
+    expect(selected(next.resources, 'Steps-7')).toBe(true);
+    expect(selected(next.resources, 'Actions-71')).toBe(false);
+    expect(selected(next.resources, 'Steps-2')).toBe(false);
+    expect(next.resources.find(item => item.sourceId === 'Releases-9')?.choice).toBeUndefined();
+    expect(next.resources.map(item => item.previewAction)).toEqual(plan.resources.map(item => item.previewAction));
+    expect(selected(plan.resources, 'Steps-7')).toBe(false);
+    expect(next.resources[1]).toBe(plan.resources[1]);
+  });
+
+  it('selectionChanged_IsTrue_OnlyWhileARootDiffersFromThePreviewedPlan', () => {
+    const previewed = choicePlan();
+    const ticked = withSelection(previewed, ['Steps-2'], true);
+
+    expect(selectionChanged(previewed, previewed)).toBe(false);
+    expect(selectionChanged(ticked, previewed)).toBe(true);
+    expect(selectionChanged(withSelection(ticked, ['Steps-2'], false), previewed)).toBe(false);
+    expect(selectionChanged(planOf([]), planOf([]))).toBe(false);
+  });
+
+  it('planToValidate_KeepsTheChoices_AndStripsHistory', () => {
+    const plan = withSelection(choicePlan(), ['Steps-2', 'Channels-3'], true);
+
+    const posted = planToValidate(withSelection(plan, ['Channels-3'], false), false);
+
+    expect(posted.resources.some(item => item.sourceType === 'Release')).toBe(false);
+    expect(posted.resources.filter(item => item.choice).map(item => [item.sourceId, item.choice?.selected])).toEqual([
+      ['Steps-2', true], ['Steps-7', false], ['Actions-71', false], ['Actions-72', false], ['Channels-3', false],
+    ]);
   });
 });

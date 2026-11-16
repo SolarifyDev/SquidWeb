@@ -1,5 +1,6 @@
 import {
   OctopusHistoryFetchPhase,
+  OctopusImportChoiceReason,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
   OctopusImportRequiredInputKind,
@@ -125,12 +126,71 @@ export const isNothingNew = (resources: OctopusImportPreviewResource[]) =>
 export const isUpToDate = (plan: OctopusImportPreviewPlan) =>
   plan.summary ? plan.summary.isUpToDate : isNothingNew(plan.resources);
 
-/** The plan posted to validate: without history rows (the server re-plans them), with the user's pairing confirmation. */
+/** The plan posted to validate: without history rows (the server re-plans them), with the user's pairing confirmation and choices. */
 export const planToValidate = (plan: OctopusImportPreviewPlan, pairingConfirmed: boolean): OctopusImportPreviewPlan => {
   const posted = withoutHistoryRows(plan);
   if (!plan.fillPairing) return posted;
 
   return { ...posted, fillPairing: { ...plan.fillPairing, confirmed: pairingConfirmed } };
+};
+
+export interface ChoiceRow {
+  resource: OctopusImportPreviewResource;
+  /** Rows that follow it (the actions of a step): imported with it, never chosen on their own. */
+  followers: OctopusImportPreviewResource[];
+}
+
+export interface ChoiceGroups {
+  deleted: ChoiceRow[];
+  added: ChoiceRow[];
+}
+
+/** A row the user ticks: it has a choice and follows no other row. */
+const isChoiceRoot = (resource: OctopusImportPreviewResource) => Boolean(resource.choice && !resource.choice.followsSourceId);
+
+const choiceRowsOf = (resources: OctopusImportPreviewResource[], reason: OctopusImportChoiceReason): ChoiceRow[] =>
+  resources
+    .filter(resource => isChoiceRoot(resource) && Number(resource.choice?.reason) === reason)
+    .map(resource => ({ resource, followers: resources.filter(follower => follower.choice?.followsSourceId === resource.sourceId) }));
+
+/** The rows the user decides on, by reason: deleted in Squid after an earlier import, or added in Octopus since. */
+export const choiceGroups = (resources: OctopusImportPreviewResource[]): ChoiceGroups => ({
+  deleted: choiceRowsOf(resources, OctopusImportChoiceReason.DeletedInSquid),
+  added: choiceRowsOf(resources, OctopusImportChoiceReason.AddedInOctopus),
+});
+
+/** The plan with `selected` set on the given choice roots; followers and every other row are left as they are. */
+export const withSelection = (plan: OctopusImportPreviewPlan, sourceIds: string[], selected: boolean): OctopusImportPreviewPlan => ({
+  ...plan,
+  resources: plan.resources.map(resource =>
+    isChoiceRoot(resource) && sourceIds.includes(resource.sourceId) ? { ...resource, choice: { ...resource.choice!, selected } } : resource),
+});
+
+const selectionOf = (plan: OctopusImportPreviewPlan) =>
+  new Map(plan.resources.filter(isChoiceRoot).map(resource => [resource.sourceId, Boolean(resource.choice?.selected)]));
+
+/** True when a choice differs from the plan the server last returned: its counts no longer describe what would be imported. */
+export const selectionChanged = (plan: OctopusImportPreviewPlan, previewed: OctopusImportPreviewPlan) => {
+  const previewedSelection = selectionOf(previewed);
+
+  return Array.from(selectionOf(plan)).some(([sourceId, selected]) => previewedSelection.get(sourceId) !== selected);
+};
+
+const CHOICE_KIND_TEXT: Record<string, string> = {
+  DeploymentStep: 'Step',
+  DeploymentAction: 'Action',
+  LifecyclePhase: 'Lifecycle phase',
+};
+
+export const choiceKindText = (sourceType: string) => CHOICE_KIND_TEXT[sourceType] ?? sourceType;
+
+/** "+2 actions": what is imported along with a ticked row; null when nothing follows it. */
+export const followersText = (followers: OctopusImportPreviewResource[]) => {
+  if (!followers.length) return null;
+  const kinds = new Set(followers.map(follower => choiceKindText(follower.sourceType).toLowerCase()));
+  const noun = kinds.size === 1 ? Array.from(kinds)[0] : 'item';
+
+  return `+${countOf(followers.length, noun)}`;
 };
 
 const LISTED_LABELS: Partial<Record<PreviewActionBucket, string | null>> = {

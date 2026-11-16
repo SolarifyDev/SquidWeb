@@ -77,6 +77,13 @@ export enum OctopusImportRequiredInputKind {
   SensitiveActionProperty = 4,
 }
 
+/** Why the user decides whether a row is imported. */
+export enum OctopusImportChoiceReason {
+  // Append-only: mirrors the backend ordinals.
+  DeletedInSquid,
+  AddedInOctopus,
+}
+
 export enum OctopusImportProjectDestinationState {
   New,
   Existing,
@@ -371,6 +378,27 @@ export interface OctopusImportSkipReasonCount {
   count: number;
 }
 
+/**
+ * A row the user decides on: deleted in Squid after an earlier import, or added in Octopus after its owner was imported. The server
+ * sets every field; the client only sets `selected` on a root row (`followsSourceId` null) and posts the plan back to validate.
+ */
+export interface OctopusImportChoice {
+  reason: OctopusImportChoiceReason;
+  /** The effective selection: whether the row is imported. */
+  selected: boolean;
+  defaultSelected: boolean;
+  /** Set on a row that follows a choosable root (the actions of a choosable step); it has no checkbox of its own. */
+  followsSourceId: string | null;
+  /** What the row belongs to, for display ("Deployment process of 'Web'"). */
+  ownerName: string | null;
+}
+
+export interface OctopusImportChoiceCount {
+  reason: OctopusImportChoiceReason;
+  total: number;
+  selected: number;
+}
+
 export interface OctopusImportPreviewSummary {
   isUpToDate: boolean;
   counts: OctopusImportChangeCounts;
@@ -379,6 +407,8 @@ export interface OctopusImportPreviewSummary {
   /** Resources no Octopus project owns (environments, feeds, library variable sets, teams, ...). */
   space: OctopusImportPreviewGroup;
   skipReasons: OctopusImportSkipReasonCount[];
+  /** Choosable root rows per reason, offered and selected; absent on older servers. */
+  choices?: OctopusImportChoiceCount[] | null;
 }
 
 export interface OctopusImportPreviewResource {
@@ -396,6 +426,8 @@ export interface OctopusImportPreviewResource {
   changes?: OctopusImportFieldChange[];
   /** For a resource that is not imported (Skip, Unsupported): why. */
   skipReason?: OctopusImportSkipReason | null;
+  /** Set when the user decides whether this row is imported; null for every other row and on older servers. */
+  choice?: OctopusImportChoice | null;
   requiredInputs: OctopusImportRequiredInput[];
   diagnostics: OctopusImportDiagnostic[];
 }

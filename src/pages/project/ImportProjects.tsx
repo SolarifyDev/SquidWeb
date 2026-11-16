@@ -39,6 +39,7 @@ import {
   type OctopusImportSession,
   type OctopusImportValidation,
   type OctopusImportUploadResponseData,
+  type OctopusImportValidateResponseData,
   type OctopusServerConnection,
   type OctopusServerProbe,
   uploadOctopusImport,
@@ -55,6 +56,8 @@ import {
   isUpToDate,
   permissionProblem,
   planToValidate,
+  selectionChanged,
+  withSelection,
   linksEarlierImport,
   originNotice,
   originProof,
@@ -166,6 +169,9 @@ const ImportProjects: React.FC = () => {
   const [session, setSession] = useState<OctopusImportSession | null>(null);
   const [previewPlan, setPreviewPlan] =
     useState<OctopusImportPreviewPlan | null>(null);
+  // The plan the server last returned: the counts describe its choices, not ticks changed since.
+  const [previewedPlan, setPreviewedPlan] =
+    useState<OctopusImportPreviewPlan | null>(null);
   const [validation, setValidation] = useState<OctopusImportValidation | null>(
     null,
   );
@@ -246,8 +252,16 @@ const ImportProjects: React.FC = () => {
   const pairingPending = Boolean(
     previewPlan?.fillPairing?.required && !pairingConfirmed,
   );
+  const choicesPending = Boolean(
+    previewPlan && previewedPlan && selectionChanged(previewPlan, previewedPlan),
+  );
+  // Ticks changed since the preview: the server re-plans them before anything can be imported.
+  const canUpdatePreview = Boolean(
+    choicesPending && !pairingPending && workflowPhase === "ready",
+  );
   const canImport = Boolean(
     previewPlan &&
+      !choicesPending &&
       !nothingNew &&
       !pairingPending &&
       !hasPreviewBlockers &&
@@ -289,6 +303,14 @@ const ImportProjects: React.FC = () => {
     };
   }, []);
 
+  const showServerPlan = (plan: OctopusImportPreviewPlan | null) => {
+    setPreviewPlan(plan);
+    setPreviewedPlan(plan);
+  };
+
+  const changeChoices = (sourceIds: string[], selected: boolean) =>
+    setPreviewPlan((plan) => (plan ? withSelection(plan, sourceIds, selected) : plan));
+
   const setWorkflowPhase = (phase: WorkflowPhase) => {
     if (phase !== "failed" && phase !== "idle") lastActivePhaseRef.current = phase;
     setWorkflowPhaseState(phase);
@@ -297,7 +319,7 @@ const ImportProjects: React.FC = () => {
   const clearWorkflow = () => {
     workflowAbortRef.current?.abort();
     workflowAbortRef.current = null;
-    setPreviewPlan(null);
+    showServerPlan(null);
     setValidation(null);
     setWorkflowPhase("idle");
     setWorkflowMessage(null);
@@ -643,7 +665,7 @@ const ImportProjects: React.FC = () => {
   const retryFailedStep = async () => {
     if (!retryStep) return;
     if (retryStep.step === "import") {
-      await handleImport();
+      await (choicesPending ? handleUpdatePreview() : handleImport());
       return;
     }
 
@@ -780,7 +802,7 @@ const ImportProjects: React.FC = () => {
     const previewBlockerSummary =
       previewEnvelope.data?.blockerSummary ?? null;
     setSession(previewSession);
-    setPreviewPlan(previewData);
+    showServerPlan(previewData);
     setBlockerSummary(previewBlockerSummary);
     setWorkflowMessage(null);
 
@@ -1049,16 +1071,7 @@ const ImportProjects: React.FC = () => {
     await awaitFinalSession(session.sessionId, controller.signal, token);
   };
 
-  const handleImport = async () => {
-    if (!session?.sessionId || !previewPlan) {
-      message.warning("Wait for the import preview to load.");
-      return;
-    }
-    if (hasPreviewBlockers) {
-      message.warning("Resolve the preview blockers before importing.");
-      return;
-    }
-
+  const beginValidation = (text: string) => {
     const token = ++workflowTokenRef.current;
     workflowAbortRef.current?.abort();
     const controller = new AbortController();
@@ -1066,11 +1079,59 @@ const ImportProjects: React.FC = () => {
 
     setRetryStep(null);
     setWorkflowPhase("validating");
-    setWorkflowMessage("Validating preview plan...");
+    setWorkflowMessage(text);
     setWorkflowWarning(null);
     setWorkflowError(null);
     setValidation(null);
     setBlockerSummary(null);
+
+    return { token, controller };
+  };
+
+  // Records the validation; false, back in "ready" with the reason, when it failed or has blockers.
+  const applyValidation = (
+    validateEnvelope: OctopusImportEnvelope<OctopusImportValidateResponseData>,
+  ) => {
+    const validationData = validateEnvelope.data?.validation ?? null;
+    const validationBlockerSummary =
+      validateEnvelope.data?.blockerSummary ?? null;
+    setValidation(validationData);
+    setBlockerSummary(validationBlockerSummary);
+
+    if (
+      validationData &&
+      validateEnvelope.code === 200 &&
+      !validationData.hasBlockers &&
+      !validationBlockerSummary?.hasBlockers
+    )
+      return true;
+
+    setWorkflowPhase("ready");
+    setWorkflowMessage(null);
+    setWorkflowError(
+      validateEnvelope.code !== 200
+        ? validateEnvelope.msg || "Validation failed."
+        : null,
+    );
+    setWorkflowHint(errorKindHint(validateEnvelope.errorKind));
+    if (validateEnvelope.code !== 200) setRetryStep({ step: "import" });
+    return false;
+  };
+
+  const failValidation = (error: unknown, token: number) => {
+    if (workflowTokenRef.current !== token) return;
+    if (isAbortError(error)) return;
+    setWorkflowPhase("ready");
+    setWorkflowMessage(null);
+    setWorkflowError(getErrorMessage(error));
+    setRetryStep({ step: "import" });
+  };
+
+  // The server re-plans the ticked choices (it posts nothing to import): its plan replaces the counts and the ticks.
+  const handleUpdatePreview = async () => {
+    if (!session?.sessionId || !previewPlan) return;
+
+    const { token, controller } = beginValidation("Updating preview...");
 
     try {
       const validateEnvelope = await validateOctopusImport(
@@ -1081,29 +1142,38 @@ const ImportProjects: React.FC = () => {
       );
       if (workflowTokenRef.current !== token) return;
 
-      const validationData = validateEnvelope.data?.validation ?? null;
-      const validationBlockerSummary =
-        validateEnvelope.data?.blockerSummary ?? null;
-      setValidation(validationData);
-      setBlockerSummary(validationBlockerSummary);
+      const serverPlan = validateEnvelope.data?.previewPlan ?? null;
+      if (serverPlan) showServerPlan(serverPlan);
+      if (!applyValidation(validateEnvelope)) return;
 
-      if (
-        !validationData ||
-        validateEnvelope.code !== 200 ||
-        validationData.hasBlockers ||
-        validationBlockerSummary?.hasBlockers
-      ) {
-        setWorkflowPhase("ready");
-        setWorkflowMessage(null);
-        setWorkflowError(
-          validateEnvelope.code !== 200
-            ? validateEnvelope.msg || "Validation failed."
-            : null,
-        );
-        setWorkflowHint(errorKindHint(validateEnvelope.errorKind));
-        if (validateEnvelope.code !== 200) setRetryStep({ step: "import" });
-        return;
-      }
+      setWorkflowPhase("ready");
+      setWorkflowMessage(null);
+    } catch (error) {
+      failValidation(error, token);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!session?.sessionId || !previewPlan) {
+      message.warning("Wait for the import preview to load.");
+      return;
+    }
+    if (hasPreviewBlockers) {
+      message.warning("Resolve the preview blockers before importing.");
+      return;
+    }
+
+    const { token, controller } = beginValidation("Validating preview plan...");
+
+    try {
+      const validateEnvelope = await validateOctopusImport(
+        session.sessionId,
+        space.id,
+        planToValidate(previewPlan, pairingConfirmed),
+        controller.signal,
+      );
+      if (workflowTokenRef.current !== token) return;
+      if (!applyValidation(validateEnvelope)) return;
 
       setWorkflowPhase("confirming");
       setWorkflowMessage("Importing...");
@@ -1137,12 +1207,7 @@ const ImportProjects: React.FC = () => {
         token,
       );
     } catch (error) {
-      if (workflowTokenRef.current !== token) return;
-      if (isAbortError(error)) return;
-      setWorkflowPhase("ready");
-      setWorkflowMessage(null);
-      setWorkflowError(getErrorMessage(error));
-      setRetryStep({ step: "import" });
+      failValidation(error, token);
     }
   };
 
@@ -1469,17 +1534,17 @@ const ImportProjects: React.FC = () => {
               Import Projects
             </h1>
             <Button
-              type={canImport ? "primary" : "default"}
+              type={canImport || canUpdatePreview ? "primary" : "default"}
               loading={isFinalizingImport}
-              disabled={!canImport}
-              onClick={handleImport}
+              disabled={choicesPending ? !canUpdatePreview : !canImport}
+              onClick={choicesPending ? handleUpdatePreview : handleImport}
               className={
-                canImport
+                canImport || canUpdatePreview
                   ? "!bg-green-700 hover:!bg-green-800 !border-green-700 !text-white"
                   : "!border-slate-300 !bg-slate-100 !text-slate-400"
               }
             >
-              Import
+              {choicesPending ? "Update preview" : "Import"}
             </Button>
           </div>
 
@@ -1772,7 +1837,13 @@ const ImportProjects: React.FC = () => {
                   ) : null}
 
                   {previewPlan?.summary ? (
-                    <ImportPreviewOverview plan={previewPlan} spaceSlug={space.slug} />
+                    <ImportPreviewOverview
+                      plan={previewPlan}
+                      spaceSlug={space.slug}
+                      onChoiceChange={changeChoices}
+                      choicesPending={choicesPending}
+                      choicesDisabled={isFinalizingImport || workflowPhase === "succeeded"}
+                    />
                   ) : null}
 
                   {previewPlan && !previewPlan.summary ? (

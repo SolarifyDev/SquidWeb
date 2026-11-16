@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as importApi from 'pages/apis/octopusImport';
 import {
   OctopusHistoryFetchPhase,
+  OctopusImportChoiceReason,
   OctopusImportCompatibilitySeverity,
   OctopusImportFillEvidenceState,
   OctopusImportPreviewAction,
@@ -103,6 +104,9 @@ const connectToServer = async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
   await screen.findByText(/Connected to Octopus 2024\.1/);
 };
+
+// antd keeps the leaving "loading" icon in the button's name after a request in jsdom.
+const IMPORT_AFTER_LOADING = /^(loading )?Import$/;
 
 const failure = (code: number, msg: string | null = null, errorKind: string | null = null) => ({ code, msg, data: null, errorKind });
 
@@ -972,6 +976,95 @@ describe('ImportProjects', () => {
     expect(api.validateOctopusImport.mock.calls[0][2].fillPairing?.confirmed).toBe(true);
   });
 
+  // ── Choices (deleted in Squid, added in Octopus since) ─────────────────────
+
+  it('showsNoChoicesPanel_ForAPlanWithoutChoices', async () => {
+    mockPreview(incrementalPlan());
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: 'Read from Octopus' }));
+
+    await screen.findByTestId('preview-projects');
+    expect(screen.queryByTestId('preview-choices')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument();
+  });
+
+  it('tickingAChoice_AsksToUpdateThePreview_WhichValidatesWithTheSelection_AndNeverConfirms', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(choicesPlan());
+    api.validateOctopusImport.mockImplementationOnce(async (_sessionId, _spaceId, posted) => ok({
+      session: session(OctopusImportSessionState.Validated),
+      previewPlan: replannedChoices(posted),
+      validation: { requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await pickFile();
+
+    const deleted = await screen.findByTestId('choices-deleted');
+    expect(screen.getByTestId('preview-up-to-date')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+
+    fireEvent.click(within(deleted).getAllByRole('checkbox')[1]);
+
+    expect(await screen.findByTestId('choices-pending')).toBeInTheDocument();
+    const update = screen.getByRole('button', { name: 'Update preview' });
+    expect(update).toBeEnabled();
+    expect(screen.getByTestId('summary-tile-create')).toHaveTextContent('0');
+
+    fireEvent.click(update);
+
+    await waitFor(() => expect(screen.getByTestId('summary-tile-create')).toHaveTextContent('1'));
+    const posted = api.validateOctopusImport.mock.calls[0][2];
+    expect(posted.resources.find(item => item.sourceId === 'Steps-2')?.choice?.selected).toBe(true);
+    expect(posted.resources.find(item => item.sourceId === 'Steps-7')?.choice?.selected).toBe(false);
+    expect(api.confirmOctopusImport).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('choices-pending')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('preview-up-to-date')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('choices-deleted')).getAllByRole('checkbox')[1]).toBeChecked();
+    expect(screen.getByRole('button', { name: IMPORT_AFTER_LOADING })).toBeEnabled();
+  });
+
+  it('importAfterUpdatingThePreview_ValidatesAndConfirmsWithTheSelection', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(choicesPlan());
+    api.validateOctopusImport.mockImplementation(async (_sessionId, _spaceId, posted) => ok({
+      session: session(OctopusImportSessionState.Validated),
+      previewPlan: replannedChoices(posted),
+      validation: { requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await pickFile();
+
+    fireEvent.click(within(await screen.findByTestId('choices-added')).getAllByRole('checkbox')[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Update preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: IMPORT_AFTER_LOADING }));
+
+    await screen.findByText('Project list', {}, { timeout: 4000 });
+    expect(api.validateOctopusImport).toHaveBeenCalledTimes(2);
+    const posted = api.validateOctopusImport.mock.calls[1][2];
+    expect(posted.resources.find(item => item.sourceId === 'Steps-7')?.choice?.selected).toBe(true);
+    expect(posted.resources.find(item => item.sourceId === 'Steps-2')?.choice?.selected).toBe(false);
+    expect(api.confirmOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('untickingBack_ReturnsToImport_WithoutAskingForAnUpdate', async () => {
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    mockPreview(choicesPlan());
+    renderPage();
+    await pickFile();
+
+    const box = () => within(screen.getByTestId('choices-deleted')).getAllByRole('checkbox')[1];
+    fireEvent.click(within(await screen.findByTestId('choices-deleted')).getAllByRole('checkbox')[1]);
+    await screen.findByRole('button', { name: 'Update preview' });
+    fireEvent.click(box());
+
+    await waitFor(() => expect(screen.queryByTestId('choices-pending')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+    expect(api.validateOctopusImport).not.toHaveBeenCalled();
+  });
+
   // The origin check refused the source (another Octopus than the space's): the page explains it and nothing can be imported.
   it('refusedOrigin_ShowsTheNotice_AndBlocksTheImport', async () => {
     api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
@@ -1293,5 +1386,56 @@ function fillPlan(pairingRequired: boolean): OctopusImportPreviewPlan {
       space: { counts: counts(), kinds: [], isUpToDate: true },
       skipReasons: [],
     },
+  };
+}
+
+function choicesPlan(): OctopusImportPreviewPlan {
+  const choice = (reason: OctopusImportChoiceReason, followsSourceId: string | null = null) => ({
+    reason, selected: false, defaultSelected: false, followsSourceId, ownerName: "Deployment process of 'Web'",
+  });
+  return {
+    generatedAt: '',
+    resources: [
+      { ...resource('Project', 'Projects-1', OctopusImportPreviewAction.AlreadyImported, 'Projects-1'), sourceName: 'Web' },
+      { ...resource('DeploymentStep', 'Steps-2', OctopusImportPreviewAction.Skip, 'Projects-1'), choice: choice(OctopusImportChoiceReason.DeletedInSquid) },
+      { ...resource('DeploymentStep', 'Steps-7', OctopusImportPreviewAction.Skip, 'Projects-1'), choice: choice(OctopusImportChoiceReason.AddedInOctopus) },
+      {
+        ...resource('DeploymentAction', 'Actions-71', OctopusImportPreviewAction.Skip, 'Projects-1'),
+        choice: choice(OctopusImportChoiceReason.AddedInOctopus, 'Steps-7'),
+      },
+    ],
+    requiredInputs: [],
+    diagnostics: [],
+    hasBlockers: false,
+    summary: {
+      isUpToDate: true,
+      counts: counts({ alreadyImported: 1, skip: 3 }),
+      kinds: [],
+      projects: [{
+        sourceId: 'Projects-1', sourceName: 'Web', counts: counts({ alreadyImported: 1, skip: 3 }), isUpToDate: true, kinds: [],
+        destination: { state: OctopusImportProjectDestinationState.Existing, projectId: 501, projectName: 'Web', projectSlug: null },
+      }],
+      space: { counts: counts(), kinds: [], isUpToDate: true },
+      skipReasons: [],
+      choices: [
+        { reason: OctopusImportChoiceReason.DeletedInSquid, total: 1, selected: 0 },
+        { reason: OctopusImportChoiceReason.AddedInOctopus, total: 1, selected: 0 },
+      ],
+    },
+  };
+}
+
+// What the server returns for a posted selection: ticked roots (and their followers) are created; the counts follow.
+function replannedChoices(posted: OctopusImportPreviewPlan): OctopusImportPreviewPlan {
+  const selectedOf = (item: OctopusImportPreviewResource) =>
+    posted.resources.find(root => root.sourceId === (item.choice?.followsSourceId ?? item.sourceId))?.choice?.selected ?? false;
+  const resources = posted.resources.map(item => item.choice
+    ? { ...item, previewAction: selectedOf(item) ? OctopusImportPreviewAction.Create : OctopusImportPreviewAction.Skip, choice: { ...item.choice, selected: selectedOf(item) } }
+    : item);
+  const created = resources.filter(item => item.previewAction === OctopusImportPreviewAction.Create).length;
+  return {
+    ...posted,
+    resources,
+    summary: { ...posted.summary!, isUpToDate: created === 0, counts: counts({ alreadyImported: 1, create: created, skip: 3 - created }) },
   };
 }

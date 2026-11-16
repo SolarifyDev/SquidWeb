@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  OctopusImportChoiceReason,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
   OctopusImportRequiredInputKind,
@@ -222,5 +223,115 @@ describe('secrets panels', () => {
     expect(pairing).toHaveTextContent('This source: Server: octopus-x.example.com, Space: Spaces-2, Installation: inst-x');
     expect(pairing).toHaveTextContent('Export file fingerprint: ABC123');
     expect(screen.getByRole('checkbox', { name: 'This is the same Octopus server this space was imported from' })).toBeInTheDocument();
+  });
+});
+
+const choiceRow = (
+  sourceType: string,
+  sourceId: string,
+  reason: OctopusImportChoiceReason,
+  selected: boolean,
+  followsSourceId: string | null = null,
+): OctopusImportPreviewResource => ({
+  ...resource(sourceType, sourceId, selected ? OctopusImportPreviewAction.Create : OctopusImportPreviewAction.Skip, 'Projects-1'),
+  sourceName: `${sourceId} name`,
+  choice: { reason, selected, defaultSelected: selected, followsSourceId, ownerName: sourceType === 'Channel' ? null : "Deployment process of 'Web'" },
+});
+
+const choicesPlan = (): OctopusImportPreviewPlan => ({
+  ...plan(),
+  resources: [
+    ...plan().resources,
+    choiceRow('DeploymentStep', 'Steps-2', OctopusImportChoiceReason.DeletedInSquid, false),
+    choiceRow('Channel', 'Channels-4', OctopusImportChoiceReason.DeletedInSquid, true),
+    choiceRow('DeploymentStep', 'Steps-7', OctopusImportChoiceReason.AddedInOctopus, false),
+    choiceRow('DeploymentAction', 'Actions-71', OctopusImportChoiceReason.AddedInOctopus, false, 'Steps-7'),
+    choiceRow('DeploymentAction', 'Actions-72', OctopusImportChoiceReason.AddedInOctopus, false, 'Steps-7'),
+    choiceRow('LifecyclePhase', 'Phases-3', OctopusImportChoiceReason.AddedInOctopus, false),
+  ],
+});
+
+// The header checkbox comes first, then one per row in order.
+const checkboxesOf = (testId: string) => within(screen.getByTestId(testId)).getAllByRole('checkbox');
+
+describe('ImportPreviewOverview choices', () => {
+  it('hidesThePanel_WithoutChoices', () => {
+    renderInRouter(<ImportPreviewOverview plan={plan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    expect(screen.queryByTestId('preview-choices')).not.toBeInTheDocument();
+  });
+
+  it('showsBothGroups_WithTheirCopy_AndTheFooter', () => {
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    const deleted = screen.getByTestId('choices-deleted');
+    const added = screen.getByTestId('choices-added');
+    expect(deleted).toHaveTextContent('Deleted in Squid');
+    expect(deleted).toHaveTextContent('They stay deleted unless you tick them.');
+    expect(added).toHaveTextContent('Added in Octopus since the last import');
+    expect(added).toHaveTextContent('nothing already in Squid is overwritten');
+    expect(screen.getByTestId('choices-footer')).toHaveTextContent('Unticked items are not remembered: the next import offers them again.');
+    expect(screen.queryByTestId('choices-pending')).not.toBeInTheDocument();
+  });
+
+  it('listsRootsOnly_WithKindFollowersOwnerAndProject', () => {
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    const added = screen.getByTestId('choices-added');
+    const step = within(added).getByText('Steps-7 name').closest('tr') as HTMLElement;
+    expect(step).toHaveTextContent('Step');
+    expect(step).toHaveTextContent('+2 actions');
+    expect(step).toHaveTextContent("Deployment process of 'Web'");
+    expect(step).toHaveTextContent('Web');
+    expect(within(added).getByText('Phases-3 name').closest('tr')).toHaveTextContent('Lifecycle phase');
+    expect(within(added).queryByText('Actions-71 name')).not.toBeInTheDocument();
+  });
+
+  it('checkboxesReflectTheSelection', () => {
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    const [, step, channel] = checkboxesOf('choices-deleted');
+    expect(step).not.toBeChecked();
+    expect(channel).toBeChecked();
+    expect(checkboxesOf('choices-added').slice(1).every(box => !(box as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it('tickingARow_ReportsThatRowOnly', () => {
+    const onChoiceChange = vi.fn();
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={onChoiceChange} />);
+
+    fireEvent.click(checkboxesOf('choices-added')[1]);
+
+    expect(onChoiceChange).toHaveBeenCalledWith(['Steps-7'], true);
+  });
+
+  it('selectAll_SelectsOnlyItsOwnGroup', () => {
+    const onChoiceChange = vi.fn();
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={onChoiceChange} />);
+
+    fireEvent.click(checkboxesOf('choices-added')[0]);
+
+    expect(onChoiceChange).toHaveBeenCalledTimes(1);
+    expect(onChoiceChange).toHaveBeenCalledWith(['Steps-7', 'Phases-3'], true);
+  });
+
+  // Only declined offers left: up to date, but the banner never claims the offered items are in Squid.
+  it.each([
+    [false, 'Everything this source contains is already in Squid. Importing again would change nothing.'],
+    [true, 'already in Squid, except the items offered below. Importing again would change nothing unless you tick one of them.'],
+  ])('upToDateBanner_NamesTheOffersLeft(withOffers=%s)', (withOffers, says) => {
+    const base = withOffers ? choicesPlan() : plan();
+    const upToDate = { ...base, summary: { ...base.summary!, isUpToDate: true } };
+
+    renderInRouter(<ImportPreviewOverview plan={upToDate} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    expect(screen.getByTestId('preview-up-to-date')).toHaveTextContent(says);
+  });
+
+  it('showsThePendingNotice_AndDisablesTheTicks_WhenAsked', () => {
+    renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} choicesPending choicesDisabled />);
+
+    expect(screen.getByTestId('choices-pending')).toHaveTextContent('Update the preview to see the new counts before importing.');
+    expect(checkboxesOf('choices-deleted').slice(1).every(box => (box as HTMLInputElement).disabled)).toBe(true);
   });
 });
