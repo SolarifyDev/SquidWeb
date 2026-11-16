@@ -26,16 +26,20 @@ import {
   connectOctopusImport,
   extractOctopusImport,
   fetchOctopusImportHistory,
+  getOctopusImportProjects,
   getOctopusImportStatus,
   isImportTerminalState,
+  listOctopusServerProjects,
   previewOctopusImport,
   probeOctopusServer,
+  selectOctopusImportProjects,
   OctopusImportSessionState,
   type OctopusHistoryFetchProgress,
   type OctopusImportBlockerSummary,
   type OctopusImportEnvelope,
   type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
+  type OctopusImportProjectList,
   type OctopusImportSession,
   type OctopusImportValidation,
   type OctopusImportUploadResponseData,
@@ -74,6 +78,12 @@ import {
   WithheldSecretsPanel,
 } from "./ImportPreviewDetails";
 import { ImportSourceCards } from "./ImportSourceCards";
+import { ImportProjectPicker } from "./ImportProjectPicker";
+import {
+  fileSelectionRequest,
+  initialSelection,
+  sameProjects,
+} from "./importProjectSelection";
 
 type ValidationState = "idle" | "validating" | "valid" | "error";
 type WorkflowPhase =
@@ -82,6 +92,7 @@ type WorkflowPhase =
   | "connecting"
   | "fetching"
   | "extracting"
+  | "choosing"
   | "previewing"
   | "ready"
   | "validating"
@@ -96,10 +107,20 @@ const IMPORT_POLL_MAX_DELAY_MS = 15000;
 const IMPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
-// The step that failed after the read, and the session it left: extract and preview redo only themselves, "import" validates again.
+// The step that failed after the read, and the session it left: extract, choose and preview redo only themselves, "import" validates again.
 type RetryStep =
-  | { step: "extract" | "preview"; session: OctopusImportSession }
+  | { step: "extract" | "choose" | "preview"; session: OctopusImportSession }
   | { step: "import" };
+
+// The projects of a session's source being chosen before its preview.
+type SessionProjectChoice = {
+  session: OctopusImportSession;
+  list: OctopusImportProjectList | null;
+  selected: string[];
+};
+
+// A read from Octopus lists only the projects it read: choosing others is a new read.
+const ADD_PROJECTS_HINT = "To add other projects, connect again.";
 
 type ResumableHistoryFetch = {
   session: OctopusImportSession;
@@ -107,6 +128,8 @@ type ResumableHistoryFetch = {
   octopusSpaceId: string | null;
   /** `reconnect`: connect again (another key, or the right server) before resuming. */
   recovery: "resume" | "reconnect";
+  /** The projects the stopped read reads (stored on its session); the picker shows them while the read can be resumed. */
+  projectIds: string[];
 };
 
 const formatFileSize = (size: number) => {
@@ -162,6 +185,7 @@ const ImportProjects: React.FC = () => {
   const workflowAbortRef = useRef<AbortController | null>(null);
   const workflowTokenRef = useRef(0);
   const probeTokenRef = useRef(0);
+  const projectListTokenRef = useRef(0);
   // The phase the workflow was in before it failed: the step bar marks that step.
   const lastActivePhaseRef = useRef<WorkflowPhase | null>(null);
 
@@ -215,12 +239,22 @@ const ImportProjects: React.FC = () => {
     useState<ResumableHistoryFetch | null>(null);
   // A step after the read (extract, preview, validate) that failed for a passing reason: "Try again" redoes only that step.
   const [retryStep, setRetryStep] = useState<RetryStep | null>(null);
+  // The projects of the chosen Octopus space, listed before anything is read; only the chosen ones are read.
+  const [serverProjects, setServerProjects] =
+    useState<OctopusImportProjectList | null>(null);
+  const [serverProjectsLoading, setServerProjectsLoading] = useState(false);
+  const [serverProjectsError, setServerProjectsError] = useState<string | null>(null);
+  const [serverChosenIds, setServerChosenIds] = useState<string[]>([]);
+  const [projectChoice, setProjectChoice] =
+    useState<SessionProjectChoice | null>(null);
 
   const projectListPath = `/${space.slug}/projects`;
   const useServerSource = source === "server";
   const isServerReady = Boolean(
     useServerSource && probe && serverUrl.trim() && apiKey.trim(),
   );
+  const canReadChosen = isServerReady && serverChosenIds.length > 0;
+  const isChoosing = workflowPhase === "choosing";
   const isProcessingFile =
     workflowPhase === "uploading" ||
     workflowPhase === "connecting" ||
@@ -235,6 +269,7 @@ const ImportProjects: React.FC = () => {
       isServerReady &&
       serverUrl.trim() === resumableFetch.serverUrl &&
       octopusSpaceId === resumableFetch.octopusSpaceId &&
+      sameProjects(serverChosenIds, resumableFetch.projectIds) &&
       (workflowPhase === "failed" || workflowPhase === "idle"),
   );
   const hasPreviewBlockers = Boolean(
@@ -333,6 +368,7 @@ const ImportProjects: React.FC = () => {
     setUploadError(null);
     setBlockerSummary(null);
     setFetchProgress(null);
+    setProjectChoice(null);
   };
 
   // An input changed: the previous attempt's result no longer describes what the user will import (inputs are disabled while
@@ -552,6 +588,7 @@ const ImportProjects: React.FC = () => {
       serverUrl: connection.serverUrl,
       octopusSpaceId: fetchSpaceId,
       recovery: "resume",
+      projectIds: serverChosenIds,
     };
     setResumableFetch(resumeTarget);
 
@@ -641,6 +678,8 @@ const ImportProjects: React.FC = () => {
         : await connectServerSource(controller.signal, token);
       if (!uploadSession || workflowTokenRef.current !== token) return;
       uploadCompleted = true;
+      // Only the chosen projects are read; a resumed read keeps the selection already on its session.
+      if (!file && !(await saveProjectSelection(uploadSession, serverChosenIds, controller.signal, token))) return;
 
       await processImportSession(
         uploadSession,
@@ -677,6 +716,102 @@ const ImportProjects: React.FC = () => {
         controller.signal,
         token,
       );
+    } catch (error) {
+      failWorkflow(error, token);
+    }
+  };
+
+  // Stores the chosen projects on the session (null: the whole space); false, with the reason shown, when the server refused.
+  const saveProjectSelection = async (
+    sessionToScope: OctopusImportSession,
+    projectIds: string[] | null,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    setWorkflowMessage("Saving the chosen projects...");
+
+    const selectEnvelope = await selectOctopusImportProjects(
+      sessionToScope.sessionId,
+      space.id,
+      projectIds,
+      signal,
+    );
+    if (workflowTokenRef.current !== token) return false;
+
+    if (selectEnvelope.code !== 200) {
+      failWith(selectEnvelope, "Could not save the chosen projects.");
+      return false;
+    }
+    if (selectEnvelope.data?.sessionId) setSession(selectEnvelope.data);
+    return true;
+  };
+
+  // Lists the projects of the session's source and waits for the user to choose; until the list arrives a failure keeps the step to retry.
+  const chooseProjects = async (
+    sessionToScope: OctopusImportSession,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    setRetryStep({ step: "choose", session: sessionToScope });
+    setProjectChoice({ session: sessionToScope, list: null, selected: [] });
+    setWorkflowPhase("choosing");
+    setWorkflowMessage(null);
+
+    const listEnvelope = await getOctopusImportProjects(
+      sessionToScope.sessionId,
+      space.id,
+      signal,
+    );
+    if (workflowTokenRef.current !== token) return;
+
+    const list = listEnvelope.data ?? null;
+    if (listEnvelope.code !== 200 || !list) {
+      failWith(listEnvelope, "Could not list the projects.");
+      return;
+    }
+
+    setRetryStep(null);
+    setProjectChoice({
+      session: sessionToScope,
+      list,
+      // An export file starts with every project ticked: whoever exported it already scoped it.
+      selected: initialSelection(list, true),
+    });
+  };
+
+  const changeChosenInSession = (selected: string[]) =>
+    setProjectChoice((choice) => (choice ? { ...choice, selected } : choice));
+
+  // An export file sends nothing for an untouched picker (the whole space); a read from Octopus always sends what is ticked.
+  const selectionRequestOf = (choice: SessionProjectChoice, list: OctopusImportProjectList) =>
+    useServerSource
+      ? { send: true, projectIds: choice.selected }
+      : fileSelectionRequest(list, choice.selected);
+
+  const previewChosenProjects = async () => {
+    const choice = projectChoice;
+    if (!choice?.list || !choice.selected.length) return;
+
+    const request = selectionRequestOf(choice, choice.list);
+    const { token, controller } = beginWorkflow();
+    try {
+      setRetryStep({ step: "choose", session: choice.session });
+      setWorkflowPhase("previewing");
+      if (request.send && !(await saveProjectSelection(choice.session, request.projectIds, controller.signal, token))) return;
+
+      await continueAfterRead(choice.session, "preview", controller.signal, token);
+    } catch (error) {
+      failWorkflow(error, token);
+    }
+  };
+
+  // Reopens the project choice of the previewed session; the preview is generated again for the new choice.
+  const changeProjects = async () => {
+    if (!session?.sessionId) return;
+
+    const { token, controller } = beginWorkflow();
+    try {
+      await chooseProjects(session, controller.signal, token);
     } catch (error) {
       failWorkflow(error, token);
     }
@@ -719,10 +854,11 @@ const ImportProjects: React.FC = () => {
     await continueAfterRead(uploadSession, "extract", signal, token);
   };
 
-  // Extract (unless it already succeeded), then preview. Until the preview arrives, a failure keeps the step to retry.
+  // Extract (unless it already succeeded), choose the projects of an export file, then preview. Until the preview arrives, a failure
+  // keeps the step to retry. A read from Octopus chose its projects before reading.
   const continueAfterRead = async (
     uploadSession: OctopusImportSession,
-    from: "extract" | "preview",
+    from: "extract" | "choose" | "preview",
     signal: AbortSignal,
     token: number,
   ) => {
@@ -731,6 +867,11 @@ const ImportProjects: React.FC = () => {
         ? await extractSession(uploadSession, signal, token)
         : uploadSession;
     if (!extractedSession) return;
+
+    if (from === "choose" || (from === "extract" && !useServerSource)) {
+      await chooseProjects(extractedSession, signal, token);
+      return;
+    }
 
     await previewSession(extractedSession, signal, token);
   };
@@ -893,6 +1034,51 @@ const ImportProjects: React.FC = () => {
   const handleOctopusSpaceChange = (value: string) => {
     setOctopusSpaceId(value);
     invalidateAttempt(value === resumableFetch?.octopusSpaceId);
+    void loadServerProjects(value);
+  };
+
+  // Another choice of projects is another import: the previous attempt's result no longer describes it, and a stopped read (which
+  // reads the choice stored on its session) can no longer be resumed for it.
+  const handleServerChosenChange = (selected: string[]) => {
+    setServerChosenIds(selected);
+    invalidateAttempt(Boolean(resumableFetch && sameProjects(selected, resumableFetch.projectIds)));
+  };
+
+  const clearServerProjects = () => {
+    projectListTokenRef.current += 1;
+    setServerProjects(null);
+    setServerProjectsLoading(false);
+    setServerProjectsError(null);
+    setServerChosenIds([]);
+  };
+
+  // A read that can be resumed in this space reads the projects it was started with: listing again (after connecting again) shows them.
+  const resumedChoice = (listSpaceId: string | null) =>
+    resumableFetch && resumableFetch.octopusSpaceId === listSpaceId ? resumableFetch.projectIds : null;
+
+  // Only the space's projects and project groups are listed (no history); nothing is chosen until the user ticks it.
+  const loadServerProjects = async (listSpaceId: string | null) => {
+    clearServerProjects();
+    const token = projectListTokenRef.current;
+    setServerProjectsLoading(true);
+    try {
+      const listEnvelope = await listOctopusServerProjects(
+        { serverUrl: serverUrl.trim(), apiKey },
+        listSpaceId,
+        space.id,
+      );
+      if (projectListTokenRef.current !== token) return;
+      if (listEnvelope.code !== 200 || !listEnvelope.data) {
+        setServerProjectsError(listEnvelope.msg || "Could not list the projects of this space.");
+        return;
+      }
+      setServerProjects(listEnvelope.data);
+      setServerChosenIds(initialSelection({ ...listEnvelope.data, selectedProjectIds: resumedChoice(listSpaceId) }, false));
+    } catch (error) {
+      if (projectListTokenRef.current === token) setServerProjectsError(getErrorMessage(error));
+    } finally {
+      if (projectListTokenRef.current === token) setServerProjectsLoading(false);
+    }
   };
 
   const handleChangeConnection = () => {
@@ -907,6 +1093,7 @@ const ImportProjects: React.FC = () => {
     setProbeError(null);
     setOctopusSpaceId(null);
     setProbing(false);
+    clearServerProjects();
   };
 
   const handleProbe = async () => {
@@ -933,11 +1120,12 @@ const ImportProjects: React.FC = () => {
       setResumableFetch((current) =>
         current ? { ...current, recovery: "resume" } : current,
       );
-      setOctopusSpaceId(
+      const defaultSpaceId =
         probeData.spaces.find((item) => item.isDefault)?.id ??
-          probeData.spaces[0]?.id ??
-          null,
-      );
+        probeData.spaces[0]?.id ??
+        null;
+      setOctopusSpaceId(defaultSpaceId);
+      if (probeData.spaceless || defaultSpaceId) void loadServerProjects(probeData.spaceless ? null : defaultSpaceId);
     } catch (error) {
       if (probeTokenRef.current !== token) return;
       setProbeError(getErrorMessage(error));
@@ -1270,7 +1458,7 @@ const ImportProjects: React.FC = () => {
     ) : failureRecovery === "restart" && useServerSource ? (
       <Button
         size="small"
-        disabled={!isServerReady}
+        disabled={!canReadChosen}
         onClick={() => void runImportWorkflow(null)}
       >
         Start again
@@ -1316,6 +1504,52 @@ const ImportProjects: React.FC = () => {
         </Button>
       }
     />
+  );
+
+  const renderServerProjectPicker = () => (
+    <div className="rounded-md border border-slate-200 p-3">
+      {serverProjectsError ? (
+        <Alert
+          type="error"
+          showIcon
+          message={serverProjectsError}
+          action={
+            <Button size="small" onClick={() => void loadServerProjects(probe?.spaceless ? null : octopusSpaceId)}>
+              Try again
+            </Button>
+          }
+        />
+      ) : (
+        <ImportProjectPicker
+          list={serverProjects}
+          loading={serverProjectsLoading}
+          selected={serverChosenIds}
+          onChange={handleServerChosenChange}
+          disabled={isProcessingFile || isFinalizingImport}
+        />
+      )}
+    </div>
+  );
+
+  const renderSessionProjectChoice = () => (
+    <div data-testid="session-project-choice" className="space-y-3 rounded-md border border-slate-200 p-4">
+      <ImportProjectPicker
+        list={projectChoice?.list ?? null}
+        loading={!projectChoice?.list}
+        selected={projectChoice?.selected ?? []}
+        onChange={changeChosenInSession}
+      />
+      {useServerSource && projectChoice?.list ? (
+        <div className="text-xs text-slate-500">{ADD_PROJECTS_HINT}</div>
+      ) : null}
+      <Button
+        type="primary"
+        disabled={!projectChoice?.list || !projectChoice.selected.length}
+        onClick={() => void previewChosenProjects()}
+      >
+        Preview import
+      </Button>
+    </div>
   );
 
   const renderBlockerSummary = (summary: OctopusImportBlockerSummary) => {
@@ -1573,7 +1807,7 @@ const ImportProjects: React.FC = () => {
                 {useServerSource ? (
                   <div className="space-y-3 rounded-md border border-slate-200 p-4">
                     <div className="text-base font-semibold text-slate-900">
-                      Read the whole space from an Octopus server.
+                      Read the chosen projects from an Octopus server.
                     </div>
                     <div>
                       <label
@@ -1691,13 +1925,16 @@ const ImportProjects: React.FC = () => {
                         }
                       />
                     ) : null}
+                    {probe && (probe.spaceless || octopusSpaceId) && !isChoosing
+                      ? renderServerProjectPicker()
+                      : null}
                     <Button
                       type="primary"
                       ghost
-                      disabled={!isServerReady || isProcessingFile}
+                      disabled={!canReadChosen || isProcessingFile}
                       onClick={() => void runImportWorkflow(null)}
                     >
-                      Read from Octopus
+                      Read {pluralize(serverChosenIds.length, "chosen project")} from Octopus
                     </Button>
                   </div>
                 ) : (
@@ -1730,6 +1967,8 @@ const ImportProjects: React.FC = () => {
                     {workflowPhase === "fetching" ? renderFetchProgress() : null}
                   </div>
                 ) : null}
+
+                {isChoosing ? renderSessionProjectChoice() : null}
 
                 {showResumeNotice ? renderResumeNotice() : null}
 
@@ -1841,6 +2080,11 @@ const ImportProjects: React.FC = () => {
                       plan={previewPlan}
                       spaceSlug={space.slug}
                       onChoiceChange={changeChoices}
+                      onChangeProjects={
+                        workflowPhase === "ready" && session?.sessionId
+                          ? () => void changeProjects()
+                          : undefined
+                      }
                       choicesPending={choicesPending}
                       choicesDisabled={isFinalizingImport || workflowPhase === "succeeded"}
                     />

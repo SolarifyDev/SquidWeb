@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Button, Checkbox, Table, Tag } from "antd";
+import { Alert, Button, Checkbox, Collapse, Table, Tag } from "antd";
 import { Link } from "react-router-dom";
 import {
   OctopusImportProjectDestinationState,
@@ -23,6 +23,7 @@ import {
   fillDestinationLink,
   fillResources,
   missingSecretLink,
+  outsideSelectionResources,
   pairingCopyOf,
   projectDestinationLink,
   requiredInputKindLabel,
@@ -353,10 +354,53 @@ const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan } & PreviewChoiceP
   );
 };
 
+// ── Project selection ────────────────────────────────────────────────────────
+
+const ProjectScope: React.FC<{ notChosen: number; onChangeProjects?: () => void }> = ({ notChosen, onChangeProjects }) => {
+  const change = onChangeProjects ? (
+    <Button type="link" size="small" onClick={onChangeProjects}>
+      Change projects
+    </Button>
+  ) : null;
+  if (notChosen <= 0) return change ? <div data-testid="project-scope">{change}</div> : null;
+
+  return (
+    <Alert
+      data-testid="project-scope"
+      type="info"
+      showIcon
+      message={`${pluralize(notChosen, "project")} ${notChosen === 1 ? "was" : "were"} not chosen and ${notChosen === 1 ? "is" : "are"} not imported.`}
+      action={change}
+    />
+  );
+};
+
+const NotChosenPanel: React.FC<{ resources: OctopusImportPreviewResource[] }> = ({ resources }) => (
+  <Collapse
+    data-testid="not-chosen-resources"
+    size="small"
+    items={[{
+      key: "not-chosen",
+      label: `Not imported (not chosen): ${pluralize(resources.length, "resource")}`,
+      children: (
+        <ul className="list-disc space-y-0.5 pl-6">
+          {resources.map((resource) => (
+            <li key={`${resource.sourceType}-${resource.sourceId}`}>
+              {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message ?? resource.diagnostics[0]?.message}
+            </li>
+          ))}
+        </ul>
+      ),
+    }]}
+  />
+);
+
 /** The incremental preview: overall and per-project counts, where each project lands in Squid, field-level changes, fills and skips. */
-export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string } & PreviewChoiceProps> = ({ plan, spaceSlug, ...choiceProps }) => {
+export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string; onChangeProjects?: () => void } & PreviewChoiceProps> = ({ plan, spaceSlug, onChangeProjects, ...choiceProps }) => {
   const summary = plan.summary;
   if (!summary) return null;
+
+  const outside = outsideSelectionResources(plan.resources);
 
   const fills = fillResources(plan.resources);
   const rows = groupRows(plan);
@@ -378,6 +422,8 @@ export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; s
           }
         />
       ) : null}
+
+      <ProjectScope notChosen={summary.notChosenProjectCount ?? 0} onChangeProjects={onChangeProjects} />
 
       <OverallSummary counts={summary.counts} />
 
@@ -425,6 +471,8 @@ export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; s
       {fills.length ? <FillList resources={fills} spaceSlug={spaceSlug} /> : null}
 
       {summary.skipReasons.length ? <SkipReasons reasons={summary.skipReasons} /> : null}
+
+      {outside.length ? <NotChosenPanel resources={outside} /> : null}
     </div>
   );
 };

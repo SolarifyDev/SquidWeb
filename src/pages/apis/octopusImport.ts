@@ -178,6 +178,8 @@ export interface OctopusImportSourceSummary {
   sha256: string | null;
   files?: OctopusImportSourceFile[];
   historyFetch?: OctopusImportHistoryFetch | null;
+  /** The Octopus projects chosen for this import; null (or absent) imports the whole space. Set by the server from the selection. */
+  selectedProjectIds?: string[] | null;
 }
 
 export interface OctopusServerSpace {
@@ -409,6 +411,30 @@ export interface OctopusImportPreviewSummary {
   skipReasons: OctopusImportSkipReasonCount[];
   /** Choosable root rows per reason, offered and selected; absent on older servers. */
   choices?: OctopusImportChoiceCount[] | null;
+  /** Octopus projects in the source that were not chosen for this import; absent on older servers. */
+  notChosenProjectCount?: number;
+}
+
+export interface OctopusImportProjectGroupOption {
+  id: string;
+  name: string;
+}
+
+export interface OctopusImportProjectOption {
+  id: string;
+  name: string;
+  projectGroupId: string | null;
+  isDisabled: boolean;
+  /** An earlier import into this Squid space recorded this Octopus project. Advisory only: the preview decides. */
+  previouslyImported: boolean;
+}
+
+/** The projects of an Octopus space or export file, to choose which are imported. */
+export interface OctopusImportProjectList {
+  groups: OctopusImportProjectGroupOption[];
+  projects: OctopusImportProjectOption[];
+  /** The session's current selection; null = whole space (nothing chosen yet). */
+  selectedProjectIds: string[] | null;
 }
 
 export interface OctopusImportPreviewResource {
@@ -558,7 +584,7 @@ function toEnvelope<T>(body: any, status: number): OctopusImportEnvelope<T> {
 async function requestImport<T>(
   path: string,
   options: {
-    method: "GET" | "POST";
+    method: "GET" | "POST" | "PUT";
     spaceId: number;
     query?: Record<string, QueryValue>;
     body?: BodyInit | null;
@@ -739,6 +765,56 @@ export function getOctopusImportStatus(
       method: "GET",
       spaceId,
       query: { spaceId },
+      signal,
+    },
+  );
+}
+
+// Lists a space's projects and project groups only (no history), before a session exists; the key travels only in the body.
+export function listOctopusServerProjects(
+  connection: OctopusServerConnection,
+  octopusSpaceId: string | null,
+  spaceId: number,
+  signal?: AbortSignal,
+) {
+  return requestImport<OctopusImportProjectList>("/history/projects", {
+    method: "POST",
+    spaceId,
+    body: JSON.stringify({ spaceId, ...connection, octopusSpaceId }),
+    includeJson: true,
+    signal,
+  });
+}
+
+// The projects of a session's source (an extracted export file, or what a server read staged).
+export function getOctopusImportProjects(
+  sessionId: string,
+  spaceId: number,
+  signal?: AbortSignal,
+) {
+  return requestImport<OctopusImportProjectList>(`/${sessionId}/projects`, {
+    method: "GET",
+    spaceId,
+    query: { spaceId },
+    signal,
+  });
+}
+
+// Stores the chosen projects on the session; null imports the whole space.
+export function selectOctopusImportProjects(
+  sessionId: string,
+  spaceId: number,
+  projectIds: string[] | null,
+  signal?: AbortSignal,
+) {
+  return requestImport<OctopusImportSession>(
+    `/${sessionId}/projects/selection`,
+    {
+      method: "PUT",
+      spaceId,
+      query: { spaceId },
+      body: JSON.stringify({ spaceId, projectIds }),
+      includeJson: true,
       signal,
     },
   );

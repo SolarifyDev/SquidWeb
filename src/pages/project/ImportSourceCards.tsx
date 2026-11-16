@@ -25,7 +25,7 @@ export const IMPORT_SOURCE_CARDS: SourceCard[] = [
     title: "Octopus server",
     input: "The server URL and an API key. Read-only requests; the key is never stored.",
     imports:
-      "Everything the API can read in the whole space: the same configuration plus releases, deployments and task logs.",
+      "The projects you choose, with what they use: the same configuration plus releases, deployments and task logs.",
     cannotImport:
       "Secret values (sensitive variables, feed passwords, account keys, certificate private keys): the API never returns them. "
       + "They are imported as missing and listed; importing the export file later fills sensitive variables and feed passwords, "

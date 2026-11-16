@@ -52,6 +52,9 @@ import {
   pairingCopy,
   IMPORT_ORIGIN_PAIRING_REQUIRED,
   IMPORT_ORIGIN_UNPROVEN,
+  NOT_USED_BY_CHOSEN_PROJECTS,
+  PROJECT_NOT_CHOSEN,
+  outsideSelectionResources,
 } from './importPreviewSummary';
 
 const resource = (
@@ -257,8 +260,8 @@ describe('fetchPositionLabel', () => {
   });
 
   it.each([
-    [at(OctopusHistoryFetchPhase.Releases), 'Reading releases (project 1 of 2)'],
-    [at(OctopusHistoryFetchPhase.ProjectConfiguration), 'Reading project configuration (project 1 of 2)'],
+    [at(OctopusHistoryFetchPhase.Releases), 'Reading releases (project 1 of 2 chosen)'],
+    [at(OctopusHistoryFetchPhase.ProjectConfiguration), 'Reading project configuration (project 1 of 2 chosen)'],
     [at(OctopusHistoryFetchPhase.Catalog, { catalogIndex: 3, catalogKindCount: 14 }), 'Reading space configuration (kind 4 of 14)'],
     [at(OctopusHistoryFetchPhase.Catalog), 'Reading space configuration'],
     [at(OctopusHistoryFetchPhase.Closure), 'Reading referenced resources'],
@@ -274,24 +277,26 @@ describe('importSteps', () => {
   });
 
   it('namesTheStepsOfEachSource', () => {
-    expect(importSteps('file', input('idle')).titles).toEqual(['Select file', 'Read file', 'Preview', 'Import']);
+    expect(importSteps('file', input('idle')).titles).toEqual(['Select file', 'Read file', 'Choose projects', 'Preview', 'Import']);
     expect(importSteps('server', input('idle')).titles)
-      .toEqual(['Connect', 'Choose space', 'Read from Octopus', 'Preview', 'Import']);
+      .toEqual(['Connect', 'Choose space and projects', 'Read from Octopus', 'Preview', 'Import']);
   });
 
   it.each([
     ['idle', {}, 0, 'process'],
     ['uploading', {}, 1, 'process'],
     ['extracting', {}, 1, 'process'],
-    ['previewing', {}, 2, 'process'],
-    ['ready', {}, 2, 'process'],
-    ['validating', {}, 3, 'process'],
-    ['confirming', {}, 3, 'process'],
-    ['statusUnknown', {}, 3, 'process'],
-    ['succeeded', {}, 3, 'finish'],
+    ['choosing', {}, 2, 'process'],
+    ['previewing', {}, 3, 'process'],
+    ['ready', {}, 3, 'process'],
+    ['validating', {}, 4, 'process'],
+    ['confirming', {}, 4, 'process'],
+    ['statusUnknown', {}, 4, 'process'],
+    ['succeeded', {}, 4, 'finish'],
     ['failed', { lastActivePhase: 'extracting' }, 1, 'error'],
-    ['failed', { lastActivePhase: 'ready' }, 2, 'error'],
-    ['failed', { lastActivePhase: 'confirming' }, 3, 'error'],
+    ['failed', { lastActivePhase: 'choosing' }, 2, 'error'],
+    ['failed', { lastActivePhase: 'ready' }, 3, 'error'],
+    ['failed', { lastActivePhase: 'confirming' }, 4, 'error'],
     ['failed', {}, 0, 'error'],
   ] as const)('file: %s %o -> step %i (%s)', (phase, overrides, current, status) => {
     const steps = importSteps('file', input(phase, overrides));
@@ -302,6 +307,7 @@ describe('importSteps', () => {
     ['idle', {}, 0, 'process'],
     ['idle', { probed: true }, 1, 'process'],
     ['idle', { probed: true, fetchStarted: true }, 2, 'process'],
+    ['choosing', { probed: true }, 1, 'process'],
     ['connecting', { probed: true }, 2, 'process'],
     ['fetching', { probed: true }, 2, 'process'],
     ['extracting', { probed: true }, 3, 'process'],
@@ -371,6 +377,8 @@ describe('errorKindHint', () => {
     ['SessionNotFound', /Start again/],
     ['SessionStateConflict', /Start again/],
     ['NotServerSource', /Start again/],
+    ['ProjectSelection', /at least one project/],
+    ['ProjectSelectionBeyondRead', /Connect again to add projects/],
   ])('%s', (kind, text) => {
     expect(errorKindHint(kind)).toMatch(text);
   });
@@ -533,6 +541,24 @@ describe('resource selections', () => {
   it('skippedResources_ByOwner', () => {
     expect(skippedResources(resources, 'Projects-1').map(item => item.sourceId)).toEqual(['ServerTasks-9']);
     expect(skippedResources(resources, null).map(item => item.sourceId)).toEqual(['Machines-1']);
+  });
+
+  it.each([
+    ['skip reason', { skipReason: { code: PROJECT_NOT_CHOSEN, message: 'Not chosen for this import.' } }],
+    ['diagnostic', { diagnostics: [{ severity: OctopusImportCompatibilitySeverity.Info, code: NOT_USED_BY_CHOSEN_PROJECTS, message: 'Not used.' }] }],
+  ])('skippedResources_LeavesOutRowsOutsideTheChosenProjects_ByTheir %s', (_by, outside) => {
+    const rows = [
+      ...resources,
+      { ...resource('Lifecycle', 'Lifecycles-9', OctopusImportPreviewAction.Skip), skipReason: { code: 'x', message: 'x' }, ...outside },
+    ];
+
+    expect(skippedResources(rows, null).map(item => item.sourceId)).toEqual(['Machines-1']);
+    expect(outsideSelectionResources(rows).map(item => item.sourceId)).toEqual(['Lifecycles-9']);
+  });
+
+  it('selectionCodes_ArePinnedToTheServers', () => {
+    expect(PROJECT_NOT_CHOSEN).toBe('octopus.preview.project_not_chosen');
+    expect(NOT_USED_BY_CHOSEN_PROJECTS).toBe('octopus.preview.not_used_by_chosen_projects');
   });
 
   it('fillResources_OnlyFillMissingSecret', () => {

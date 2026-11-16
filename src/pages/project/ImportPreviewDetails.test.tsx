@@ -104,6 +104,44 @@ describe('ImportPreviewOverview', () => {
       .toHaveAttribute('href', '/Spaces-1/external/feeds');
   });
 
+  it('listsRowsOutsideTheChosenProjectsApart_Collapsed_AndNotInTheProjectDetail', () => {
+    const scoped = plan();
+    scoped.resources.push(
+      { ...resource('Project', 'Projects-2', OctopusImportPreviewAction.Skip, 'Projects-2'), sourceName: 'Api', skipReason: { code: 'octopus.preview.project_not_chosen', message: 'Not chosen for this import.' } },
+      { ...resource('Lifecycle', 'Lifecycles-2', OctopusImportPreviewAction.Skip, null), sourceName: 'Slow', skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used by the chosen projects, so it is not imported.' } },
+    );
+    renderInRouter(<ImportPreviewOverview plan={scoped} spaceSlug="Spaces-1" />);
+
+    const panel = screen.getByTestId('not-chosen-resources');
+    expect(panel).toHaveTextContent('Not imported (not chosen): 2 resources');
+    expect(within(panel).queryByText(/Lifecycle Slow/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByText(/Not imported \(not chosen\)/));
+
+    expect(within(panel).getByText(/Lifecycle Slow: Not used by the chosen projects/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Project Api: Not chosen for this import/)).toBeInTheDocument();
+  });
+
+  it('saysHowManyProjectsWereNotChosen_AndOffersToChangeThem', () => {
+    const scoped = plan();
+    scoped.summary!.notChosenProjectCount = 3;
+    const onChangeProjects = vi.fn();
+    renderInRouter(<ImportPreviewOverview plan={scoped} spaceSlug="Spaces-1" onChangeProjects={onChangeProjects} />);
+
+    expect(screen.getByTestId('project-scope')).toHaveTextContent('3 projects were not chosen and are not imported.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change projects' }));
+
+    expect(onChangeProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('showsNoProjectScope_ForAWholeSpacePlanWithoutAChangeHandler', () => {
+    renderInRouter(<ImportPreviewOverview plan={plan()} spaceSlug="Spaces-1" />);
+
+    expect(screen.queryByTestId('project-scope')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('not-chosen-resources')).not.toBeInTheDocument();
+  });
+
   it('rendersNothing_ForAPlanWithoutSummary', () => {
     const { container } = renderInRouter(<ImportPreviewOverview plan={{ ...plan(), summary: null }} spaceSlug="Spaces-1" />);
 

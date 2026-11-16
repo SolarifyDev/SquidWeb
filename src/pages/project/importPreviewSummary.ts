@@ -242,7 +242,7 @@ export const fetchPositionLabel = (progress: OctopusHistoryFetchProgress) => {
 
   if (progress.phase === OctopusHistoryFetchPhase.Catalog) return label + catalogPosition(progress);
   if (PER_PROJECT_PHASES.includes(progress.phase))
-    return `${label} (project ${progress.projectIndex} of ${progress.projectCount})`;
+    return `${label} (project ${progress.projectIndex} of ${progress.projectCount} chosen)`;
 
   return label;
 };
@@ -283,21 +283,23 @@ export interface ImportSteps {
   status: ImportStepStatus;
 }
 
-const FILE_STEP_TITLES = ['Select file', 'Read file', 'Preview', 'Import'];
-const SERVER_STEP_TITLES = ['Connect', 'Choose space', 'Read from Octopus', 'Preview', 'Import'];
+const FILE_STEP_TITLES = ['Select file', 'Read file', 'Choose projects', 'Preview', 'Import'];
+const SERVER_STEP_TITLES = ['Connect', 'Choose space and projects', 'Read from Octopus', 'Preview', 'Import'];
 
 const FILE_PHASE_STEPS: Record<string, number> = {
   uploading: 1,
   extracting: 1,
-  previewing: 2,
-  ready: 2,
-  validating: 3,
-  confirming: 3,
-  statusUnknown: 3,
-  succeeded: 3,
+  choosing: 2,
+  previewing: 3,
+  ready: 3,
+  validating: 4,
+  confirming: 4,
+  statusUnknown: 4,
+  succeeded: 4,
 };
 
 const SERVER_PHASE_STEPS: Record<string, number> = {
+  choosing: 1,
   connecting: 2,
   fetching: 2,
   extracting: 3,
@@ -383,6 +385,8 @@ const ERROR_KIND_HINTS: Record<string, string> = {
   Unreachable: 'The Octopus server could not be reached. Resume when it is reachable again; everything read so far is kept.',
   Rejected: 'The Octopus server refused a request. Resume to retry; items it keeps refusing are skipped and listed.',
   Concurrency: 'A read of this session is already running. Resume once it has finished.',
+  ProjectSelection: 'Choose at least one project, using the projects listed for this source.',
+  ProjectSelectionBeyondRead: 'Only projects read from Octopus can be chosen now. Connect again to add projects.',
   TooLarge:
     'A response exceeded the import size limit. An administrator must raise the limit (SQUID_OCTOPUS_IMPORT_HISTORY_MAX_BYTES) before '
     + 'importing again.',
@@ -473,9 +477,22 @@ const ownedBy = (resource: OctopusImportPreviewResource, projectSourceId: string
 export const changedResources = (resources: OctopusImportPreviewResource[], projectSourceId: string | null) =>
   resources.filter(resource => ownedBy(resource, projectSourceId) && (resource.changes?.length ?? 0) > 0);
 
-/** Resources of a project (or, for null, of no project) that are not imported, with the reason. */
+/** A project that was not chosen for this import, or what belongs to one. */
+export const PROJECT_NOT_CHOSEN = 'octopus.preview.project_not_chosen';
+/** A shared resource that no chosen project uses. */
+export const NOT_USED_BY_CHOSEN_PROJECTS = 'octopus.preview.not_used_by_chosen_projects';
+
+const OUTSIDE_SELECTION_CODES = [PROJECT_NOT_CHOSEN, NOT_USED_BY_CHOSEN_PROJECTS];
+
+/** Not imported because it lies outside the chosen projects. */
+export const isOutsideSelection = (resource: OctopusImportPreviewResource) =>
+  OUTSIDE_SELECTION_CODES.includes(resource.skipReason?.code ?? '') || resource.diagnostics.some(diagnostic => OUTSIDE_SELECTION_CODES.includes(diagnostic.code));
+
+export const outsideSelectionResources = (resources: OctopusImportPreviewResource[]) => resources.filter(isOutsideSelection);
+
+/** Resources of a project (or, for null, of no project) that are not imported, with the reason; rows outside the chosen projects are listed apart. */
 export const skippedResources = (resources: OctopusImportPreviewResource[], projectSourceId: string | null) =>
-  resources.filter(resource => ownedBy(resource, projectSourceId) && resource.skipReason);
+  resources.filter(resource => ownedBy(resource, projectSourceId) && resource.skipReason && !isOutsideSelection(resource));
 
 /** Secrets an earlier import left missing that this import fills. */
 export const fillResources = (resources: OctopusImportPreviewResource[]) =>
