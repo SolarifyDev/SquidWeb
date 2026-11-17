@@ -131,7 +131,7 @@ export type ReleaseLifecycleProgressionValue = 'Complete' | 'Current' | 'Pending
 export interface ReleaseLifecycleProgressionDeploymentDto {
   deploymentId: number
   state: string
-  created: string
+  createdDate: string
   completedTime: string | null
 }
 

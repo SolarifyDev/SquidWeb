@@ -23,7 +23,7 @@ const HOTFIX_CHANNEL = { id: 2, name: 'Hotfix' }
 
 function release(id: number, version: string, channel: { id: number; name: string }): ReleaseProgression {
   return {
-    release: { id, version, assembled: '2026-11-01T00:00:00Z', channelId: channel.id },
+    release: { id, version, createdDate: '2026-11-01T00:00:00Z', channelId: channel.id },
     channel,
     deployments: {},
     nextDeployments: [],
