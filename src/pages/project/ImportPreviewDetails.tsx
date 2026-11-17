@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Button, Checkbox, Collapse, Table, Tag } from "antd";
+import { Button, Checkbox, Table, Tag } from "antd";
 import { Link } from "react-router-dom";
 import {
   OctopusImportProjectDestinationState,
@@ -18,6 +18,7 @@ import {
   choiceKindText,
   followersText,
   type ChoiceRow,
+  changeCountsOf,
   changedResources,
   describeFillDestination,
   fillDestinationLink,
@@ -27,10 +28,15 @@ import {
   pairingCopyOf,
   projectDestinationLink,
   requiredInputKindLabel,
+  kindCountsOf,
   skippedResources,
+  summarizeByProject,
   withheldSecrets,
   type WithheldSecretRow,
 } from "./importPreviewSummary";
+import { ImportDisclosure } from "./ImportDisclosure";
+import { ImportMetricTiles, type ImportMetric } from "./ImportMetricTiles";
+import { ImportStatusBanner } from "./ImportStatusBanner";
 
 // ── Counts ───────────────────────────────────────────────────────────────────
 
@@ -49,23 +55,17 @@ const COUNT_COLUMNS: { key: CountKey; title: string }[] = [
 const countOf = (counts: OctopusImportChangeCounts, key: CountKey) =>
   key === "notImported" ? counts.skip + counts.unsupported : counts[key];
 
+const zeroMuted = (value: number) => value || <span className="text-slate-300">0</span>;
+
 const countColumns = <T,>(countsOf: (row: T) => OctopusImportChangeCounts) =>
   COUNT_COLUMNS.map((column) => ({
     title: column.title,
     key: column.key,
     align: "right" as const,
-    render: (row: T) => countOf(countsOf(row), column.key) || <span className="text-slate-300">0</span>,
+    render: (row: T) => zeroMuted(countOf(countsOf(row), column.key)),
   }));
 
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-
-const CountTile: React.FC<{ id: string; label: string; value: number; hint?: string }> = ({ id, label, value, hint }) => (
-  <div data-testid={`summary-tile-${id}`} className="rounded-md border border-slate-200 px-4 py-3">
-    <div className="text-xs font-medium uppercase text-slate-500">{label}</div>
-    <div className="mt-1 text-2xl font-semibold">{value}</div>
-    {hint ? <div className="mt-0.5 text-xs text-slate-500">{hint}</div> : null}
-  </div>
-);
 
 // ── Field changes ────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ const FieldChanges: React.FC<{ resource: OctopusImportPreviewResource }> = ({ re
   </div>
 );
 
-// ── Groups (one project, or the space-level resources) ───────────────────────
+// ── Groups (one project, the space-level resources, or what lies outside the chosen projects) ──
 
 interface GroupRow {
   key: string;
@@ -105,11 +105,19 @@ interface GroupRow {
   counts: OctopusImportChangeCounts;
   kinds: OctopusImportKindChangeCounts[];
   isUpToDate: boolean;
+  /** Set on the one row that gathers every resource outside the chosen projects. */
+  outside?: OctopusImportPreviewResource[];
+  /** An older server does not report where a project lands. */
+  destinationUnknown?: boolean;
 }
 
 const SPACE_ROW_KEY = "__space__";
+export const NOT_CHOSEN_ROW_KEY = "__not_chosen__";
+export const NOT_CHOSEN_ROW_NAME = "Not used by the chosen projects";
 
 const DestinationCell: React.FC<{ row: GroupRow; spaceSlug: string }> = ({ row, spaceSlug }) => {
+  if (row.outside) return <span className="text-slate-500">Not imported</span>;
+  if (row.destinationUnknown) return <span className="text-slate-500">Not reported</span>;
   if (!row.project) return <span className="text-slate-500">This Squid space</span>;
 
   const destination = row.project.destination;
@@ -128,7 +136,28 @@ const DestinationCell: React.FC<{ row: GroupRow; spaceSlug: string }> = ({ row, 
   );
 };
 
+// A blocked resource is never hidden behind the expand: the row says so next to its name.
+const GroupName: React.FC<{ row: GroupRow }> = ({ row }) => (
+  <span className="inline-flex flex-wrap items-center gap-2">
+    <span>{row.name}</span>
+    {row.counts.blocked > 0 ? <Tag color="red">{row.counts.blocked} blocked</Tag> : null}
+    {row.isUpToDate && !row.outside ? <Tag color="green">Up to date</Tag> : null}
+  </span>
+);
+
+const OutsideList: React.FC<{ resources: OctopusImportPreviewResource[] }> = ({ resources }) => (
+  <ul data-testid="not-chosen-resources" className="list-disc space-y-0.5 py-2 pl-6">
+    {resources.map((resource) => (
+      <li key={`${resource.sourceType}-${resource.sourceId}`}>
+        {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message ?? resource.diagnostics[0]?.message}
+      </li>
+    ))}
+  </ul>
+);
+
 const GroupDetail: React.FC<{ row: GroupRow; resources: OctopusImportPreviewResource[] }> = ({ row, resources }) => {
+  if (row.outside) return <OutsideList resources={row.outside} />;
+
   const changed = changedResources(resources, row.projectSourceId);
   const skipped = skippedResources(resources, row.projectSourceId);
 
@@ -138,6 +167,7 @@ const GroupDetail: React.FC<{ row: GroupRow; resources: OctopusImportPreviewReso
         size="small"
         pagination={false}
         rowKey="kind"
+        scroll={{ x: "max-content" }}
         dataSource={row.kinds}
         columns={[{ title: "Kind", dataIndex: "kind", key: "kind" }, ...countColumns<OctopusImportKindChangeCounts>((kind) => kind.counts)]}
       />
@@ -175,48 +205,116 @@ const projectRow = (project: OctopusImportProjectPreview): GroupRow => ({
   isUpToDate: project.isUpToDate,
 });
 
-const groupRows = (plan: OctopusImportPreviewPlan): GroupRow[] => {
-  const summary = plan.summary!;
-  const rows = [...summary.projects].sort((a, b) => a.sourceName.localeCompare(b.sourceName)).map(projectRow);
-  if (summary.space.counts.total === 0) return rows;
+const withoutSkips = (counts: OctopusImportChangeCounts, skips: number): OctopusImportChangeCounts => ({
+  ...counts,
+  skip: Math.max(0, counts.skip - skips),
+  total: Math.max(0, counts.total - skips),
+});
 
-  return [
-    ...rows,
-    {
-      key: SPACE_ROW_KEY,
-      projectSourceId: null,
-      name: "Space resources (no project)",
-      project: null,
-      counts: summary.space.counts,
-      kinds: summary.space.kinds,
-      isUpToDate: summary.space.isUpToDate,
-    },
-  ];
+// Each kind without its shared resources no chosen project uses; a kind left with nothing is dropped.
+const kindsWithoutOutside = (kinds: OctopusImportKindChangeCounts[], unowned: OctopusImportPreviewResource[]): OctopusImportKindChangeCounts[] =>
+  kinds
+    .map((kind) => ({ kind: kind.kind, counts: withoutSkips(kind.counts, unowned.filter((resource) => resource.sourceType === kind.kind).length) }))
+    .filter((kind) => kind.counts.total > 0);
+
+// The space's own resources, without the shared ones no chosen project uses (they are listed on the "not used" row).
+const spaceRow = (plan: OctopusImportPreviewPlan, outside: OctopusImportPreviewResource[]): GroupRow | null => {
+  const space = plan.summary!.space;
+  const unowned = outside.filter((resource) => !resource.ownerProjectSourceId);
+  const counts = withoutSkips(space.counts, unowned.length);
+  if (counts.total === 0) return null;
+
+  return { key: SPACE_ROW_KEY, projectSourceId: null, name: "Space resources (no project)", project: null, counts, kinds: kindsWithoutOutside(space.kinds, unowned), isUpToDate: space.isUpToDate };
 };
+
+const ZERO_COUNTS: OctopusImportChangeCounts = { alreadyImported: 0, reused: 0, create: 0, update: 0, fill: 0, skip: 0, unsupported: 0, blocked: 0, total: 0, incremental: 0 };
+
+const notChosenRow = (outside: OctopusImportPreviewResource[]): GroupRow => ({
+  key: NOT_CHOSEN_ROW_KEY,
+  projectSourceId: null,
+  name: NOT_CHOSEN_ROW_NAME,
+  project: null,
+  counts: { ...ZERO_COUNTS, skip: outside.length, total: outside.length },
+  kinds: [],
+  isUpToDate: false,
+  outside,
+});
+
+const groupRows = (plan: OctopusImportPreviewPlan, outside: OctopusImportPreviewResource[]): GroupRow[] => {
+  const rows = [...plan.summary!.projects].sort((a, b) => a.sourceName.localeCompare(b.sourceName)).map(projectRow);
+  const space = spaceRow(plan, outside);
+
+  return [...rows, ...(space ? [space] : []), ...(outside.length ? [notChosenRow(outside)] : [])];
+};
+
+// Plans of an older server carry no summary: the same rows, counted from the resources; where a project lands is not reported.
+const legacyGroupRows = (resources: OctopusImportPreviewResource[], outside: OctopusImportPreviewResource[]): GroupRow[] => {
+  const inside = resources.filter((resource) => !outside.includes(resource));
+  const ownedBy = (owner: string | null) => inside.filter((resource) => (resource.ownerProjectSourceId || null) === owner);
+
+  const legacyRow = (key: string, projectSourceId: string | null, name: string): GroupRow => {
+    const owned = ownedBy(projectSourceId);
+    const counts = changeCountsOf(owned);
+    return { key, projectSourceId, name, project: null, counts, kinds: kindCountsOf(owned), isUpToDate: counts.incremental === 0 && counts.blocked === 0, destinationUnknown: true };
+  };
+
+  const projects = summarizeByProject(inside).map((project) => legacyRow(project.projectSourceId, project.projectSourceId, project.projectName));
+  const space = ownedBy(null).length ? [{ ...legacyRow(SPACE_ROW_KEY, null, "Space resources (no project)"), destinationUnknown: false }] : [];
+
+  return [...projects, ...space, ...(outside.length ? [notChosenRow(outside)] : [])];
+};
+
+const GroupTable: React.FC<{ rows: GroupRow[]; resources: OctopusImportPreviewResource[]; spaceSlug: string }> = ({ rows, resources, spaceSlug }) => (
+  <section>
+    <h3 className="mb-1 text-sm font-semibold text-slate-900">By project</h3>
+    <div className="mb-3 text-xs text-slate-500">Expand a row for the other counts and what changes for each kind of resource.</div>
+    <Table
+      data-testid="preview-projects"
+      size="small"
+      pagination={false}
+      rowKey="key"
+      dataSource={rows}
+      expandable={{ expandedRowRender: (row: GroupRow) => <GroupDetail row={row} resources={resources} /> }}
+      columns={[
+        { title: "Octopus project", key: "name", render: (row: GroupRow) => <GroupName row={row} /> },
+        { title: "Lands on", key: "destination", render: (row: GroupRow) => <DestinationCell row={row} spaceSlug={spaceSlug} /> },
+        { title: "Create", key: "create", align: "right" as const, render: (row: GroupRow) => zeroMuted(row.counts.create) },
+        { title: "Skip", key: "skip", align: "right" as const, render: (row: GroupRow) => zeroMuted(countOf(row.counts, "notImported")) },
+      ]}
+    />
+  </section>
+);
 
 // ── Sections ─────────────────────────────────────────────────────────────────
 
-const OverallSummary: React.FC<{ counts: OctopusImportChangeCounts }> = ({ counts }) => (
+/** The preview's headline numbers; a non-zero Blocked count is always in the headline row. */
+export const previewMetrics = (counts: OctopusImportChangeCounts, notChosen: number): { metrics: ImportMetric[]; details: ImportMetric[] } => ({
+  metrics: [
+    { id: "create", label: "Create", value: counts.create },
+    { id: "alreadyImported", label: "Already in Squid", value: counts.alreadyImported },
+    { id: "update", label: "Update history", value: counts.update },
+    { id: "notChosen", label: "Not chosen", value: notChosen },
+  ],
+  details: [
+    { id: "fill", label: "Fill secret", value: counts.fill },
+    { id: "reused", label: "Link existing", value: counts.reused },
+    { id: "skip", label: "Other skips", value: Math.max(0, counts.skip + counts.unsupported - notChosen) },
+    { id: "blocked", label: "Blocked", value: counts.blocked, alwaysVisibleWhenNonZero: true },
+  ],
+});
+
+const OverallSummary: React.FC<{ counts: OctopusImportChangeCounts; notChosen: number }> = ({ counts, notChosen }) => (
   <div className="space-y-2">
     <div data-testid="summary-incremental" className="text-sm text-slate-700">
       This import changes {pluralize(counts.incremental, "resource")} in Squid; {counts.alreadyImported} already in Squid stay
       as they are.
     </div>
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-      <CountTile id="alreadyImported" label="Already in Squid" value={counts.alreadyImported} hint="never overwritten" />
-      <CountTile id="create" label="Create" value={counts.create} />
-      <CountTile id="update" label="Update" value={counts.update} hint="history changed in Octopus" />
-      <CountTile id="fill" label="Fill secret" value={counts.fill} hint="only missing values" />
-      <CountTile id="reused" label="Link existing" value={counts.reused} />
-      <CountTile id="skip" label="Skip" value={counts.skip + counts.unsupported} />
-      <CountTile id="blocked" label="Blocked" value={counts.blocked} />
-    </div>
+    <ImportMetricTiles testIdPrefix="summary-tile" {...previewMetrics(counts, notChosen)} />
   </div>
 );
 
 const SkipReasons: React.FC<{ reasons: OctopusImportSkipReasonCount[] }> = ({ reasons }) => (
-  <section data-testid="skip-reasons">
-    <h2 className="mb-3 text-base font-semibold">Not imported, and why</h2>
+  <ImportDisclosure summary="Not imported, and why" testId="skip-reasons">
     <Table
       size="small"
       pagination={false}
@@ -228,12 +326,12 @@ const SkipReasons: React.FC<{ reasons: OctopusImportSkipReasonCount[] }> = ({ re
         { title: "Count", dataIndex: "count", key: "count", align: "right" as const, width: 80 },
       ]}
     />
-  </section>
+  </ImportDisclosure>
 );
 
 const FillList: React.FC<{ resources: OctopusImportPreviewResource[]; spaceSlug: string }> = ({ resources, spaceSlug }) => (
   <section data-testid="secret-fills">
-    <h2 className="mb-1 text-base font-semibold">Missing secrets this import fills</h2>
+    <h3 className="mb-1 text-sm font-semibold text-slate-900">Missing secrets this import fills</h3>
     <div className="mb-3 text-xs text-slate-500">
       Only values that are still empty in Squid are filled. Values you set in Squid are never overwritten, and values are never shown.
     </div>
@@ -306,7 +404,7 @@ const ChoiceName: React.FC<{ row: ChoiceRow }> = ({ row }) => {
 
 const ChoiceSection: React.FC<{ id: string; title: string; hint: string; rows: ChoiceRow[]; plan: OctopusImportPreviewPlan } & PreviewChoiceProps> = ({ id, title, hint, rows, plan, onChoiceChange, choicesDisabled }) => (
   <div data-testid={`choices-${id}`}>
-    <h2 className="mb-1 text-base font-semibold">{title}</h2>
+    <h3 className="mb-1 text-sm font-semibold text-slate-900">{title}</h3>
     <div className="mb-3 text-xs text-slate-500">{hint}</div>
     <Table
       size="small"
@@ -337,11 +435,10 @@ const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan } & PreviewChoiceP
   return (
     <section data-testid="preview-choices" className="space-y-4">
       {choiceProps.choicesPending ? (
-        <Alert
-          data-testid="choices-pending"
+        <ImportStatusBanner
+          testId="choices-pending"
           type="info"
-          showIcon
-          message="You changed what to import. Update the preview to see the new counts before importing."
+          message="You changed what to import: update the preview to see the new counts before importing."
         />
       ) : null}
       {CHOICE_SECTIONS.filter((section) => groups[section.id].length).map((section) => (
@@ -362,117 +459,84 @@ const ProjectScope: React.FC<{ notChosen: number; onChangeProjects?: () => void 
       Change projects
     </Button>
   ) : null;
-  if (notChosen <= 0) return change ? <div data-testid="project-scope">{change}</div> : null;
+  if (notChosen <= 0) return change ? <div data-testid="project-scope" className="flex justify-end">{change}</div> : null;
 
   return (
-    <Alert
-      data-testid="project-scope"
+    <ImportStatusBanner
+      testId="project-scope"
       type="info"
-      showIcon
       message={`${pluralize(notChosen, "project")} ${notChosen === 1 ? "was" : "were"} not chosen and ${notChosen === 1 ? "is" : "are"} not imported.`}
       action={change}
     />
   );
 };
 
-const NotChosenPanel: React.FC<{ resources: OctopusImportPreviewResource[] }> = ({ resources }) => (
-  <Collapse
-    data-testid="not-chosen-resources"
-    size="small"
-    items={[{
-      key: "not-chosen",
-      label: `Not imported (not chosen): ${pluralize(resources.length, "resource")}`,
-      children: (
-        <ul className="list-disc space-y-0.5 pl-6">
-          {resources.map((resource) => (
-            <li key={`${resource.sourceType}-${resource.sourceId}`}>
-              {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message ?? resource.diagnostics[0]?.message}
-            </li>
-          ))}
-        </ul>
-      ),
-    }]}
-  />
-);
-
-/** The incremental preview: overall and per-project counts, where each project lands in Squid, field-level changes, fills and skips. */
-export const ImportPreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string; onChangeProjects?: () => void } & PreviewChoiceProps> = ({ plan, spaceSlug, onChangeProjects, ...choiceProps }) => {
+/** The incremental preview: headline counts, choices, per-project counts and where each project lands in Squid, field-level changes, fills and skips. */
+const PreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string; onChangeProjects?: () => void } & PreviewChoiceProps> = ({ plan, spaceSlug, onChangeProjects, ...choiceProps }) => {
   const summary = plan.summary;
   if (!summary) return null;
 
   const outside = outsideSelectionResources(plan.resources);
-
   const fills = fillResources(plan.resources);
-  const rows = groupRows(plan);
+  const rows = groupRows(plan, outside);
   const choices = choiceGroups(plan.resources);
   const offersLeft = choices.deleted.length + choices.added.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {summary.isUpToDate ? (
-        <Alert
-          data-testid="preview-up-to-date"
+        <ImportStatusBanner
+          testId="preview-up-to-date"
           type="success"
-          showIcon
-          message="Everything is up to date"
-          description={
+          message={
             offersLeft
-              ? "Everything this source contains is already in Squid, except the items offered below. Importing again would change nothing unless you tick one of them."
-              : "Everything this source contains is already in Squid. Importing again would change nothing."
+              ? "Everything this source contains is already in Squid, except the items offered below; importing again changes nothing unless you tick one of them."
+              : "Everything this source contains is already in Squid; importing again would change nothing."
           }
         />
       ) : null}
 
       <ProjectScope notChosen={summary.notChosenProjectCount ?? 0} onChangeProjects={onChangeProjects} />
 
-      <OverallSummary counts={summary.counts} />
+      <OverallSummary counts={summary.counts} notChosen={outside.length} />
 
       <ChoicesPanel plan={plan} {...choiceProps} />
 
-      {rows.length ? (
-        <section>
-          <h2 className="mb-1 text-base font-semibold">By project</h2>
-          <div className="mb-3 text-xs text-slate-500">Expand a row to see what changes for each kind of resource.</div>
-          <Table
-            data-testid="preview-projects"
-            size="small"
-            pagination={false}
-            rowKey="key"
-            dataSource={rows}
-            expandable={{ expandedRowRender: (row: GroupRow) => <GroupDetail row={row} resources={plan.resources} /> }}
-            columns={[
-              { title: "Octopus project", dataIndex: "name", key: "name" },
-              { title: "Lands on in Squid", key: "destination", render: (row: GroupRow) => <DestinationCell row={row} spaceSlug={spaceSlug} /> },
-              ...countColumns<GroupRow>((row) => row.counts),
-              {
-                title: "",
-                key: "status",
-                render: (row: GroupRow) => (row.isUpToDate ? <Tag color="green">Up to date</Tag> : null),
-              },
-            ]}
-          />
-        </section>
-      ) : null}
+      {rows.length ? <GroupTable rows={rows} resources={plan.resources} spaceSlug={spaceSlug} /> : null}
+
+      {fills.length ? <FillList resources={fills} spaceSlug={spaceSlug} /> : null}
 
       {summary.kinds.length ? (
-        <section>
-          <h2 className="mb-3 text-base font-semibold">By kind</h2>
+        <ImportDisclosure summary="By kind" testId="preview-kinds-disclosure">
           <Table
             data-testid="preview-kinds"
             size="small"
             pagination={false}
+            scroll={{ x: "max-content" }}
             rowKey="kind"
             dataSource={summary.kinds}
             columns={[{ title: "Kind", dataIndex: "kind", key: "kind" }, ...countColumns<OctopusImportKindChangeCounts>((kind) => kind.counts)]}
           />
-        </section>
+        </ImportDisclosure>
       ) : null}
 
-      {fills.length ? <FillList resources={fills} spaceSlug={spaceSlug} /> : null}
-
       {summary.skipReasons.length ? <SkipReasons reasons={summary.skipReasons} /> : null}
+    </div>
+  );
+};
 
-      {outside.length ? <NotChosenPanel resources={outside} /> : null}
+// Memoised: the page re-renders on every status poll while the plan it shows stays the same.
+export const ImportPreviewOverview = React.memo(PreviewOverview);
+
+/** The preview of an older server's plan (no summary): the same tiles and by-project table, counted from the resources. */
+export const LegacyPreviewOverview: React.FC<{ resources: OctopusImportPreviewResource[]; spaceSlug: string }> = ({ resources, spaceSlug }) => {
+  const outside = outsideSelectionResources(resources);
+  const rows = legacyGroupRows(resources, outside);
+
+  return (
+    <div className="space-y-5">
+      <ImportMetricTiles testIdPrefix="import-tile" {...previewMetrics(changeCountsOf(resources), outside.length)} />
+      {rows.length ? <GroupTable rows={rows} resources={resources} spaceSlug={spaceSlug} /> : null}
     </div>
   );
 };
@@ -491,6 +555,15 @@ const FillFromFileButton: React.FC<{ onFillFromFile: () => void; disabled?: bool
   </Button>
 );
 
+/** "Db.Password" or "Db.Password +2 more": the first secret by name, the rest counted. */
+export const firstAndMore = (names: string[]) => (names.length > 1 ? `${names[0]} +${names.length - 1} more` : names[0] ?? "");
+
+const fillColumn = <T,>(fillableOf: (row: T) => boolean) => ({
+  title: "Fill",
+  key: "fillable",
+  render: (row: T) => (fillableOf(row) ? "From the export file" : "Set it in Squid"),
+});
+
 /** Secrets the Octopus API does not return: imported empty and listed so they can be filled later. Names only. */
 export const WithheldSecretsPanel: React.FC<{
   resources: OctopusImportPreviewResource[];
@@ -503,87 +576,85 @@ export const WithheldSecretsPanel: React.FC<{
   const anyFillable = rows.some(row => row.fillable);
 
   return (
-    <section data-testid="withheld-secrets" className="space-y-3">
-      <Alert
+    <section data-testid="withheld-secrets">
+      <ImportStatusBanner
         type="warning"
-        showIcon
-        message={`${pluralize(rows.length, "secret value")} will be imported as missing`}
-        description={`The Octopus API never returns secret values. These are created without their value, and deployments that use a missing variable value fail with a clear message until it is set. ${fillHint(anyFillable)}`}
+        message={`${pluralize(rows.length, "secret value")} will be imported as missing: ${firstAndMore(rows.map((row) => row.name))}.`}
         action={anyFillable ? <FillFromFileButton onFillFromFile={onFillFromFile} disabled={disabled} /> : null}
-      />
-      <Table
-        size="small"
-        pagination={false}
-        rowKey="key"
-        dataSource={rows}
-        columns={[
-          { title: "Kind", dataIndex: "kind", key: "kind" },
-          { title: "Name", dataIndex: "name", key: "name" },
-          { title: "Where", dataIndex: "where", key: "where" },
-          { title: "Field", dataIndex: "field", key: "field" },
-          { title: "Scope", dataIndex: "scope", key: "scope" },
-          {
-            title: "Fill",
-            key: "fillable",
-            render: (row: WithheldSecretRow) => (row.fillable ? "From the export file" : "Set it in Squid"),
-          },
-        ]}
-      />
+      >
+        <ImportDisclosure summary="Which secrets, and how to fill them" bordered={false}>
+          <div className="space-y-2">
+            <div className="text-xs text-slate-600">
+              The Octopus API never returns secret values. These are created without their value, and deployments that use a missing
+              variable value fail with a clear message until it is set. {fillHint(anyFillable)}
+            </div>
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="key"
+              scroll={{ x: "max-content" }}
+              dataSource={rows}
+              columns={[
+                { title: "Kind", dataIndex: "kind", key: "kind" },
+                { title: "Name", dataIndex: "name", key: "name" },
+                { title: "Where", dataIndex: "where", key: "where" },
+                { title: "Field", dataIndex: "field", key: "field" },
+                { title: "Scope", dataIndex: "scope", key: "scope" },
+                fillColumn<WithheldSecretRow>((row) => row.fillable),
+              ]}
+            />
+          </div>
+        </ImportDisclosure>
+      </ImportStatusBanner>
     </section>
   );
 };
 
-/** After an import from the API: the secrets it left empty, each linking to where it is set. */
+/** After an import from the API: one line naming the secrets it left empty, the full list (each linking to where it is set) behind it. */
 export const MissingSecretsAfterImport: React.FC<{
   missing: OctopusImportMissingSensitiveValue[];
   spaceSlug: string;
   onFillFromFile: () => void;
-  onDone: () => void;
-}> = ({ missing, spaceSlug, onFillFromFile, onDone }) => {
+}> = ({ missing, spaceSlug, onFillFromFile }) => {
   const anyFillable = missing.some(item => item.fillable);
+  const still = missing.length === 1 ? "is still missing" : "are still missing";
 
   return (
-  <section data-testid="missing-secrets-after-import" className="space-y-3">
-    <Alert
-      type="success"
-      showIcon
-      message="Import completed"
-      description={`${pluralize(missing.length, "secret value")} could not be read from the Octopus API and ${missing.length === 1 ? "is" : "are"} still missing. ${fillHint(anyFillable)}`}
-      action={
-        <div className="flex flex-col gap-2">
-          {anyFillable ? <FillFromFileButton onFillFromFile={onFillFromFile} /> : null}
-          <Button size="small" type="primary" onClick={onDone}>
-            Go to projects
-          </Button>
-        </div>
-      }
-    />
-    <Table
-      size="small"
-      pagination={false}
-      rowKey={(item: OctopusImportMissingSensitiveValue) => `${item.kind}-${item.ownerName}-${item.name}-${item.field}-${item.scopeSummary}`}
-      dataSource={missing}
-      columns={[
-        { title: "Kind", key: "kind", render: (item: OctopusImportMissingSensitiveValue) => requiredInputKindLabel(item.kind) },
-        {
-          title: "Name",
-          key: "name",
-          render: (item: OctopusImportMissingSensitiveValue) => {
-            const link = missingSecretLink(spaceSlug, item);
-            return link ? <Link to={link}>{item.name}</Link> : item.name;
-          },
-        },
-        { title: "Where", key: "owner", render: (item: OctopusImportMissingSensitiveValue) => item.ownerName ?? "" },
-        { title: "Field", dataIndex: "field", key: "field" },
-        { title: "Scope", key: "scope", render: (item: OctopusImportMissingSensitiveValue) => item.scopeSummary ?? "" },
-        {
-          title: "Fill",
-          key: "fillable",
-          render: (item: OctopusImportMissingSensitiveValue) => (item.fillable ? "From the export file" : "Set it in Squid"),
-        },
-      ]}
-    />
-  </section>
+    <section data-testid="missing-secrets-after-import">
+      <ImportStatusBanner
+        type="success"
+        message={`Import completed; ${pluralize(missing.length, "secret value")} ${still}: ${firstAndMore(missing.map((item) => item.name))}.`}
+        action={anyFillable ? <FillFromFileButton onFillFromFile={onFillFromFile} /> : null}
+      >
+        <ImportDisclosure summary="Where to set them" bordered={false} defaultOpen={missing.length === 1}>
+          <div className="space-y-2">
+            <div className="text-xs text-slate-600">The Octopus API never returns secret values. {fillHint(anyFillable)}</div>
+            <Table
+              size="small"
+              pagination={false}
+              scroll={{ x: "max-content" }}
+              rowKey={(item: OctopusImportMissingSensitiveValue) => `${item.kind}-${item.ownerName}-${item.name}-${item.field}-${item.scopeSummary}`}
+              dataSource={missing}
+              columns={[
+                { title: "Kind", key: "kind", render: (item: OctopusImportMissingSensitiveValue) => requiredInputKindLabel(item.kind) },
+                {
+                  title: "Name",
+                  key: "name",
+                  render: (item: OctopusImportMissingSensitiveValue) => {
+                    const link = missingSecretLink(spaceSlug, item);
+                    return link ? <Link to={link}>{item.name}</Link> : item.name;
+                  },
+                },
+                { title: "Where", key: "owner", render: (item: OctopusImportMissingSensitiveValue) => item.ownerName ?? "" },
+                { title: "Field", dataIndex: "field", key: "field" },
+                { title: "Scope", key: "scope", render: (item: OctopusImportMissingSensitiveValue) => item.scopeSummary ?? "" },
+                fillColumn<OctopusImportMissingSensitiveValue>((item) => Boolean(item.fillable)),
+              ]}
+            />
+          </div>
+        </ImportDisclosure>
+      </ImportStatusBanner>
+    </section>
   );
 };
 
@@ -602,25 +673,17 @@ export const FillPairingConfirmation: React.FC<{
   const copy = pairingCopyOf(pairing, linksEarlierImport);
 
   return (
-    <Alert
-      data-testid="fill-pairing"
-      type="warning"
-      showIcon
-      message={copy.title}
-      description={
-        <div className="space-y-2">
-          <div>{copy.intro}</div>
-          <ul className="list-disc pl-5">
-            {copy.recorded.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          {copy.incoming.length ? <div>This source: {copy.incoming.join(", ")}</div> : null}
-          <Checkbox checked={confirmed} disabled={disabled} onChange={(event) => onChange(event.target.checked)}>
-            {copy.confirmLabel}
-          </Checkbox>
-        </div>
-      }
-    />
+    <ImportStatusBanner testId="fill-pairing" type="warning" message={copy.title}>
+      <div>{copy.intro}</div>
+      <ul className="list-disc pl-5">
+        {copy.recorded.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {copy.incoming.length ? <div>This source: {copy.incoming.join(", ")}</div> : null}
+      <Checkbox checked={confirmed} disabled={disabled} onChange={(event) => onChange(event.target.checked)}>
+        {copy.confirmLabel}
+      </Checkbox>
+    </ImportStatusBanner>
   );
 };

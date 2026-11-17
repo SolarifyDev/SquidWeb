@@ -30,6 +30,8 @@ import {
   listedResources,
   summarizeActions,
   summarizeByProject,
+  changeCountsOf,
+  kindCountsOf,
   withoutHistoryRows,
   changedResources,
   describeFillDestination,
@@ -38,7 +40,7 @@ import {
   fetchPositionLabel,
   fillDestinationLink,
   fillResources,
-  importSteps,
+  importSections,
   isUpToDate,
   missingSecretLink,
   permissionProblem,
@@ -134,6 +136,27 @@ describe('importPreviewSummary', () => {
     expect(summarizeActions(resources)).toEqual({
       create: 4, reuse: 1, alreadyImported: 3, update: 2, fill: 0, skip: 1, other: 0,
     });
+  });
+
+  it('changeCountsOf_CountsEachActionLikeTheServerSummary', () => {
+    const resources = [
+      resource('Project', 'Projects-1', Create, 'Projects-1'),
+      resource('Release', 'Releases-1', Create, 'Projects-1'),
+      resource('Release', 'Releases-2', AlreadyImported, 'Projects-1'),
+      resource('Deployment', 'Deployments-1', Update, 'Projects-1'),
+      resource('Environment', 'Environments-1', ReuseExisting),
+      resource('Variable', 'Db.Password', OctopusImportPreviewAction.FillMissingSecret),
+      resource('ServerTask', 'ServerTasks-1', Skip, 'Projects-1'),
+      resource('Feed', 'Feeds-1', OctopusImportPreviewAction.Unsupported),
+      resource('Lifecycle', 'Lifecycles-1', OctopusImportPreviewAction.Blocked),
+      resource('Channel', 'Channels-1', OctopusImportPreviewAction.RenameRequired, 'Projects-1'),
+    ];
+
+    expect(changeCountsOf(resources)).toEqual({
+      alreadyImported: 1, reused: 1, create: 2, update: 1, fill: 1, skip: 1, unsupported: 1, blocked: 2, total: 10, incremental: 5,
+    });
+    expect(kindCountsOf(resources).find(kind => kind.kind === 'Release')?.counts).toMatchObject({ create: 1, alreadyImported: 1, total: 2 });
+    expect(kindCountsOf(resources).map(kind => kind.kind)).toEqual(['Project', 'Release', 'Deployment', 'Environment', 'Variable', 'ServerTask', 'Feed', 'Lifecycle', 'Channel']);
   });
 
   it('summarize_projectMissingFromPlan_FallsBackToItsSourceId', () => {
@@ -326,60 +349,72 @@ describe('fetchPositionLabel', () => {
   });
 });
 
-describe('importSteps', () => {
-  const input = (phase: string, overrides: Partial<Parameters<typeof importSteps>[1]> = {}) => ({
+describe('importSections', () => {
+  const input = (phase: string, overrides: Partial<Parameters<typeof importSections>[1]> = {}) => ({
     phase, lastActivePhase: null, probed: false, fetchStarted: false, ...overrides,
   });
 
-  it('namesTheStepsOfEachSource', () => {
-    expect(importSteps('file', input('idle')).titles).toEqual(['Select file', 'Read file', 'Choose projects', 'Preview', 'Import']);
-    expect(importSteps('server', input('idle')).titles)
-      .toEqual(['Connect', 'Choose space and projects', 'Read from Octopus', 'Preview', 'Import']);
+  const statuses = (sections: ReturnType<typeof importSections>) => sections.map(section => section.status);
+
+  it('namesTheSectionsOfEachSource', () => {
+    expect(importSections('file', input('idle')).map(section => section.title))
+      .toEqual(['Source', 'File', 'Read file', 'Projects', 'Preview and import']);
+    expect(importSections('server', input('idle')).map(section => section.title))
+      .toEqual(['Source', 'Connect', 'Space and projects', 'Read from Octopus', 'Preview and import']);
+  });
+
+  it('marksTheSectionsBeforeTheCurrentDone_AndTheOnesAfterItFuture', () => {
+    expect(statuses(importSections('server', input('fetching', { probed: true }))))
+      .toEqual(['done', 'done', 'done', 'current', 'future']);
+  });
+
+  it('marksEverySectionDone_WhenTheImportSucceeded', () => {
+    expect(statuses(importSections('file', input('succeeded')))).toEqual(['done', 'done', 'done', 'done', 'done']);
   });
 
   it.each([
-    ['idle', {}, 0, 'process'],
-    ['uploading', {}, 1, 'process'],
-    ['extracting', {}, 1, 'process'],
-    ['choosing', {}, 2, 'process'],
-    ['previewing', {}, 3, 'process'],
-    ['ready', {}, 3, 'process'],
-    ['validating', {}, 4, 'process'],
-    ['confirming', {}, 4, 'process'],
-    ['statusUnknown', {}, 4, 'process'],
-    ['succeeded', {}, 4, 'finish'],
-    ['failed', { lastActivePhase: 'extracting' }, 1, 'error'],
-    ['failed', { lastActivePhase: 'choosing' }, 2, 'error'],
-    ['failed', { lastActivePhase: 'ready' }, 3, 'error'],
+    ['idle', {}, 1, 'current'],
+    ['uploading', {}, 2, 'current'],
+    ['extracting', {}, 2, 'current'],
+    ['choosing', {}, 3, 'current'],
+    ['previewing', {}, 4, 'current'],
+    ['ready', {}, 4, 'current'],
+    ['validating', {}, 4, 'current'],
+    ['confirming', {}, 4, 'current'],
+    ['statusUnknown', {}, 4, 'current'],
+    ['failed', { lastActivePhase: 'extracting' }, 2, 'error'],
+    ['failed', { lastActivePhase: 'choosing' }, 3, 'error'],
+    ['failed', { lastActivePhase: 'ready' }, 4, 'error'],
     ['failed', { lastActivePhase: 'confirming' }, 4, 'error'],
-    ['failed', {}, 0, 'error'],
-  ] as const)('file: %s %o -> step %i (%s)', (phase, overrides, current, status) => {
-    const steps = importSteps('file', input(phase, overrides));
-    expect({ current: steps.current, status: steps.status }).toEqual({ current, status });
+    ['failed', {}, 1, 'error'],
+  ] as const)('file: %s %o -> section %i (%s)', (phase, overrides, index, status) => {
+    const sections = importSections('file', input(phase, overrides));
+    expect(sections[index].status).toBe(status);
+    expect(sections.filter(section => section.status === 'current' || section.status === 'error')).toHaveLength(1);
   });
 
   it.each([
-    ['idle', {}, 0, 'process'],
-    ['idle', { probed: true }, 1, 'process'],
-    ['idle', { probed: true, fetchStarted: true }, 2, 'process'],
-    ['choosing', { probed: true }, 1, 'process'],
-    ['connecting', { probed: true }, 2, 'process'],
-    ['fetching', { probed: true }, 2, 'process'],
-    ['extracting', { probed: true }, 3, 'process'],
-    ['previewing', { probed: true }, 3, 'process'],
-    ['ready', { probed: true }, 3, 'process'],
-    ['validating', {}, 4, 'process'],
-    ['confirming', {}, 4, 'process'],
-    ['statusUnknown', {}, 4, 'process'],
-    ['succeeded', {}, 4, 'finish'],
-    ['failed', { probed: true, lastActivePhase: 'connecting' }, 2, 'error'],
-    ['failed', { probed: true, lastActivePhase: 'fetching' }, 2, 'error'],
-    ['failed', { probed: true, lastActivePhase: 'previewing' }, 3, 'error'],
+    ['idle', {}, 1, 'current'],
+    ['idle', { probed: true }, 2, 'current'],
+    ['idle', { probed: true, fetchStarted: true }, 3, 'current'],
+    ['choosing', { probed: true }, 2, 'current'],
+    ['connecting', { probed: true }, 3, 'current'],
+    ['fetching', { probed: true }, 3, 'current'],
+    ['extracting', { probed: true }, 4, 'current'],
+    ['previewing', { probed: true }, 4, 'current'],
+    ['ready', { probed: true }, 4, 'current'],
+    ['validating', {}, 4, 'current'],
+    ['confirming', {}, 4, 'current'],
+    ['statusUnknown', {}, 4, 'current'],
+    ['failed', { probed: true, lastActivePhase: 'connecting' }, 3, 'error'],
+    ['failed', { probed: true, lastActivePhase: 'fetching' }, 3, 'error'],
+    ['failed', { probed: true, lastActivePhase: 'previewing' }, 4, 'error'],
     ['failed', { probed: true, lastActivePhase: 'confirming' }, 4, 'error'],
-    ['failed', { probed: true }, 1, 'error'],
-  ] as const)('server: %s %o -> step %i (%s)', (phase, overrides, current, status) => {
-    const steps = importSteps('server', input(phase, overrides));
-    expect({ current: steps.current, status: steps.status }).toEqual({ current, status });
+    ['failed', { probed: true }, 2, 'error'],
+  ] as const)('server: %s %o -> section %i (%s)', (phase, overrides, index, status) => {
+    const sections = importSections('server', input(phase, overrides));
+    expect(sections[index].status).toBe(status);
+    expect(sections.filter(section => section.status === 'current' || section.status === 'error')).toHaveLength(1);
   });
 });
 

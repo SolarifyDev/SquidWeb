@@ -10,6 +10,8 @@ import {
   type OctopusImportFillPairing,
   type OctopusImportOriginEvidence,
   OctopusImportFillEvidenceState,
+  type OctopusImportChangeCounts,
+  type OctopusImportKindChangeCounts,
   type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
   type OctopusImportPreviewResource,
@@ -113,6 +115,33 @@ export const summarizeByProject = (resources: OctopusImportPreviewResource[]): P
     newReleases: owned.filter(resource => writesHistory(resource, 'Release')).length,
     newDeployments: owned.filter(resource => writesHistory(resource, 'Deployment')).length,
   })).sort((left, right) => left.projectName.localeCompare(right.projectName));
+};
+
+const countAction = (resources: OctopusImportPreviewResource[], ...actions: OctopusImportPreviewAction[]) =>
+  resources.filter(resource => actions.includes(Number(resource.previewAction))).length;
+
+/** The server's change counts, computed from the resources (plans of an older server carry no summary). */
+export const changeCountsOf = (resources: OctopusImportPreviewResource[]): OctopusImportChangeCounts => {
+  const counts = {
+    alreadyImported: countAction(resources, OctopusImportPreviewAction.AlreadyImported),
+    reused: countAction(resources, OctopusImportPreviewAction.ReuseExisting),
+    create: countAction(resources, OctopusImportPreviewAction.Create),
+    update: countAction(resources, OctopusImportPreviewAction.Update),
+    fill: countAction(resources, OctopusImportPreviewAction.FillMissingSecret),
+    skip: countAction(resources, OctopusImportPreviewAction.Skip),
+    unsupported: countAction(resources, OctopusImportPreviewAction.Unsupported),
+    blocked: countAction(resources, OctopusImportPreviewAction.Blocked, OctopusImportPreviewAction.RenameRequired),
+    total: resources.length,
+  };
+
+  return { ...counts, incremental: counts.create + counts.update + counts.fill + counts.reused };
+};
+
+/** Change counts per resource kind, in the order each kind first appears. */
+export const kindCountsOf = (resources: OctopusImportPreviewResource[]): OctopusImportKindChangeCounts[] => {
+  const kinds = Array.from(new Set(resources.map(resource => resource.sourceType)));
+
+  return kinds.map(kind => ({ kind, counts: changeCountsOf(resources.filter(resource => resource.sourceType === kind)) }));
 };
 
 /** True when confirming would write nothing: no resource is created, updated or filled. */
@@ -321,9 +350,12 @@ export const historyFetchNotices = (progress: OctopusHistoryFetchProgress): Hist
 
 export type ImportSource = 'file' | 'server';
 
-export type ImportStepStatus = 'process' | 'finish' | 'error';
+/** How a step of the import stands: done, the one the user is on (or that failed), or still ahead. */
+export type ImportSectionStatus = 'done' | 'current' | 'error' | 'future';
 
-export interface ImportStepInput {
+export type ImportSectionId = 'source' | 'connect' | 'file' | 'projects' | 'read' | 'preview';
+
+export interface ImportSectionInput {
   phase: string;
   /** The phase the workflow was in when it failed. */
   lastActivePhase: string | null;
@@ -331,58 +363,80 @@ export interface ImportStepInput {
   fetchStarted: boolean;
 }
 
-export interface ImportSteps {
-  titles: string[];
-  current: number;
-  status: ImportStepStatus;
+export interface ImportSection {
+  id: ImportSectionId;
+  title: string;
+  status: ImportSectionStatus;
 }
 
-const FILE_STEP_TITLES = ['Select file', 'Read file', 'Choose projects', 'Preview', 'Import'];
-const SERVER_STEP_TITLES = ['Connect', 'Choose space and projects', 'Read from Octopus', 'Preview', 'Import'];
+const FILE_SECTIONS: Array<Pick<ImportSection, 'id' | 'title'>> = [
+  { id: 'source', title: 'Source' },
+  { id: 'file', title: 'File' },
+  { id: 'read', title: 'Read file' },
+  { id: 'projects', title: 'Projects' },
+  { id: 'preview', title: 'Preview and import' },
+];
 
-const FILE_PHASE_STEPS: Record<string, number> = {
-  uploading: 1,
-  extracting: 1,
+const SERVER_SECTIONS: Array<Pick<ImportSection, 'id' | 'title'>> = [
+  { id: 'source', title: 'Source' },
+  { id: 'connect', title: 'Connect' },
+  { id: 'projects', title: 'Space and projects' },
+  { id: 'read', title: 'Read from Octopus' },
+  { id: 'preview', title: 'Preview and import' },
+];
+
+const FILE_PHASE_SECTIONS: Record<string, number> = {
+  uploading: 2,
+  extracting: 2,
+  choosing: 3,
+  previewing: 4,
+  ready: 4,
+  validating: 4,
+  confirming: 4,
+  statusUnknown: 4,
+  succeeded: 4,
+};
+
+const SERVER_PHASE_SECTIONS: Record<string, number> = {
   choosing: 2,
-  previewing: 3,
-  ready: 3,
+  connecting: 3,
+  fetching: 3,
+  extracting: 4,
+  previewing: 4,
+  ready: 4,
   validating: 4,
   confirming: 4,
   statusUnknown: 4,
   succeeded: 4,
 };
 
-const SERVER_PHASE_STEPS: Record<string, number> = {
-  choosing: 1,
-  connecting: 2,
-  fetching: 2,
-  extracting: 3,
-  previewing: 3,
-  ready: 3,
-  validating: 4,
-  confirming: 4,
-  statusUnknown: 4,
-  succeeded: 4,
+const idleSection = (source: ImportSource, input: ImportSectionInput) => {
+  if (source === 'file') return 1;
+  if (input.fetchStarted) return 3;
+  return input.probed ? 2 : 1;
 };
 
-const idleStep = (source: ImportSource, input: ImportStepInput) => {
-  if (source === 'file') return 0;
-  if (input.fetchStarted) return 2;
-  return input.probed ? 1 : 0;
+const sectionOf = (source: ImportSource, phase: string | null, input: ImportSectionInput) => {
+  const sections = source === 'file' ? FILE_PHASE_SECTIONS : SERVER_PHASE_SECTIONS;
+  return phase && phase in sections ? sections[phase] : idleSection(source, input);
 };
 
-const stepOf = (source: ImportSource, phase: string | null, input: ImportStepInput) => {
-  const steps = source === 'file' ? FILE_PHASE_STEPS : SERVER_PHASE_STEPS;
-  return phase && phase in steps ? steps[phase] : idleStep(source, input);
+const statusAt = (index: number, current: number, failed: boolean): ImportSectionStatus => {
+  if (index < current) return 'done';
+  if (index > current) return 'future';
+  return failed ? 'error' : 'current';
 };
 
-/** The step bar of a source; a failure marks the step the workflow was in when it failed. */
-export const importSteps = (source: ImportSource, input: ImportStepInput): ImportSteps => {
-  const titles = source === 'file' ? FILE_STEP_TITLES : SERVER_STEP_TITLES;
+/** The steps of a source, each with its status: a failure marks the step the workflow was in; a finished import marks them all done. */
+export const importSections = (source: ImportSource, input: ImportSectionInput): ImportSection[] => {
+  const sections = source === 'file' ? FILE_SECTIONS : SERVER_SECTIONS;
+  const failed = input.phase === 'failed';
+  const current = sectionOf(source, failed ? input.lastActivePhase : input.phase, input);
 
-  if (input.phase === 'failed') return { titles, current: stepOf(source, input.lastActivePhase, input), status: 'error' };
-
-  return { titles, current: stepOf(source, input.phase, input), status: input.phase === 'succeeded' ? 'finish' : 'process' };
+  return sections.map((section, index) => ({
+    ...section,
+    status: input.phase === 'succeeded' ? 'done' : statusAt(index, current, failed),
+  }));
 };
 
 // Lease conflicts, timeouts, rate limits and server errors are worth retrying.

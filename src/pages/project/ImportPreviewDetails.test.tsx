@@ -14,6 +14,7 @@ import {
 import {
   FillPairingConfirmation,
   ImportPreviewOverview,
+  LegacyPreviewOverview,
   MissingSecretsAfterImport,
   WithheldSecretsPanel,
 } from './ImportPreviewDetails';
@@ -104,7 +105,7 @@ describe('ImportPreviewOverview', () => {
       .toHaveAttribute('href', '/Spaces-1/external/feeds');
   });
 
-  it('listsRowsOutsideTheChosenProjectsApart_Collapsed_AndNotInTheProjectDetail', () => {
+  it('collapsesRowsOutsideTheChosenProjectsIntoOneRow_ListedOnlyWhenExpanded', () => {
     const scoped = plan();
     scoped.resources.push(
       { ...resource('Project', 'Projects-2', OctopusImportPreviewAction.Skip, 'Projects-2'), sourceName: 'Api', skipReason: { code: 'octopus.preview.project_not_chosen', message: 'Not chosen for this import.' } },
@@ -112,14 +113,80 @@ describe('ImportPreviewOverview', () => {
     );
     renderInRouter(<ImportPreviewOverview plan={scoped} spaceSlug="Spaces-1" />);
 
-    const panel = screen.getByTestId('not-chosen-resources');
-    expect(panel).toHaveTextContent('Not imported (not chosen): 2 resources');
-    expect(within(panel).queryByText(/Lifecycle Slow/)).not.toBeInTheDocument();
+    const table = screen.getByTestId('preview-projects');
+    const notChosenRows = within(table).getAllByRole('row').filter(row => row.textContent?.includes('Not used by the chosen projects'));
+    expect(notChosenRows).toHaveLength(1);
+    expect(within(notChosenRows[0]).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['', 'Not used by the chosen projects', 'Not imported', '0', '2']);
+    expect(within(table).queryByText(/Lifecycle Slow/)).not.toBeInTheDocument();
+    expect(within(table).queryByText('Api')).not.toBeInTheDocument();
+    expect(screen.getByTestId('summary-tile-notChosen')).toHaveTextContent('2');
 
-    fireEvent.click(within(panel).getByText(/Not imported \(not chosen\)/));
+    fireEvent.click(within(notChosenRows[0]).getByRole('button', { name: /expand row/i }));
 
-    expect(within(panel).getByText(/Lifecycle Slow: Not used by the chosen projects/)).toBeInTheDocument();
-    expect(within(panel).getByText(/Project Api: Not chosen for this import/)).toBeInTheDocument();
+    const list = screen.getByTestId('not-chosen-resources');
+    expect(within(list).getByText(/Lifecycle Slow: Not used by the chosen projects/)).toBeInTheDocument();
+    expect(within(list).getByText(/Project Api: Not chosen for this import/)).toBeInTheDocument();
+  });
+
+  it('leavesSharedResourcesNoChosenProjectUsesOutOfTheSpaceRowsKindTable', () => {
+    const scoped = plan();
+    scoped.resources.push(
+      { ...resource('Lifecycle', 'Lifecycles-2', OctopusImportPreviewAction.Skip, null), skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used.' } },
+      { ...resource('Lifecycle', 'Lifecycles-3', OctopusImportPreviewAction.Skip, null), skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used.' } },
+      { ...resource('Environment', 'Environments-2', OctopusImportPreviewAction.Skip, null), skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used.' } },
+    );
+    scoped.summary!.space = {
+      counts: counts({ fill: 1, reused: 2, skip: 3 }),
+      kinds: [
+        { kind: 'Feed', counts: counts({ fill: 1 }) },
+        { kind: 'Lifecycle', counts: counts({ reused: 2, skip: 2 }) },
+        { kind: 'Environment', counts: counts({ skip: 1 }) },
+      ],
+      isUpToDate: false,
+    };
+    renderInRouter(<ImportPreviewOverview plan={scoped} spaceSlug="Spaces-1" />);
+
+    const table = screen.getByTestId('preview-projects');
+    const spaceRow = within(table).getAllByRole('row').find(row => row.textContent?.includes('Space resources (no project)'))!;
+    expect(within(spaceRow).getAllByRole('cell').map(cell => cell.textContent).slice(-1)).toEqual(['0']);
+
+    fireEvent.click(within(spaceRow).getByRole('button', { name: /expand row/i }));
+
+    const kindRows = within(within(screen.getByTestId('group-detail-__space__')).getAllByRole('table')[0]).getAllByRole('row').filter(row => row.hasAttribute('data-row-key')).map(row => within(row).getAllByRole('cell').map(cell => cell.textContent));
+    expect(kindRows.map(cells => cells[0])).toEqual(['Feed', 'Lifecycle']);
+    expect(kindRows.every(cells => cells[6] === '0')).toBe(true);
+  });
+
+  it('showsTheByProjectTableWithFourColumns_TheOtherCountsInTheExpandedRow', () => {
+    renderInRouter(<ImportPreviewOverview plan={plan()} spaceSlug="Spaces-1" />);
+
+    const table = screen.getByTestId('preview-projects');
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent).filter(Boolean))
+      .toEqual(['Octopus project', 'Lands on', 'Create', 'Skip']);
+
+    fireEvent.click(within(table).getAllByRole('button', { name: /expand row/i })[0]);
+
+    expect(within(screen.getByTestId('group-detail-Projects-1')).getAllByRole('columnheader').slice(0, 8).map(header => header.textContent))
+      .toEqual(['Kind', 'Already in Squid', 'Create', 'Update', 'Fill secret', 'Link existing', 'Skip', 'Blocked']);
+  });
+
+  it('keepsANonZeroBlockedCount_InTheHeadlineTiles_AndOnTheProjectRow', () => {
+    const blocked = plan();
+    blocked.summary!.projects[0].counts = counts({ alreadyImported: 4, blocked: 2 });
+    renderInRouter(<ImportPreviewOverview plan={blocked} spaceSlug="Spaces-1" />);
+
+    const tile = screen.getByTestId('summary-tile-blocked');
+    expect(within(screen.getByTestId('summary-tile-details')).queryByTestId('summary-tile-blocked')).not.toBeInTheDocument();
+    expect(tile).toHaveTextContent('1');
+    expect(within(screen.getByTestId('preview-projects')).getByText('2 blocked')).toBeInTheDocument();
+  });
+
+  it('foldsAZeroBlockedCount_IntoTheDetails', () => {
+    const clean = plan();
+    clean.summary!.counts = counts({ create: 1 });
+    renderInRouter(<ImportPreviewOverview plan={clean} spaceSlug="Spaces-1" />);
+
+    expect(within(screen.getByTestId('summary-tile-details')).getByTestId('summary-tile-blocked')).toHaveTextContent('0');
   });
 
   it('saysHowManyProjectsWereNotChosen_AndOffersToChangeThem', () => {
@@ -139,7 +206,7 @@ describe('ImportPreviewOverview', () => {
     renderInRouter(<ImportPreviewOverview plan={plan()} spaceSlug="Spaces-1" />);
 
     expect(screen.queryByTestId('project-scope')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('not-chosen-resources')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not used by the chosen projects')).not.toBeInTheDocument();
   });
 
   it('rendersNothing_ForAPlanWithoutSummary', () => {
@@ -162,7 +229,6 @@ describe('secrets panels', () => {
       <MissingSecretsAfterImport
         spaceSlug="Spaces-1"
         onFillFromFile={onFill}
-        onDone={vi.fn()}
         missing={[
           {
             kind: OctopusImportRequiredInputKind.SensitiveVariableValue, name: 'Api.Key', ownerName: 'Shared', ownerKind: 'LibraryVariableSet',
@@ -193,7 +259,6 @@ describe('secrets panels', () => {
       <MissingSecretsAfterImport
         spaceSlug="Spaces-1"
         onFillFromFile={vi.fn()}
-        onDone={vi.fn()}
         missing={[{
           kind: fillable ? OctopusImportRequiredInputKind.SensitiveVariableValue : OctopusImportRequiredInputKind.AccountSecret, name: 'Secret', ownerName: null, ownerKind: null,
           field: 'Password', scopeSummary: null, destinationId: 4, destinationOwnerId: null, fillable,
@@ -221,6 +286,37 @@ describe('secrets panels', () => {
     const panel = screen.getByTestId('withheld-secrets');
     expect(within(panel).queryByRole('button', { name: 'Fill from export file' }) !== null).toBe(fillable);
     expect(panel.textContent?.includes('Importing the Octopus export file')).toBe(fillable);
+  });
+
+  it('missingAfterImport_NamesTheFirstSecretAndCountsTheRest_InOneLine', () => {
+    const missing = ['Db.Password', 'Api.Key', 'Smtp.Password'].map(name => ({
+      kind: OctopusImportRequiredInputKind.SensitiveVariableValue, name, ownerName: 'Web', ownerKind: 'Project',
+      field: 'Value', scopeSummary: null, destinationId: 1, destinationOwnerId: 2, fillable: true,
+    }));
+    renderInRouter(<MissingSecretsAfterImport spaceSlug="Spaces-1" onFillFromFile={vi.fn()} missing={missing} />);
+
+    const panel = screen.getByTestId('missing-secrets-after-import');
+    expect(panel.querySelector('.ant-alert-message')).toHaveTextContent('Import completed; 3 secret values are still missing: Db.Password +2 more.');
+    expect(within(panel).getAllByRole('button').map(button => button.textContent)).toEqual(['Fill from export file']);
+    expect(panel.querySelector('details')).not.toHaveAttribute('open');
+    expect(within(panel).getByRole('link', { name: 'Smtp.Password' })).toBeInTheDocument();
+  });
+
+  it('withheldPanel_NamesTheFirstSecretAndCountsTheRest_TheListBehindADisclosure', () => {
+    const created: OctopusImportPreviewResource = {
+      ...resource('Feed', 'Feeds-1', OctopusImportPreviewAction.Create, null),
+      sourceName: 'ACR',
+      requiredInputs: ['Password', 'Token'].map(fieldName => ({
+        kind: OctopusImportRequiredInputKind.FeedPassword, inputKey: fieldName, sourceId: 'Feeds-1', sourceType: 'Feed', name: `ACR ${fieldName}`,
+        fieldName, valueType: 'Sensitive', hasSourceValue: false, isRequired: false, fillable: true, withheldByServer: true, sourceScopes: {},
+      })),
+    };
+
+    renderInRouter(<WithheldSecretsPanel resources={[created]} onFillFromFile={vi.fn()} />);
+
+    const panel = screen.getByTestId('withheld-secrets');
+    expect(panel.querySelector('.ant-alert-message')).toHaveTextContent('2 secret values will be imported as missing: ACR Password +1 more.');
+    expect(panel.querySelector('details')).toHaveTextContent('ACR Token');
   });
 
   it('pairingCheckbox_ReportsTheConfirmation', () => {
@@ -355,8 +451,8 @@ describe('ImportPreviewOverview choices', () => {
 
   // Only declined offers left: up to date, but the banner never claims the offered items are in Squid.
   it.each([
-    [false, 'Everything this source contains is already in Squid. Importing again would change nothing.'],
-    [true, 'already in Squid, except the items offered below. Importing again would change nothing unless you tick one of them.'],
+    [false, 'Everything this source contains is already in Squid; importing again would change nothing.'],
+    [true, 'already in Squid, except the items offered below; importing again changes nothing unless you tick one of them.'],
   ])('upToDateBanner_NamesTheOffersLeft(withOffers=%s)', (withOffers, says) => {
     const base = withOffers ? choicesPlan() : plan();
     const upToDate = { ...base, summary: { ...base.summary!, isUpToDate: true } };
@@ -369,7 +465,40 @@ describe('ImportPreviewOverview choices', () => {
   it('showsThePendingNotice_AndDisablesTheTicks_WhenAsked', () => {
     renderInRouter(<ImportPreviewOverview plan={choicesPlan()} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} choicesPending choicesDisabled />);
 
-    expect(screen.getByTestId('choices-pending')).toHaveTextContent('Update the preview to see the new counts before importing.');
+    expect(screen.getByTestId('choices-pending')).toHaveTextContent('update the preview to see the new counts before importing.');
     expect(checkboxesOf('choices-deleted').slice(1).every(box => (box as HTMLInputElement).disabled)).toBe(true);
+  });
+});
+
+describe('LegacyPreviewOverview', () => {
+  const legacyResources = (): OctopusImportPreviewResource[] => [
+    { ...resource('Project', 'Projects-1', OctopusImportPreviewAction.Create, 'Projects-1'), sourceName: 'Web' },
+    resource('Release', 'Releases-1', OctopusImportPreviewAction.Create, 'Projects-1'),
+    resource('Release', 'Releases-2', OctopusImportPreviewAction.AlreadyImported, 'Projects-1'),
+    resource('Environment', 'Environments-1', OctopusImportPreviewAction.ReuseExisting, null),
+    resource('Lifecycle', 'Lifecycles-1', OctopusImportPreviewAction.Blocked, null),
+    { ...resource('Lifecycle', 'Lifecycles-2', OctopusImportPreviewAction.Skip, null), sourceName: 'Slow', skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used.' } },
+  ];
+
+  it('usesTheSameFourTiles_WithABlockedCountKeptInView', () => {
+    renderInRouter(<LegacyPreviewOverview resources={legacyResources()} spaceSlug="Spaces-1" />);
+
+    expect(screen.getByTestId('import-tile-create')).toHaveTextContent('2');
+    expect(screen.getByTestId('import-tile-alreadyImported')).toHaveTextContent('1');
+    expect(screen.getByTestId('import-tile-update')).toHaveTextContent('0');
+    expect(screen.getByTestId('import-tile-notChosen')).toHaveTextContent('1');
+    expect(screen.getByTestId('import-tile-blocked')).toHaveTextContent('1');
+  });
+
+  it('showsTheFourColumnByProjectTable_WithTheNotChosenRowCollapsed', () => {
+    renderInRouter(<LegacyPreviewOverview resources={legacyResources()} spaceSlug="Spaces-1" />);
+
+    const table = screen.getByTestId('preview-projects');
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent).filter(Boolean))
+      .toEqual(['Octopus project', 'Lands on', 'Create', 'Skip']);
+    const cells = (name: string) => within(within(table).getAllByRole('row').find(row => row.textContent?.includes(name))!).getAllByRole('cell').map(cell => cell.textContent);
+    expect(cells('Web')).toEqual(['', 'Web', 'Not reported', '2', '0']);
+    expect(cells('Space resources (no project)')).toEqual(['', 'Space resources (no project)1 blocked', 'This Squid space', '0', '0']);
+    expect(cells('Not used by the chosen projects')).toEqual(['', 'Not used by the chosen projects', 'Not imported', '0', '1']);
   });
 });
