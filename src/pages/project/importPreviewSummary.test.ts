@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   OctopusHistoryFetchPhase,
   OctopusImportChoiceReason,
@@ -932,5 +932,74 @@ describe('choices', () => {
     expect(posted.resources.filter(item => item.choice).map(item => [item.sourceId, item.choice?.selected])).toEqual([
       ['Steps-2', true], ['Steps-7', false], ['Actions-71', false], ['Actions-72', false], ['Channels-3', false],
     ]);
+  });
+});
+
+// A whole-space preview carries tens of thousands of rows: the derived lists walk them a fixed number of times, never once per row.
+describe('preview scaling', () => {
+  const ARRAY_METHODS = ['filter', 'find', 'findIndex', 'some', 'every', 'map', 'flatMap', 'forEach', 'reduce', 'includes', 'indexOf'] as const;
+
+  const row = (sourceType: string, sourceId: string, previewAction: OctopusImportPreviewAction, owner: string | null): OctopusImportPreviewResource => ({
+    sourceId, sourceType, sourceName: sourceId, previewAction, outcomeState: OctopusImportResourceOutcomeState.Pending,
+    destinationId: null, ownerProjectSourceId: owner, requiredInputs: [], diagnostics: [],
+  });
+
+  const withheldInput = (key: string): OctopusImportRequiredInput => ({
+    kind: OctopusImportRequiredInputKind.SensitiveVariableValue, inputKey: key, sourceId: key, sourceType: 'Variable', name: key,
+    fieldName: 'Value', valueType: 'Sensitive', hasSourceValue: false, isRequired: false, fillable: true, withheldByServer: true,
+    sourceScopes: {},
+  });
+
+  // n choice roots, each with two followers, n withheld secrets, among history rows of one project.
+  const rows = (n: number) => {
+    const resources: OctopusImportPreviewResource[] = [row('Project', 'Projects-1', OctopusImportPreviewAction.AlreadyImported, 'Projects-1')];
+    for (let i = 0; i < n; i++) {
+      const choice = { reason: OctopusImportChoiceReason.AddedInOctopus, selected: false, defaultSelected: false, ownerName: null };
+      resources.push({ ...row('DeploymentStep', `Steps-${i}`, OctopusImportPreviewAction.Skip, 'Projects-1'), choice: { ...choice, followsSourceId: null } });
+      resources.push({ ...row('DeploymentAction', `Actions-${i}-a`, OctopusImportPreviewAction.Skip, 'Projects-1'), choice: { ...choice, followsSourceId: `Steps-${i}` } });
+      resources.push({ ...row('DeploymentAction', `Actions-${i}-b`, OctopusImportPreviewAction.Skip, 'Projects-1'), choice: { ...choice, followsSourceId: `Steps-${i}` } });
+      resources.push({ ...row('Variable', `Variables-${i}`, OctopusImportPreviewAction.Create, 'Projects-1'), requiredInputs: [withheldInput(`k${i}`)] });
+      resources.push(row('Release', `Releases-${i}`, OctopusImportPreviewAction.Create, 'Projects-1'));
+    }
+    return resources;
+  };
+
+  // How often the derivation walks the whole list: a constant, whatever the number of rows.
+  const passesOver = (n: number, derive: (resources: OctopusImportPreviewResource[]) => unknown) => {
+    const resources = rows(n);
+    const spies = ARRAY_METHODS.map(method => vi.spyOn(resources as unknown as Record<string, (...args: unknown[]) => unknown>, method));
+    derive(resources);
+    return spies.reduce((total, spy) => total + spy.mock.calls.length, 0);
+  };
+
+  it('choiceGroups_findsEveryFollower_InAFixedNumberOfPasses', () => {
+    const groups = choiceGroups(rows(50));
+
+    expect(groups.added).toHaveLength(50);
+    expect(groups.added[7].followers.map(follower => follower.sourceId)).toEqual(['Actions-7-a', 'Actions-7-b']);
+    expect(passesOver(200, choiceGroups)).toBe(passesOver(10, choiceGroups));
+  });
+
+  it('withheldSecrets_namesTheProjectOfEachSecret_InAFixedNumberOfPasses', () => {
+    const secrets = withheldSecrets(rows(3));
+
+    expect(secrets.map(secret => secret.where)).toEqual(['Project "Projects-1"', 'Project "Projects-1"', 'Project "Projects-1"']);
+    expect(passesOver(200, withheldSecrets)).toBe(passesOver(10, withheldSecrets));
+  });
+
+  it('summarizeByProject_namesEachProject_InAFixedNumberOfPasses', () => {
+    expect(summarizeByProject(rows(3))[0]).toMatchObject({ projectSourceId: 'Projects-1', projectName: 'Projects-1', newReleases: 3 });
+    expect(passesOver(200, summarizeByProject)).toBe(passesOver(10, summarizeByProject));
+  });
+
+  it('withSelection_ticksEveryGivenRoot_WithoutSearchingTheGivenIdsPerRow', () => {
+    const plan = { generatedAt: '', resources: rows(200), requiredInputs: [], diagnostics: [], hasBlockers: false } as OctopusImportPreviewPlan;
+    const ids = Array.from({ length: 200 }, (_, i) => `Steps-${i}`);
+    const searches = ['includes', 'indexOf', 'some', 'find'].map(method => vi.spyOn(ids as unknown as Record<string, (...args: unknown[]) => unknown>, method));
+
+    const ticked = withSelection(plan, ids, true);
+
+    expect(ticked.resources.filter(item => item.choice?.selected).map(item => item.sourceId)).toEqual(ids);
+    searches.forEach(search => expect(search).not.toHaveBeenCalled());
   });
 });

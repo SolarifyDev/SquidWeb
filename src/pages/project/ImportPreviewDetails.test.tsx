@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import * as previewSummary from './importPreviewSummary';
 import {
   OctopusImportChoiceReason,
   OctopusImportPreviewAction,
@@ -18,6 +19,12 @@ import {
   MissingSecretsAfterImport,
   WithheldSecretsPanel,
 } from './ImportPreviewDetails';
+
+// Pass-through spies: the derived lists are counted, never changed.
+vi.mock('./importPreviewSummary', async importOriginal => {
+  const actual = await importOriginal<typeof import('./importPreviewSummary')>();
+  return { ...actual, choiceGroups: vi.fn(actual.choiceGroups), withheldSecrets: vi.fn(actual.withheldSecrets) };
+});
 
 const counts = (overrides: Partial<OctopusImportChangeCounts> = {}): OctopusImportChangeCounts => {
   const value = { alreadyImported: 0, reused: 0, create: 0, update: 0, fill: 0, skip: 0, unsupported: 0, blocked: 0, ...overrides };
@@ -500,5 +507,112 @@ describe('LegacyPreviewOverview', () => {
     expect(cells('Web')).toEqual(['', 'Web', 'Not reported', '2', '0']);
     expect(cells('Space resources (no project)')).toEqual(['', 'Space resources (no project)1 blocked', 'This Squid space', '0', '0']);
     expect(cells('Not used by the chosen projects')).toEqual(['', 'Not used by the chosen projects', 'Not imported', '0', '1']);
+  });
+});
+
+// A project with thousands of history rows: an expanded row, a list or a table shows one page, never every row at once.
+describe('large previews', () => {
+  const many = <T,>(count: number, make: (index: number) => T) => Array.from({ length: count }, (_, index) => make(index));
+
+  const largePlan = (resources: OctopusImportPreviewResource[], projectCount = 1): OctopusImportPreviewPlan => {
+    const base = plan();
+    const projects = many(projectCount, index => index).map(index => ({
+      ...base.summary!.projects[0], sourceId: `Projects-${index + 1}`, sourceName: `Project ${String(index + 1).padStart(4, '0')}`,
+    }));
+    return { ...base, resources, summary: { ...base.summary!, projects } };
+  };
+
+  const expandFirstProject = () =>
+    fireEvent.click(within(screen.getByTestId('preview-projects')).getAllByRole('button', { name: /expand row/i })[0]);
+
+  it('expandedProject_ShowsTheFirstFiftyChanges_AndShowAllListsEveryOne', () => {
+    const updates = many(120, index => ({
+      ...resource('Release', `Releases-${index}`, OctopusImportPreviewAction.Update, 'Projects-1'),
+      changes: [{ field: 'ReleaseNotes', oldValue: 'a', newValue: 'b', valueHidden: false, description: null }],
+    }));
+    renderInRouter(<ImportPreviewOverview plan={largePlan(updates)} spaceSlug="Spaces-1" />);
+
+    expandFirstProject();
+
+    const detail = screen.getByTestId('group-detail-Projects-1');
+    expect(detail.querySelectorAll('[data-testid^="changes-Release-"]')).toHaveLength(50);
+    fireEvent.click(within(detail).getByRole('button', { name: 'Show all 120' }));
+    expect(detail.querySelectorAll('[data-testid^="changes-Release-"]')).toHaveLength(120);
+  });
+
+  it('expandedProject_ShowsTheFirstFiftySkips_AndShowAllListsEveryOne', () => {
+    const skips = many(120, index => ({
+      ...resource('ServerTask', `ServerTasks-${index}`, OctopusImportPreviewAction.Skip, 'Projects-1'),
+      skipReason: { code: 'runbook', message: 'Runbook runs are not imported.' },
+    }));
+    renderInRouter(<ImportPreviewOverview plan={largePlan(skips)} spaceSlug="Spaces-1" />);
+
+    expandFirstProject();
+
+    const detail = screen.getByTestId('group-detail-Projects-1');
+    expect(within(detail).getAllByText(/Runbook runs are not imported/)).toHaveLength(50);
+    fireEvent.click(within(detail).getByRole('button', { name: 'Show all 120' }));
+    expect(within(detail).getAllByText(/Runbook runs are not imported/)).toHaveLength(120);
+  });
+
+  it('notChosenRow_ListsTheFirstFifty_AndShowAllListsEveryOne', () => {
+    const outside = many(120, index => ({
+      ...resource('Lifecycle', `Lifecycles-${index}`, OctopusImportPreviewAction.Skip, null),
+      skipReason: { code: 'octopus.preview.not_used_by_chosen_projects', message: 'Not used.' },
+    }));
+    renderInRouter(<ImportPreviewOverview plan={largePlan(outside)} spaceSlug="Spaces-1" />);
+
+    const table = screen.getByTestId('preview-projects');
+    const notChosen = within(table).getAllByRole('row').find(row => row.textContent?.includes('Not used by the chosen projects'))!;
+    fireEvent.click(within(notChosen).getByRole('button', { name: /expand row/i }));
+
+    const list = screen.getByTestId('not-chosen-resources');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(50);
+    fireEvent.click(within(list.parentElement!).getByRole('button', { name: 'Show all 120' }));
+    expect(within(screen.getByTestId('not-chosen-resources')).getAllByRole('listitem')).toHaveLength(120);
+  });
+
+  it('byProjectTable_ShowsOnePageOfAWholeSpace', () => {
+    renderInRouter(<ImportPreviewOverview plan={largePlan([], 420)} spaceSlug="Spaces-1" />);
+
+    const table = screen.getByTestId('preview-projects');
+    expect(table.querySelectorAll('tr[data-row-key^="Projects-"]')).toHaveLength(50);
+    expect(within(table.closest('section')!).getByTitle('9')).toBeInTheDocument();
+  });
+
+  it('withheldSecrets_ShowsOnePageOfTheTable', () => {
+    const variables = many(120, index => ({
+      ...resource('Variable', `Variables-${index}`, OctopusImportPreviewAction.Create, 'Projects-1'),
+      requiredInputs: [{
+        kind: OctopusImportRequiredInputKind.SensitiveVariableValue, inputKey: `k${index}`, sourceId: `v${index}`, sourceType: 'Variable',
+        name: `Secret.${index}`, fieldName: 'Value', valueType: 'Sensitive', hasSourceValue: false, isRequired: false, fillable: true,
+        withheldByServer: true, sourceScopes: {},
+      }],
+    }));
+    renderInRouter(<WithheldSecretsPanel resources={variables} onFillFromFile={() => undefined} />);
+
+    expect(screen.getByTestId('withheld-secrets').querySelectorAll('tr[data-row-key]')).toHaveLength(50);
+  });
+
+  it('derivesTheChoicesOncePerPlan_NotOnEveryRender', () => {
+    const choices = vi.mocked(previewSummary.choiceGroups);
+    const current = plan();
+    const { rerender } = renderInRouter(<ImportPreviewOverview plan={current} spaceSlug="Spaces-1" />);
+    const afterFirstRender = choices.mock.calls.filter(call => call[0] === current.resources).length;
+
+    rerender(<MemoryRouter><ImportPreviewOverview plan={current} spaceSlug="Spaces-1" choicesPending /></MemoryRouter>);
+
+    expect(afterFirstRender).toBe(1);
+    expect(choices.mock.calls.filter(call => call[0] === current.resources)).toHaveLength(1);
+  });
+
+  it('withheldSecretsPanel_DerivesItsRowsOncePerResources_NotOnEveryRender', () => {
+    const withheld = vi.mocked(previewSummary.withheldSecrets);
+    const resources = plan().resources;
+    const { rerender } = renderInRouter(<WithheldSecretsPanel resources={resources} onFillFromFile={() => undefined} />);
+
+    rerender(<MemoryRouter><WithheldSecretsPanel resources={resources} onFillFromFile={() => undefined} disabled /></MemoryRouter>);
+
+    expect(withheld.mock.calls.filter(call => call[0] === resources)).toHaveLength(1);
   });
 });

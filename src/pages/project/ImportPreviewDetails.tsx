@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Button, Checkbox, Table, Tag } from "antd";
 import { Link } from "react-router-dom";
 import {
@@ -17,6 +17,7 @@ import {
   choiceGroups,
   choiceKindText,
   followersText,
+  type ChoiceGroups,
   type ChoiceRow,
   changeCountsOf,
   changedResources,
@@ -66,6 +67,32 @@ const countColumns = <T,>(countsOf: (row: T) => OctopusImportChangeCounts) =>
   }));
 
 const pluralize = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// ── Large previews ───────────────────────────────────────────────────────────
+
+/** How many rows a list or table of the preview shows at once: a project can bring thousands of history rows. */
+export const PREVIEW_PAGE_SIZE = 50;
+
+/** One page at a time once a table outgrows a page; a short table stays a plain list. */
+const pageOf = (rowCount: number) =>
+  rowCount > PREVIEW_PAGE_SIZE ? { pageSize: PREVIEW_PAGE_SIZE, size: "small" as const, showSizeChanger: false } : false;
+
+/** The first page of a long list, and a button that shows every item. */
+const CappedList = <T,>({ items, children }: { items: T[]; children: (shown: T[]) => React.ReactNode }) => {
+  const [showAll, setShowAll] = useState(false);
+  const capped = !showAll && items.length > PREVIEW_PAGE_SIZE;
+
+  return (
+    <>
+      {children(capped ? items.slice(0, PREVIEW_PAGE_SIZE) : items)}
+      {capped ? (
+        <Button type="link" size="small" className="!px-0" onClick={() => setShowAll(true)}>
+          Show all {items.length}
+        </Button>
+      ) : null}
+    </>
+  );
+};
 
 // ── Field changes ────────────────────────────────────────────────────────────
 
@@ -146,13 +173,19 @@ const GroupName: React.FC<{ row: GroupRow }> = ({ row }) => (
 );
 
 const OutsideList: React.FC<{ resources: OctopusImportPreviewResource[] }> = ({ resources }) => (
-  <ul data-testid="not-chosen-resources" className="list-disc space-y-0.5 py-2 pl-6">
-    {resources.map((resource) => (
-      <li key={`${resource.sourceType}-${resource.sourceId}`}>
-        {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message ?? resource.diagnostics[0]?.message}
-      </li>
-    ))}
-  </ul>
+  <div className="py-2">
+    <CappedList items={resources}>
+      {(shown) => (
+        <ul data-testid="not-chosen-resources" className="list-disc space-y-0.5 pl-6">
+          {shown.map((resource) => (
+            <li key={`${resource.sourceType}-${resource.sourceId}`}>
+              {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message ?? resource.diagnostics[0]?.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </CappedList>
+  </div>
 );
 
 const GroupDetail: React.FC<{ row: GroupRow; resources: OctopusImportPreviewResource[] }> = ({ row, resources }) => {
@@ -174,21 +207,25 @@ const GroupDetail: React.FC<{ row: GroupRow; resources: OctopusImportPreviewReso
       {changed.length ? (
         <div className="space-y-3">
           <div className="font-semibold">What changes</div>
-          {changed.map((resource) => (
-            <FieldChanges key={`${resource.sourceType}-${resource.sourceId}`} resource={resource} />
-          ))}
+          <CappedList items={changed}>
+            {(shown) => shown.map((resource) => <FieldChanges key={`${resource.sourceType}-${resource.sourceId}`} resource={resource} />)}
+          </CappedList>
         </div>
       ) : null}
       {skipped.length ? (
         <div>
           <div className="mb-1 font-semibold">Not imported</div>
-          <ul className="list-disc space-y-0.5 pl-6">
-            {skipped.map((resource) => (
-              <li key={`${resource.sourceType}-${resource.sourceId}`}>
-                {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message}
-              </li>
-            ))}
-          </ul>
+          <CappedList items={skipped}>
+            {(shown) => (
+              <ul className="list-disc space-y-0.5 pl-6">
+                {shown.map((resource) => (
+                  <li key={`${resource.sourceType}-${resource.sourceId}`}>
+                    {resource.sourceType} {resource.sourceName}: {resource.skipReason?.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CappedList>
         </div>
       ) : null}
     </div>
@@ -271,7 +308,7 @@ const GroupTable: React.FC<{ rows: GroupRow[]; resources: OctopusImportPreviewRe
     <Table
       data-testid="preview-projects"
       size="small"
-      pagination={false}
+      pagination={pageOf(rows.length)}
       rowKey="key"
       dataSource={rows}
       expandable={{ expandedRowRender: (row: GroupRow) => <GroupDetail row={row} resources={resources} /> }}
@@ -337,7 +374,7 @@ const FillList: React.FC<{ resources: OctopusImportPreviewResource[]; spaceSlug:
     </div>
     <Table
       size="small"
-      pagination={false}
+      pagination={pageOf(resources.length)}
       rowKey={(resource: OctopusImportPreviewResource) => `${resource.sourceType}-${resource.sourceId}`}
       dataSource={resources}
       columns={[
@@ -428,8 +465,7 @@ const ChoiceSection: React.FC<{ id: string; title: string; hint: string; rows: C
 );
 
 /** What the user decides on: items deleted in Squid after an earlier import, and items added in Octopus since. */
-const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan } & PreviewChoiceProps> = ({ plan, ...choiceProps }) => {
-  const groups = choiceGroups(plan.resources);
+const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan; groups: ChoiceGroups } & PreviewChoiceProps> = ({ plan, groups, ...choiceProps }) => {
   if (!groups.deleted.length && !groups.added.length) return null;
 
   return (
@@ -473,13 +509,16 @@ const ProjectScope: React.FC<{ notChosen: number; onChangeProjects?: () => void 
 
 /** The incremental preview: headline counts, choices, per-project counts and where each project lands in Squid, field-level changes, fills and skips. */
 const PreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: string; onChangeProjects?: () => void } & PreviewChoiceProps> = ({ plan, spaceSlug, onChangeProjects, ...choiceProps }) => {
+  // Derived once per plan: the page re-renders on every tick and status poll while the plan stays the same.
+  const derived = useMemo(() => {
+    if (!plan.summary) return null;
+    const outside = outsideSelectionResources(plan.resources);
+    return { outside, fills: fillResources(plan.resources), rows: groupRows(plan, outside), choices: choiceGroups(plan.resources) };
+  }, [plan]);
   const summary = plan.summary;
-  if (!summary) return null;
+  if (!summary || !derived) return null;
 
-  const outside = outsideSelectionResources(plan.resources);
-  const fills = fillResources(plan.resources);
-  const rows = groupRows(plan, outside);
-  const choices = choiceGroups(plan.resources);
+  const { outside, fills, rows, choices } = derived;
   const offersLeft = choices.deleted.length + choices.added.length > 0;
 
   return (
@@ -500,7 +539,7 @@ const PreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: str
 
       <OverallSummary counts={summary.counts} notChosen={outside.length} />
 
-      <ChoicesPanel plan={plan} {...choiceProps} />
+      <ChoicesPanel plan={plan} groups={choices} {...choiceProps} />
 
       {rows.length ? <GroupTable rows={rows} resources={plan.resources} spaceSlug={spaceSlug} /> : null}
 
@@ -565,12 +604,12 @@ const fillColumn = <T,>(fillableOf: (row: T) => boolean) => ({
 });
 
 /** Secrets the Octopus API does not return: imported empty and listed so they can be filled later. Names only. */
-export const WithheldSecretsPanel: React.FC<{
+const WithheldSecretsPanelView: React.FC<{
   resources: OctopusImportPreviewResource[];
   onFillFromFile: () => void;
   disabled?: boolean;
 }> = ({ resources, onFillFromFile, disabled }) => {
-  const rows = withheldSecrets(resources);
+  const rows = useMemo(() => withheldSecrets(resources), [resources]);
   if (!rows.length) return null;
 
   const anyFillable = rows.some(row => row.fillable);
@@ -590,7 +629,7 @@ export const WithheldSecretsPanel: React.FC<{
             </div>
             <Table
               size="small"
-              pagination={false}
+              pagination={pageOf(rows.length)}
               rowKey="key"
               scroll={{ x: "max-content" }}
               dataSource={rows}
@@ -609,6 +648,9 @@ export const WithheldSecretsPanel: React.FC<{
     </section>
   );
 };
+
+// Memoised: the rows are derived once per plan, not on every render of the page.
+export const WithheldSecretsPanel = React.memo(WithheldSecretsPanelView);
 
 /** After an import from the API: one line naming the secrets it left empty, the full list (each linking to where it is set) behind it. */
 export const MissingSecretsAfterImport: React.FC<{
@@ -631,7 +673,7 @@ export const MissingSecretsAfterImport: React.FC<{
             <div className="text-xs text-slate-600">The Octopus API never returns secret values. {fillHint(anyFillable)}</div>
             <Table
               size="small"
-              pagination={false}
+              pagination={pageOf(missing.length)}
               scroll={{ x: "max-content" }}
               rowKey={(item: OctopusImportMissingSensitiveValue) => `${item.kind}-${item.ownerName}-${item.name}-${item.field}-${item.scopeSummary}`}
               dataSource={missing}

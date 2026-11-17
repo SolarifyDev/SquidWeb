@@ -94,23 +94,31 @@ const writesHistory = (resource: OctopusImportPreviewResource, type: string) => 
   return isOfType(resource, type) && (bucket === 'create' || bucket === 'update');
 };
 
-const projectNameOf = (resources: OctopusImportPreviewResource[], projectSourceId: string) =>
-  resources.find(resource => isOfType(resource, 'Project') && resource.sourceId === projectSourceId)?.sourceName
-  ?? projectSourceId;
+/** The name of each Octopus project, by its source id: one pass, so naming a row's project never searches the rows again. */
+const projectNamesOf = (resources: OctopusImportPreviewResource[]) => {
+  const names = new Map<string, string>();
+  for (const resource of resources)
+    if (isOfType(resource, 'Project') && !names.has(resource.sourceId)) names.set(resource.sourceId, resource.sourceName);
+
+  return names;
+};
 
 /** One row per Octopus project, grouped by `ownerProjectSourceId`; shared resources are left out. */
 export const summarizeByProject = (resources: OctopusImportPreviewResource[]): ProjectPreviewSummary[] => {
   const groups = new Map<string, OctopusImportPreviewResource[]>();
+  const names = projectNamesOf(resources);
 
   for (const resource of resources) {
     const owner = resource.ownerProjectSourceId;
     if (!owner) continue;
-    groups.set(owner, [...(groups.get(owner) ?? []), resource]);
+    const owned = groups.get(owner);
+    if (owned) owned.push(resource);
+    else groups.set(owner, [resource]);
   }
 
   return Array.from(groups, ([projectSourceId, owned]) => ({
     projectSourceId,
-    projectName: projectNameOf(resources, projectSourceId),
+    projectName: names.get(projectSourceId) ?? projectSourceId,
     counts: summarizeActions(owned),
     newReleases: owned.filter(resource => writesHistory(resource, 'Release')).length,
     newDeployments: owned.filter(resource => writesHistory(resource, 'Deployment')).length,
@@ -177,23 +185,49 @@ export interface ChoiceGroups {
 /** A row the user ticks: it has a choice and follows no other row. */
 const isChoiceRoot = (resource: OctopusImportPreviewResource) => Boolean(resource.choice && !resource.choice.followsSourceId);
 
-const choiceRowsOf = (resources: OctopusImportPreviewResource[], reason: OctopusImportChoiceReason): ChoiceRow[] =>
+/** The rows that follow each root, by the root's source id: one pass over the rows, whatever the number of roots. */
+const followersByRoot = (resources: OctopusImportPreviewResource[]) => {
+  const followers = new Map<string, OctopusImportPreviewResource[]>();
+  for (const resource of resources) {
+    const root = resource.choice?.followsSourceId;
+    if (!root) continue;
+    const rows = followers.get(root);
+    if (rows) rows.push(resource);
+    else followers.set(root, [resource]);
+  }
+
+  return followers;
+};
+
+const choiceRowsOf = (
+  resources: OctopusImportPreviewResource[],
+  reason: OctopusImportChoiceReason,
+  followers: Map<string, OctopusImportPreviewResource[]>,
+): ChoiceRow[] =>
   resources
     .filter(resource => isChoiceRoot(resource) && Number(resource.choice?.reason) === reason)
-    .map(resource => ({ resource, followers: resources.filter(follower => follower.choice?.followsSourceId === resource.sourceId) }));
+    .map(resource => ({ resource, followers: followers.get(resource.sourceId) ?? [] }));
 
 /** The rows the user decides on, by reason: deleted in Squid after an earlier import, or added in Octopus since. */
-export const choiceGroups = (resources: OctopusImportPreviewResource[]): ChoiceGroups => ({
-  deleted: choiceRowsOf(resources, OctopusImportChoiceReason.DeletedInSquid),
-  added: choiceRowsOf(resources, OctopusImportChoiceReason.AddedInOctopus),
-});
+export const choiceGroups = (resources: OctopusImportPreviewResource[]): ChoiceGroups => {
+  const followers = followersByRoot(resources);
+
+  return {
+    deleted: choiceRowsOf(resources, OctopusImportChoiceReason.DeletedInSquid, followers),
+    added: choiceRowsOf(resources, OctopusImportChoiceReason.AddedInOctopus, followers),
+  };
+};
 
 /** The plan with `selected` set on the given choice roots; followers and every other row are left as they are. */
-export const withSelection = (plan: OctopusImportPreviewPlan, sourceIds: string[], selected: boolean): OctopusImportPreviewPlan => ({
-  ...plan,
-  resources: plan.resources.map(resource =>
-    isChoiceRoot(resource) && sourceIds.includes(resource.sourceId) ? { ...resource, choice: { ...resource.choice!, selected } } : resource),
-});
+export const withSelection = (plan: OctopusImportPreviewPlan, sourceIds: string[], selected: boolean): OctopusImportPreviewPlan => {
+  const chosen = new Set(sourceIds);
+
+  return {
+    ...plan,
+    resources: plan.resources.map(resource =>
+      isChoiceRoot(resource) && chosen.has(resource.sourceId) ? { ...resource, choice: { ...resource.choice!, selected } } : resource),
+  };
+};
 
 const selectionOf = (plan: OctopusImportPreviewPlan) =>
   new Map(plan.resources.filter(isChoiceRoot).map(resource => [resource.sourceId, Boolean(resource.choice?.selected)]));
@@ -639,14 +673,16 @@ export interface WithheldSecretRow {
   fillable: boolean;
 }
 
-const whereOf = (resources: OctopusImportPreviewResource[], resource: OctopusImportPreviewResource) =>
+const whereOf = (projectNames: Map<string, string>, resource: OctopusImportPreviewResource) =>
   resource.ownerProjectSourceId
-    ? `Project "${projectNameOf(resources, resource.ownerProjectSourceId)}"`
+    ? `Project "${projectNames.get(resource.ownerProjectSourceId) ?? resource.ownerProjectSourceId}"`
     : `${resourceTypeText(resource.sourceType)} "${resource.sourceName}"`;
 
 /** Secrets the Octopus server withheld on resources this import creates: they are imported empty ("value missing"). Names only. */
-export const withheldSecrets = (resources: OctopusImportPreviewResource[]): WithheldSecretRow[] =>
-  resources
+export const withheldSecrets = (resources: OctopusImportPreviewResource[]): WithheldSecretRow[] => {
+  const projectNames = projectNamesOf(resources);
+
+  return resources
     .filter(resource => Number(resource.previewAction) === OctopusImportPreviewAction.Create)
     .flatMap(resource => resource.requiredInputs
       .filter(input => input.withheldByServer)
@@ -654,11 +690,12 @@ export const withheldSecrets = (resources: OctopusImportPreviewResource[]): With
         key: `${resource.sourceId}:${input.inputKey}`,
         kind: requiredInputKindLabel(input.kind),
         name: input.name,
-        where: whereOf(resources, resource),
+        where: whereOf(projectNames, resource),
         field: input.fieldName,
         scope: scopeSummary(input.sourceScopes),
         fillable: Boolean(input.fillable),
       })));
+};
 
 /** The preview's origin check: the source would link to rows of another Octopus and nothing proves it is the same one. */
 export const IMPORT_ORIGIN_UNPROVEN = 'octopus.preview.import_origin_unproven';
