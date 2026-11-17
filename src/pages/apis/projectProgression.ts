@@ -50,7 +50,8 @@ export interface ReleaseProgression {
 export interface ProjectProgression {
   environments: ProgressionEnvironment[]
   channelEnvironments: Record<number, number[]>   // channelId → environmentId[]
-  releases: ReleaseProgression[]                  // assembled desc
+  releases: ReleaseProgression[]                  // assembled desc; recent window per channel + currently deployed releases
+  channelReleaseCounts?: Record<number, number>   // channelId → total releases in that channel
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
