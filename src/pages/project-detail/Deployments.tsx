@@ -15,6 +15,7 @@ import {
   ReleaseProgression,
   DeploymentState,
 } from "pages/apis/projectProgression";
+import { ReleaseWindowFooter } from "./ReleaseWindowFooter";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,7 @@ function ChannelGrid({
   channelEnvIds,
   releaseDeployability,
   basePath,
+  totalReleases,
 }: {
   channel: ProgressionChannel;
   releases: ReleaseProgression[];
@@ -174,6 +176,7 @@ function ChannelGrid({
   channelEnvIds: number[];
   releaseDeployability: Record<number, number[]>;
   basePath: string;
+  totalReleases: number | undefined;
 }) {
   // Show only environments belonging to this channel's lifecycle
   const envIdSet = new Set(channelEnvIds);
@@ -281,6 +284,8 @@ function ChannelGrid({
           })}
         </div>
       ))}
+
+      <ReleaseWindowFooter shown={releases.length} total={totalReleases} releasesPath={`${basePath}/releases`} />
     </div>
   );
 }
@@ -442,6 +447,7 @@ const Deployments: React.FC = () => {
                 channelEnvIds={progression!.channelEnvironments[channel.id] ?? []}
                 releaseDeployability={releaseDeployability}
                 basePath={`/${spaceId}/projects/${encodedProjectName}`}
+                totalReleases={progression!.channelReleaseCounts?.[channel.id]}
               />
             ))
           ) : (
