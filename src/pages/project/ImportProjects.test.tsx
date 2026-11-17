@@ -21,6 +21,7 @@ import {
   type OctopusImportSession,
 } from 'pages/apis/octopusImport';
 import ImportProjects from './ImportProjects';
+import { SESSION_MAX_AGE_REACHED } from './importPreviewSummary';
 
 vi.mock('pages/apis/octopusImport', async importOriginal => {
   const actual = await importOriginal<typeof import('pages/apis/octopusImport')>();
@@ -1832,6 +1833,26 @@ describe('ImportProjects', () => {
       await screen.findByText('By project');
       expect(api.connectOctopusImport).toHaveBeenCalledTimes(2);
     }
+  });
+
+  // A session closed for reaching its maximum age says so (from the server's reason), not the generic idle-expiry text.
+  it.each([
+    ['maxAgeReason', 'This import session reached its maximum age of 168 hours and was closed.'],
+    ['noReason', 'The import session expired. Read from the Octopus server again.'],
+  ])('expiredSession_%s_ShowsWhyItExpired', async (_, expected) => {
+    const expired = session(OctopusImportSessionState.Expired);
+    if (_ === 'maxAgeReason') expired.result = { diagnostics: [{ severity: 'Blocker', code: SESSION_MAX_AGE_REACHED, message: expected }] } as unknown as OctopusImportSession['result'];
+    api.previewOctopusImport.mockResolvedValueOnce(failure(409, 'The session is no longer Extracted.', 'SessionStateConflict'));
+    api.getOctopusImportStatus.mockResolvedValue(ok({ session: expired, blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('The session is no longer Extracted.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await screen.findByText(expected);
+    expect(screen.getByRole('button', { name: 'Start again' })).toBeInTheDocument();
   });
 
   it('previewOfASessionTheServerNoLongerHas_OffersStartAgain_NotTryAgain', async () => {

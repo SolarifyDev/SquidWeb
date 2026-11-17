@@ -61,6 +61,7 @@ import {
   linksEarlierImport,
   originNotice,
   originProof,
+  SESSION_MAX_AGE_REACHED,
   type FetchFailureRecovery,
   type ImportSection,
   type ImportSectionId,
@@ -1292,10 +1293,12 @@ const ImportProjects: React.FC = () => {
       setWorkflowMessage(null);
       setRetryStep(null);
       setFailureRecovery("restart");
+      const maxAgeReason = finalSession.result?.diagnostics?.find(d => d.code === SESSION_MAX_AGE_REACHED)?.message;
       setWorkflowError(
-        useServerSource
-          ? "The import session expired. Read from the Octopus server again."
-          : "The import session expired. Upload the export file again.",
+        maxAgeReason ??
+          (useServerSource
+            ? "The import session expired. Read from the Octopus server again."
+            : "The import session expired. Upload the export file again."),
       );
       return;
     }

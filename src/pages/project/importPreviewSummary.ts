@@ -495,6 +495,7 @@ const RECOVERY_BY_KIND: Record<string, FetchFailureRecovery> = {
   ServerMismatch: 'reconnect',
   SessionNotFound: 'restart',
   SessionStateConflict: 'restart',
+  SessionExpired: 'restart',
   NotServerSource: 'restart',
   TooLarge: 'none',
 };
@@ -512,6 +513,9 @@ export const fetchFailureRecovery = (code: number, errorKind: string | null | un
 };
 
 const START_AGAIN = 'This import session can no longer continue. Start again: an import never overwrites what is already in Squid.';
+
+/** The diagnostic code of a session the server closed because it reached its maximum age (OctopusImportSessionExpiry.MaxAgeReachedCode). */
+export const SESSION_MAX_AGE_REACHED = 'octopus.session.max_age_reached';
 const CHECK_SERVER = 'Check the server URL and the Octopus space, connect again, then resume.';
 
 const ERROR_KIND_HINTS: Record<string, string> = {
@@ -534,6 +538,7 @@ const ERROR_KIND_HINTS: Record<string, string> = {
     + 'importing again.',
   SessionNotFound: START_AGAIN,
   SessionStateConflict: START_AGAIN,
+  SessionExpired: 'This import session reached its maximum age. ' + START_AGAIN,
   NotServerSource: START_AGAIN,
 };
 

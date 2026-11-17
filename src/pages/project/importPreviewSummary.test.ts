@@ -440,6 +440,7 @@ describe('fetchFailureRecovery', () => {
     // The session cannot continue.
     [404, 'SessionNotFound', false, 'restart'],
     [409, 'SessionStateConflict', false, 'restart'],
+    [409, 'SessionExpired', false, 'restart'],
     [400, 'NotServerSource', false, 'restart'],
     [404, null, false, 'restart'],
     // Retrying cannot help.
@@ -466,6 +467,7 @@ describe('errorKindHint', () => {
     ['TooLarge', /SQUID_OCTOPUS_IMPORT_HISTORY_MAX_BYTES/],
     ['SessionNotFound', /Start again/],
     ['SessionStateConflict', /Start again/],
+    ['SessionExpired', /maximum age/],
     ['NotServerSource', /Start again/],
     ['ProjectSelection', /at least one project/],
     ['ProjectSelectionBeyondRead', /Connect again to add projects/],

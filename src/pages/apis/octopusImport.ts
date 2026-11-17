@@ -242,6 +242,8 @@ export interface OctopusImportSession {
   sourceSummary?: OctopusImportSourceSummary | null;
   result?: OctopusImportResult | null;
   expiresAt?: string | null;
+  /** The latest the session can ever be kept until (creation plus the server's maximum session age); activity never extends it. */
+  maxExpiresAt?: string | null;
   completedAt?: string | null;
   lastStateChangedAt?: string | null;
 }
