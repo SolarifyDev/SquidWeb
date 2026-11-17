@@ -21,7 +21,7 @@ export interface ProgressionEnvironment {
 export interface ProgressionRelease {
   id: number
   version: string
-  assembled: string   // ISO 8601
+  createdDate: string   // ISO 8601
   channelId: number
 }
 
@@ -34,7 +34,7 @@ export interface ProgressionDeployment {
   deploymentId: number
   state: DeploymentState
   releaseVersion: string
-  created: string             // ISO 8601
+  createdDate: string         // ISO 8601
   completedTime: string | null
   hasWarningsOrErrors: boolean
   isCurrent: boolean          // true = latest deployment for this env across all releases
@@ -50,8 +50,15 @@ export interface ReleaseProgression {
 export interface ProjectProgression {
   environments: ProgressionEnvironment[]
   channelEnvironments: Record<number, number[]>   // channelId → environmentId[]
-  releases: ReleaseProgression[]                  // assembled desc; recent window per channel + currently deployed releases
+  releases: ReleaseProgression[]                  // createdDate desc; recent window per channel + currently deployed releases
   channelReleaseCounts?: Record<number, number>   // channelId → total releases in that channel
+}
+
+// ── Display ─────────────────────────────────────────────────────────────────
+
+// A finished deployment shows when it completed; one still running shows when it was created.
+export function deploymentDisplayDate(deployment: { completedTime: string | null; createdDate: string }) {
+  return deployment.completedTime ?? deployment.createdDate
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────

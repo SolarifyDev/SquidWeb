@@ -14,6 +14,7 @@ import {
   ProgressionChannel,
   ReleaseProgression,
   DeploymentState,
+  deploymentDisplayDate,
 } from "pages/apis/projectProgression";
 import { ReleaseWindowFooter } from "./ReleaseWindowFooter";
 
@@ -263,7 +264,7 @@ function ChannelGrid({
                       state={latest.state}
                       hasWarnings={latest.hasWarningsOrErrors}
                       version={latest.releaseVersion}
-                      date={formatDate(latest.completedTime ?? latest.created)}
+                      date={formatDate(deploymentDisplayDate(latest))}
                       isCurrent={latest.isCurrent}
                     />
                   </Link>
@@ -324,7 +325,7 @@ const Deployments: React.FC = () => {
     })();
   }, [projectName]);
 
-  // Group releases by channel, preserving assembled-desc order from server
+  // Group releases by channel, preserving createdDate-desc order from server
   const channelGroups = useMemo(() => {
     if (!progression) return [];
     const map = new Map<number, { channel: ProgressionChannel; releases: ReleaseProgression[] }>();

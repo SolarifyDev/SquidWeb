@@ -23,6 +23,7 @@ import {
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
 import { getLifecycles, type LifecycleDto } from 'pages/apis/lifecycle'
 import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
+import { deploymentDisplayDate } from 'pages/apis/projectProgression'
 import {
   getDeploymentSteps,
   getPackageReferences,
@@ -676,8 +677,8 @@ const ReleaseDetail: React.FC = () => {
           environmentId: env.environmentId,
         }))
         .sort((a, b) => {
-          const aTs = Date.parse(a.completedTime ?? a.created)
-          const bTs = Date.parse(b.completedTime ?? b.created)
+          const aTs = Date.parse(deploymentDisplayDate(a))
+          const bTs = Date.parse(deploymentDisplayDate(b))
           const safeATs = Number.isFinite(aTs) ? aTs : 0
           const safeBTs = Number.isFinite(bTs) ? bTs : 0
           return safeBTs - safeATs
@@ -1159,7 +1160,7 @@ const ReleaseDetail: React.FC = () => {
                                 {`Deploy to ${envMap.get(latestDeployment.environmentId)?.name ?? phase.name}`}
                               </span>
                               <span className="text-xs text-slate-500 leading-4">
-                                {formatTaskSummaryDate(latestDeployment.completedTime ?? latestDeployment.created)}
+                                {formatTaskSummaryDate(deploymentDisplayDate(latestDeployment))}
                               </span>
                             </span>
                           </div>
@@ -1171,7 +1172,7 @@ const ReleaseDetail: React.FC = () => {
                     <td className="px-5 py-3">
                       {latestDeployment ? (
                         <span className="text-sm text-slate-500">
-                          {formatDate(latestDeployment.completedTime ?? latestDeployment.created)}
+                          {formatDate(deploymentDisplayDate(latestDeployment))}
                         </span>
                       ) : null}
                     </td>
