@@ -108,8 +108,27 @@ const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
 // The step that failed after the read, and the session it left: extract, choose and preview redo only themselves, "import" validates again.
 type RetryStep =
-  | { step: "extract" | "choose" | "preview"; session: OctopusImportSession }
+  | { step: StepAfterRead; session: OctopusImportSession }
   | { step: "import" };
+
+type StepAfterRead = "extract" | "choose" | "preview";
+
+// Where a step after the read continues once the session's state is known: a session already extracted is never extracted again
+// (its extract committed even if the answer was lost); the server source chose its projects before reading.
+const stepForSessionState = (step: StepAfterRead, state: OctopusImportSessionState, serverSource: boolean): StepAfterRead => {
+  if (Number(state) === OctopusImportSessionState.Uploaded) return "extract";
+  if (step !== "extract") return step;
+  return serverSource ? "preview" : "choose";
+};
+
+const isSameFile = (left: File | null, right: File | null) =>
+  Boolean(left && right && left.name === right.name && left.size === right.size && left.lastModified === right.lastModified);
+
+const SESSION_NOT_FOUND = "SessionNotFound";
+const SESSION_STATE_CONFLICT = "SessionStateConflict";
+
+// A step refused because the session moved on (its earlier answer was lost): "Try again" reads where the session is now.
+const CONTINUE_FROM_SESSION_HINT = "This import session has moved on. Try again continues from where it is now.";
 
 // The projects of a session's source being chosen before its preview.
 type SessionProjectChoice = {
@@ -280,6 +299,9 @@ const ImportProjects: React.FC = () => {
     workflowPhase === "previewing";
   const isFinalizingImport =
     workflowPhase === "validating" || workflowPhase === "confirming";
+  // An import was handed to the server (or may have been): nothing that starts over may run until its outcome is known.
+  const isImportPending = isFinalizingImport || workflowPhase === "statusUnknown";
+  const inputsDisabled = isProcessingFile || isImportPending;
   const canResumeFetch = Boolean(
     resumableFetch &&
       resumableFetch.recovery === "resume" &&
@@ -347,7 +369,7 @@ const ImportProjects: React.FC = () => {
       ? historyFetchNotices(fetchProgress)
       : null;
   const canProbe = Boolean(
-    serverUrl.trim() && apiKey.trim() && !isProcessingFile && !probing,
+    serverUrl.trim() && apiKey.trim() && !inputsDisabled && !probing,
   );
 
   useEffect(() => {
@@ -401,7 +423,8 @@ const ImportProjects: React.FC = () => {
   };
 
   // An input changed: the previous attempt's result no longer describes what the user will import (inputs are disabled while
-  // a request runs, so nothing is in flight). The resume target survives only while it still matches the server and space.
+  // a request runs or an import is pending, so nothing is in flight). A stopped read survives edits of the server, space and
+  // projects: Resume is offered again once they match it.
   const invalidateAttempt = (keepResume: boolean) => {
     clearWorkflow();
     clearSessionSteps();
@@ -416,6 +439,20 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage(null);
     setWorkflowError(envelope.msg || fallback);
     setWorkflowHint(errorKindHint(envelope.errorKind));
+  };
+
+  // A step after the read failed: a session the server no longer has can only start again; any other failure keeps the step to retry.
+  const failStep = (
+    envelope: Pick<OctopusImportEnvelope<unknown>, "msg" | "errorKind">,
+    fallback: string,
+  ) => {
+    failWith(envelope, fallback);
+    if (envelope.errorKind === SESSION_NOT_FOUND) {
+      setRetryStep(null);
+      setFailureRecovery("restart");
+      return;
+    }
+    if (envelope.errorKind === SESSION_STATE_CONFLICT) setWorkflowHint(CONTINUE_FROM_SESSION_HINT);
   };
 
   const validateDraftFile = (file: File | null) => {
@@ -455,9 +492,10 @@ const ImportProjects: React.FC = () => {
     }, 300);
   };
 
-  // Picking another file after a failure starts over: the failure described the previous file.
-  const restartIfFailed = () => {
-    if (workflowPhase === "failed") invalidateAttempt(false);
+  // Picking another file (or removing it) starts over: what was read, and a failure, described the file read before. Picking the
+  // same file again keeps the attempt.
+  const restartForFile = (file: File | null) => {
+    if (workflowPhase === "failed" || (workflowPhase !== "idle" && !isSameFile(file, selectedFile))) invalidateAttempt(false);
   };
 
   const cancelUpload = () => {
@@ -723,17 +761,42 @@ const ImportProjects: React.FC = () => {
       return;
     }
 
+    const failed = retryStep;
     const { token, controller } = beginWorkflow();
     try {
-      await continueAfterRead(
-        retryStep.session,
-        retryStep.step,
-        controller.signal,
-        token,
-      );
+      await continueFromSessionState(failed.session, failed.step, controller.signal, token);
     } catch (error) {
       failWorkflow(error, token);
     }
+  };
+
+  // The failed step's answer may have been lost after the server committed it: the session's state says where to continue. When
+  // the state cannot be read, the step is redone as it was.
+  const continueFromSessionState = async (
+    failedSession: OctopusImportSession,
+    step: StepAfterRead,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    const current = (await readImportStatus(failedSession.sessionId, signal))?.session ?? null;
+    if (workflowTokenRef.current !== token) return;
+
+    if (!current) {
+      await continueAfterRead(failedSession, step, signal, token);
+      return;
+    }
+
+    setSession(current);
+    if (isImportTerminalState(current.state)) {
+      applyFinalSession(current);
+      return;
+    }
+    if (Number(current.state) === OctopusImportSessionState.Importing) {
+      await followRunningImport(current.sessionId, signal, token);
+      return;
+    }
+
+    await continueAfterRead(current, stepForSessionState(step, current.state, useServerSource), signal, token);
   };
 
   // Stores the chosen projects on the session (null: the whole space); false, with the reason shown, when the server refused.
@@ -781,7 +844,7 @@ const ImportProjects: React.FC = () => {
 
     const list = listEnvelope.data ?? null;
     if (listEnvelope.code !== 200 || !list) {
-      failWith(listEnvelope, "Could not list the projects.");
+      failStep(listEnvelope, "Could not list the projects.");
       return;
     }
 
@@ -917,7 +980,7 @@ const ImportProjects: React.FC = () => {
     setFileDocumentCount(extractionData?.documentCount ?? null);
 
     if (!extractionData) {
-      failWith(extractEnvelope, "Extraction failed.");
+      failStep(extractEnvelope, "Extraction failed.");
       return null;
     }
 
@@ -965,7 +1028,7 @@ const ImportProjects: React.FC = () => {
     setWorkflowMessage(null);
 
     if (!previewData) {
-      failWith(previewEnvelope, "Preview failed.");
+      failStep(previewEnvelope, "Preview failed.");
       return;
     }
 
@@ -989,7 +1052,7 @@ const ImportProjects: React.FC = () => {
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
-    restartIfFailed();
+    restartForFile(file);
     if (
       file &&
       (!selectedFile ||
@@ -1006,7 +1069,7 @@ const ImportProjects: React.FC = () => {
     event.preventDefault();
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0] ?? null;
-    restartIfFailed();
+    restartForFile(file);
     if (
       file &&
       (!selectedFile ||
@@ -1019,7 +1082,7 @@ const ImportProjects: React.FC = () => {
   };
 
   const canReadFile = Boolean(
-    draftFile && draftValidation === "valid" && draftPassword.trim() && !isProcessingFile && !isFinalizingImport,
+    draftFile && draftValidation === "valid" && draftPassword.trim() && !inputsDisabled,
   );
 
   const handleReadFile = () => {
@@ -1042,7 +1105,7 @@ const ImportProjects: React.FC = () => {
   const handleServerUrlChange = (value: string) => {
     setServerUrl(value);
     resetProbe();
-    invalidateAttempt(value.trim() === resumableFetch?.serverUrl);
+    invalidateAttempt(true);
   };
 
   // A new key may resume the same session (after connecting with it), so the resume target is kept.
@@ -1054,15 +1117,15 @@ const ImportProjects: React.FC = () => {
 
   const handleOctopusSpaceChange = (value: string) => {
     setOctopusSpaceId(value);
-    invalidateAttempt(value === resumableFetch?.octopusSpaceId);
+    invalidateAttempt(true);
     void loadServerProjects(value);
   };
 
-  // Another choice of projects is another import: the previous attempt's result no longer describes it, and a stopped read (which
-  // reads the choice stored on its session) can no longer be resumed for it.
+  // Another choice of projects is another import: the previous attempt's result no longer describes it. A stopped read (which
+  // reads the choice stored on its session) is resumable again once its projects are chosen again.
   const handleServerChosenChange = (selected: string[]) => {
     setServerChosenIds(selected);
-    invalidateAttempt(Boolean(resumableFetch && sameProjects(selected, resumableFetch.projectIds)));
+    invalidateAttempt(true);
   };
 
   const clearServerProjects = () => {
@@ -1227,6 +1290,8 @@ const ImportProjects: React.FC = () => {
     if (finalSession.state === OctopusImportSessionState.Expired) {
       setWorkflowPhase("failed");
       setWorkflowMessage(null);
+      setRetryStep(null);
+      setFailureRecovery("restart");
       setWorkflowError(
         useServerSource
           ? "The import session expired. Read from the Octopus server again."
@@ -1255,13 +1320,55 @@ const ImportProjects: React.FC = () => {
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if (isAbortError(error)) return;
-      setWorkflowPhase("statusUnknown");
-      setWorkflowMessage(null);
-      setWorkflowWarning(
-        "Polling stopped after 10 minutes. The import may still be running; check its status again.",
-      );
-      setWorkflowError(null);
+      showStatusUnknown("Polling stopped after 10 minutes. The import may still be running; check its status again.");
     }
+  };
+
+  const showStatusUnknown = (warning: string) => {
+    setWorkflowPhase("statusUnknown");
+    setWorkflowMessage(null);
+    setWorkflowWarning(warning);
+    setWorkflowError(null);
+  };
+
+  const followRunningImport = async (sessionId: string, signal: AbortSignal, token: number) => {
+    setWorkflowPhase("confirming");
+    setWorkflowMessage("Import is still running...");
+    await awaitFinalSession(sessionId, signal, token);
+  };
+
+  // The confirmation's answer was lost or refused: the session's state says whether the import started. Running or finished, the
+  // page follows it; not started, the import can be tried again; unreadable, the user checks its status later.
+  const settleUnconfirmedImport = async (
+    sessionId: string,
+    failure: Pick<OctopusImportEnvelope<unknown>, "msg" | "errorKind">,
+    signal: AbortSignal,
+    token: number,
+  ) => {
+    const current = (await readImportStatus(sessionId, signal))?.session ?? null;
+    if (workflowTokenRef.current !== token) return;
+
+    if (!current) {
+      showStatusUnknown("The import's answer was lost and its status could not be read. It may be running; check its status.");
+      return;
+    }
+
+    setSession(current);
+    if (isImportTerminalState(current.state)) {
+      applyFinalSession(current);
+      return;
+    }
+    if (Number(current.state) === OctopusImportSessionState.Importing) {
+      await followRunningImport(current.sessionId, signal, token);
+      return;
+    }
+
+    setWorkflowPhase("ready");
+    setWorkflowMessage(null);
+    setWorkflowWarning(null);
+    setWorkflowError(failure.msg || "The import did not start.");
+    setWorkflowHint(errorKindHint(failure.errorKind));
+    setRetryStep({ step: "import" });
   };
 
   const handleCheckStatus = async () => {
@@ -1273,11 +1380,11 @@ const ImportProjects: React.FC = () => {
     workflowAbortRef.current = controller;
 
     setWorkflowPhase("confirming");
-    setWorkflowMessage("Import is still running...");
+    setWorkflowMessage("Checking the import status...");
     setWorkflowWarning(null);
     setWorkflowError(null);
 
-    await awaitFinalSession(session.sessionId, controller.signal, token);
+    await settleUnconfirmedImport(session.sessionId, { msg: "The import did not start.", errorKind: null }, controller.signal, token);
   };
 
   const beginValidation = (text: string) => {
@@ -1362,6 +1469,17 @@ const ImportProjects: React.FC = () => {
     }
   };
 
+  // The confirmation, or null when its answer was lost: the server may have started the import anyway, so its state decides.
+  const confirmImport = async (sessionId: string, signal: AbortSignal, token: number) => {
+    try {
+      return await confirmOctopusImport(sessionId, space.id, signal, true);
+    } catch (error) {
+      if (isAbortError(error) || workflowTokenRef.current !== token) throw error;
+      await settleUnconfirmedImport(sessionId, { msg: getErrorMessage(error), errorKind: null }, signal, token);
+      return null;
+    }
+  };
+
   const handleImport = async () => {
     if (!session?.sessionId || !previewPlan) {
       message.warning("Wait for the import preview to load.");
@@ -1388,18 +1506,13 @@ const ImportProjects: React.FC = () => {
       setWorkflowMessage("Importing...");
 
       // Large history imports run as a background job; the session is polled until it settles.
-      const confirmEnvelope = await confirmOctopusImport(
-        session.sessionId,
-        space.id,
-        controller.signal,
-        true,
-      );
-      if (workflowTokenRef.current !== token) return;
+      const confirmEnvelope = await confirmImport(session.sessionId, controller.signal, token);
+      if (!confirmEnvelope || workflowTokenRef.current !== token) return;
 
       const confirmedSession = confirmEnvelope.data?.session ?? null;
       setBlockerSummary(confirmEnvelope.data?.blockerSummary ?? null);
       if (confirmEnvelope.code !== 200 || !confirmedSession) {
-        failWith(confirmEnvelope, "Import confirmation failed.");
+        await settleUnconfirmedImport(session.sessionId, { msg: confirmEnvelope.msg || "Import confirmation failed.", errorKind: confirmEnvelope.errorKind }, controller.signal, token);
         return;
       }
 
@@ -1425,11 +1538,11 @@ const ImportProjects: React.FC = () => {
       <Button size="small" onClick={() => void handleCheckStatus()}>
         Check status
       </Button>
-    ) : failureRecovery === "restart" && useServerSource ? (
+    ) : failureRecovery === "restart" ? (
       <Button
         size="small"
-        disabled={!canReadChosen}
-        onClick={() => void runImportWorkflow(null)}
+        disabled={useServerSource ? !canReadChosen : !canReadFile}
+        onClick={() => void runImportWorkflow(useServerSource ? null : draftFile)}
       >
         Start again
       </Button>
@@ -1454,6 +1567,8 @@ const ImportProjects: React.FC = () => {
       octopusSpaceId !== resumableFetch.octopusSpaceId
     )
       return `This read belongs to ${resumableFetch.serverUrl}${resumableFetch.octopusSpaceId ? ` (${resumableFetch.octopusSpaceId})` : ""}. Switch back to it to resume.`;
+    if (!sameProjects(serverChosenIds, resumableFetch.projectIds))
+      return `This read reads ${pluralize(resumableFetch.projectIds.length, "project")} chosen before. Choose them again to resume, or read the new choice from the start.`;
     return "Resume continues on the same import session where it stopped; nothing read so far is read again.";
   };
 
@@ -1493,7 +1608,7 @@ const ImportProjects: React.FC = () => {
         loading={serverProjectsLoading}
         selected={serverChosenIds}
         onChange={handleServerChosenChange}
-        disabled={isProcessingFile || isFinalizingImport}
+        disabled={inputsDisabled}
       />
     );
 
@@ -1674,6 +1789,12 @@ const ImportProjects: React.FC = () => {
     );
   };
 
+  // Stable across renders: the memoised preview panels then re-render only when their plan changes, not on every tick of the page.
+  const latestPreviewActionsRef = useRef({ changeProjects, fillFromExportFile });
+  latestPreviewActionsRef.current = { changeProjects, fillFromExportFile };
+  const changeProjectsOfPreview = useCallback(() => void latestPreviewActionsRef.current.changeProjects(), []);
+  const fillFromExportFileOfPreview = useCallback(() => latestPreviewActionsRef.current.fillFromExportFile(), []);
+
   // ── Step headers ───────────────────────────────────────────────────────────
 
   const statusOf = (id: ImportSectionId) => sections.find((section) => section.id === id)?.status ?? "future";
@@ -1745,11 +1866,11 @@ const ImportProjects: React.FC = () => {
     ) : null;
 
   const connectButton = probe ? (
-    <Button key="change" disabled={isProcessingFile} onClick={handleChangeConnection}>
+    <Button key="change" disabled={inputsDisabled} onClick={handleChangeConnection}>
       Change
     </Button>
   ) : (
-    <Button key="connect" type={buttonType("connect")} onClick={() => void handleProbe()} loading={probing} disabled={!serverUrl.trim() || !apiKey.trim() || isProcessingFile}>
+    <Button key="connect" type={buttonType("connect")} onClick={() => void handleProbe()} loading={probing} disabled={!serverUrl.trim() || !apiKey.trim() || inputsDisabled}>
       Connect
     </Button>
   );
@@ -1764,7 +1885,7 @@ const ImportProjects: React.FC = () => {
           <Input
             id="import-octopus-server-url"
             value={serverUrl}
-            disabled={isProcessingFile}
+            disabled={inputsDisabled}
             onChange={(event) => handleServerUrlChange(event.target.value)}
             onPressEnter={() => void handleProbe()}
             placeholder="https://octopus.example.com"
@@ -1781,7 +1902,7 @@ const ImportProjects: React.FC = () => {
           <Input.Password
             id="import-octopus-api-key"
             value={apiKey}
-            disabled={isProcessingFile}
+            disabled={inputsDisabled}
             onChange={(event) => handleApiKeyChange(event.target.value)}
             onPressEnter={() => void handleProbe()}
             placeholder="API-XXXXXXXX"
@@ -1826,7 +1947,7 @@ const ImportProjects: React.FC = () => {
           id="import-octopus-space"
           className="w-full max-w-md"
           value={octopusSpaceId ?? undefined}
-          disabled={isProcessingFile}
+          disabled={inputsDisabled}
           onChange={(value: string) => handleOctopusSpaceChange(value)}
           options={probe.spaces.map((item) => ({ label: item.name, value: item.id }))}
         />
@@ -1847,7 +1968,7 @@ const ImportProjects: React.FC = () => {
   );
 
   const readFromOctopusButton = (
-    <Button type={buttonType("read")} disabled={!canReadChosen || isProcessingFile} onClick={() => void runImportWorkflow(null)}>
+    <Button type={buttonType("read")} disabled={!canReadChosen || inputsDisabled} onClick={() => void runImportWorkflow(null)}>
       Read {pluralize(serverChosenIds.length, "chosen project")} from Octopus
     </Button>
   );
@@ -1860,7 +1981,7 @@ const ImportProjects: React.FC = () => {
     </>
   );
 
-  const fileDisabled = isProcessingFile || isFinalizingImport;
+  const fileDisabled = inputsDisabled;
 
   const renderFileDraft = (file: File) => (
     <div className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
@@ -1887,7 +2008,7 @@ const ImportProjects: React.FC = () => {
         aria-label="Remove selected zip file"
         disabled={fileDisabled}
         onClick={() => {
-          restartIfFailed();
+          restartForFile(null);
           validateDraftFile(null);
         }}
         className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
@@ -2011,7 +2132,7 @@ const ImportProjects: React.FC = () => {
       {previewPlan && !completedMissingSecrets ? (
         <WithheldSecretsPanel
           resources={previewPlan.resources}
-          onFillFromFile={fillFromExportFile}
+          onFillFromFile={fillFromExportFileOfPreview}
           disabled={isFinalizingImport}
         />
       ) : null}
@@ -2021,11 +2142,7 @@ const ImportProjects: React.FC = () => {
           plan={previewPlan}
           spaceSlug={space.slug}
           onChoiceChange={changeChoices}
-          onChangeProjects={
-            workflowPhase === "ready" && session?.sessionId
-              ? () => void changeProjects()
-              : undefined
-          }
+          onChangeProjects={workflowPhase === "ready" && session?.sessionId ? changeProjectsOfPreview : undefined}
           choicesPending={choicesPending}
           choicesDisabled={isFinalizingImport || workflowPhase === "succeeded"}
         />
@@ -2077,7 +2194,7 @@ const ImportProjects: React.FC = () => {
       case "source":
         return {
           summary: sourceSummary,
-          body: <ImportSourceCards value={source} disabled={isProcessingFile || isFinalizingImport} onChange={handleSourceChange} />,
+          body: <ImportSourceCards value={source} disabled={inputsDisabled} onChange={handleSourceChange} />,
         };
       case "connect":
         return { summary: connectSummary(), body: renderConnect() };

@@ -4,7 +4,8 @@ const request = vi.fn();
 vi.mock('utils/request', () => ({ axiosInstance: { request: (...args: unknown[]) => request(...args) } }));
 
 const {
-  connectOctopusImport, fetchOctopusImportHistory, getOctopusImportProjects, listOctopusServerProjects, selectOctopusImportProjects,
+  connectOctopusImport, extractOctopusImport, fetchOctopusImportHistory, getOctopusImportProjects, listOctopusServerProjects,
+  previewOctopusImport, selectOctopusImportProjects, validateOctopusImport,
 } = await import('./octopusImport');
 
 describe('octopusImport api', () => {
@@ -81,5 +82,18 @@ describe('octopusImport api', () => {
     expect(config.method).toBe('PUT');
     expect(config.url).toBe('/octopus-import/s/projects/selection');
     expect(JSON.parse(config.data)).toEqual({ spaceId: 1, projectIds });
+  });
+
+  // Extracting a 100 MB export, or planning a project with thousands of releases, outlasts the default one-minute wait.
+  it.each([
+    ['extract', () => extractOctopusImport('s', 1)],
+    ['preview', () => previewOctopusImport('s', 1)],
+    ['validate', () => validateOctopusImport('s', 1, { generatedAt: '', resources: [], requiredInputs: [], diagnostics: [], hasBlockers: false })],
+  ])('waitsFiveMinutes_ForTheHeavySessionSteps %s', async (_name, call) => {
+    request.mockResolvedValue({ status: 200, data: { code: 200, msg: null, data: null } });
+
+    await call();
+
+    expect(request.mock.calls[0][0].timeout).toBe(5 * 60 * 1000);
   });
 });

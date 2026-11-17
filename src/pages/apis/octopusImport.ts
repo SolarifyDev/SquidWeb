@@ -4,6 +4,8 @@ import { axiosInstance, type RequestConfig } from "utils/request";
 const IMPORT_API_ROOT = "/octopus-import";
 const IMPORT_REQUEST_TIMEOUT_MS = 60 * 1000;
 const IMPORT_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+// Extracting a large export, or planning a project with thousands of releases, takes longer than an ordinary request.
+const IMPORT_HEAVY_STEP_TIMEOUT_MS = 5 * 60 * 1000;
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -652,6 +654,7 @@ export function extractOctopusImport(
       spaceId,
       query: { spaceId },
       signal,
+      timeout: IMPORT_HEAVY_STEP_TIMEOUT_MS,
     },
   );
 }
@@ -668,6 +671,7 @@ export function previewOctopusImport(
       spaceId,
       query: { spaceId },
       signal,
+      timeout: IMPORT_HEAVY_STEP_TIMEOUT_MS,
     },
   );
 }
@@ -687,6 +691,7 @@ export function validateOctopusImport(
       body: JSON.stringify({ previewPlan }),
       includeJson: true,
       signal,
+      timeout: IMPORT_HEAVY_STEP_TIMEOUT_MS,
     },
   );
 }
