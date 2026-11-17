@@ -46,12 +46,18 @@ export const reopenStepOf = (session: OctopusImportSession): OctopusImportResume
   }
 };
 
-/** The URL a reopened read resumes with: the one the session kept, or (an older session) its host over https, editable by the user. */
+/** The URL a reopened read is prefilled with: the one the session kept, or (an older session) its host over https, editable by the user. */
 export const reopenServerUrl = (session: OctopusImportSession) => {
   const fetch = session.sourceSummary?.historyFetch;
   if (fetch?.serverUrl) return fetch.serverUrl;
   return fetch?.serverHost ? `https://${fetch.serverHost}` : '';
 };
+
+/**
+ * The URL a reopened read must resume with: only the one the session kept. An older session kept none, so its prefilled guess pins
+ * nothing and the URL the user corrects it to resumes (the server still checks every chunk against the read's host).
+ */
+export const pinnedServerUrl = (session: OctopusImportSession) => session.sourceSummary?.historyFetch?.serverUrl || null;
 
 /** The read's progress as the session's cursor records it. */
 export const progressOf = (fetch: OctopusImportHistoryFetch): OctopusHistoryFetchProgress => ({

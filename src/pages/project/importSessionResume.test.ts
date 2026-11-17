@@ -8,7 +8,7 @@ import {
   type OctopusImportResumableSession,
   type OctopusImportSession,
 } from 'pages/apis/octopusImport';
-import { SESSION_PARAM, reopenServerUrl, reopenStepOf, resumeRowText, sessionIdFrom } from './importSessionResume';
+import { SESSION_PARAM, pinnedServerUrl, reopenServerUrl, reopenStepOf, resumeRowText, sessionIdFrom } from './importSessionResume';
 
 const ID = '6a1d2c3b-0000-4000-8000-0000000000aa';
 
@@ -92,6 +92,15 @@ describe('reopenServerUrl', () => {
     expect(reopenServerUrl(serverSession(OctopusImportSessionState.Uploaded, false, { serverUrl: 'https://octopus.acme.com/octopus' }))).toBe('https://octopus.acme.com/octopus');
     expect(reopenServerUrl(serverSession(OctopusImportSessionState.Uploaded, false))).toBe('https://octopus.acme.com');
     expect(reopenServerUrl(fileSession(OctopusImportSessionState.Uploaded))).toBe('');
+  });
+});
+
+describe('pinnedServerUrl', () => {
+  // Only a kept URL pins the resume; an older session's guess does not (the server still checks the host on every chunk).
+  it('isTheKeptUrl_NullWhenTheSessionKeptNone', () => {
+    expect(pinnedServerUrl(serverSession(OctopusImportSessionState.Uploaded, false, { serverUrl: 'https://octopus.acme.com/octopus' }))).toBe('https://octopus.acme.com/octopus');
+    expect(pinnedServerUrl(serverSession(OctopusImportSessionState.Uploaded, false))).toBeNull();
+    expect(pinnedServerUrl(fileSession(OctopusImportSessionState.Uploaded))).toBeNull();
   });
 });
 

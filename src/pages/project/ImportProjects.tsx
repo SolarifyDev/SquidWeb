@@ -89,6 +89,7 @@ import {
   SESSION_PARAM,
   isServerSession,
   progressOf,
+  pinnedServerUrl,
   reopenServerUrl,
   reopenStepOf,
   sessionIdFrom,
@@ -168,7 +169,8 @@ type ChoiceCount = { selected: number; total: number };
 
 type ResumableHistoryFetch = {
   session: OctopusImportSession;
-  serverUrl: string;
+  /** The URL the read resumes with; null for a reopened read whose session kept none (any URL entered resumes, the server checks the host). */
+  serverUrl: string | null;
   octopusSpaceId: string | null;
   /** `reconnect`: connect again (another key, or the right server) before resuming. */
   recovery: "resume" | "reconnect";
@@ -181,6 +183,11 @@ type ResumableHistoryFetch = {
 // A reloaded page reopening its session: what it says when the session cannot be continued.
 const REOPEN_UNAVAILABLE = "That import is no longer available. Start a new one, or continue another below.";
 const REOPEN_FINISHED = "That import has already finished.";
+const REOPEN_UNREADABLE = "That import could not be read just now. Try again in a moment.";
+
+const matchesReadServer = (serverUrl: string, read: ResumableHistoryFetch) => read.serverUrl === null || serverUrl.trim() === read.serverUrl;
+
+const readServerText = (read: ResumableHistoryFetch) => read.serverUrl ?? read.session.sourceSummary?.historyFetch?.serverHost ?? "another Octopus server";
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -310,6 +317,8 @@ const ImportProjects: React.FC = () => {
   const [resumableSessions, setResumableSessions] = useState<OctopusImportResumableSession[]>([]);
   // Why the session a reloaded page named could not be continued.
   const [reopenNotice, setReopenNotice] = useState<string | null>(null);
+  // A reopened session whose status could not be read (a restart, a proxy error): kept in the URL, and "Try again" reopens it.
+  const [unreadSessionId, setUnreadSessionId] = useState<string | null>(null);
   const readStartedAtRef = useRef(0);
 
   const projectListPath = `/${space.slug}/projects`;
@@ -336,7 +345,7 @@ const ImportProjects: React.FC = () => {
     resumableFetch &&
       resumableFetch.recovery === "resume" &&
       (isServerReady || reopenedReadReady) &&
-      serverUrl.trim() === resumableFetch.serverUrl &&
+      matchesReadServer(serverUrl, resumableFetch) &&
       octopusSpaceId === resumableFetch.octopusSpaceId &&
       sameProjects(serverChosenIds, resumableFetch.projectIds) &&
       (workflowPhase === "failed" || workflowPhase === "idle"),
@@ -1485,10 +1494,18 @@ const ImportProjects: React.FC = () => {
   const reopenSession = async (sessionId: string) => {
     const { token, controller } = beginWorkflow();
     setResumableSessions([]);
+    setReopenNotice(null);
+    setUnreadSessionId(null);
     try {
-      const reopened = (await readImportStatus(sessionId, controller.signal))?.session ?? null;
+      const status = await readReopenedStatus(sessionId, controller.signal);
       if (workflowTokenRef.current !== token) return;
 
+      if (status === "unreadable") {
+        keepUnreadSession(sessionId);
+        return;
+      }
+
+      const reopened = status?.session ?? null;
       const step = reopened ? reopenStepOf(reopened) : null;
       if (!reopened || step === null) {
         forgetReopenedSession(reopened);
@@ -1500,6 +1517,24 @@ const ImportProjects: React.FC = () => {
     } catch (error) {
       failWorkflow(error, token);
     }
+  };
+
+  // Only "not found" says the session is gone; any other failure says nothing about it, so the page keeps it to try again.
+  const readReopenedStatus = async (sessionId: string, signal: AbortSignal) => {
+    try {
+      const statusEnvelope = await getOctopusImportStatus(sessionId, space.id, signal);
+      if (statusEnvelope.code === 200) return statusEnvelope.data ?? null;
+      return statusEnvelope.code === 404 ? null : "unreadable";
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return "unreadable";
+    }
+  };
+
+  const keepUnreadSession = (sessionId: string) => {
+    setUnreadSessionId(sessionId);
+    setReopenNotice(REOPEN_UNREADABLE);
+    void loadResumableSessions();
   };
 
   const forgetReopenedSession = (closed: OctopusImportSession | null) => {
@@ -1561,7 +1596,7 @@ const ImportProjects: React.FC = () => {
   const offerReopenedRead = (reopened: OctopusImportSession) =>
     setResumableFetch({
       session: reopened,
-      serverUrl: reopenServerUrl(reopened),
+      serverUrl: pinnedServerUrl(reopened),
       octopusSpaceId: reopened.sourceSummary?.historyFetch?.octopusSpaceId ?? null,
       recovery: "resume",
       projectIds: reopened.sourceSummary?.selectedProjectIds ?? [],
@@ -1749,14 +1784,17 @@ const ImportProjects: React.FC = () => {
     if (resumableFetch.reopened && !apiKey.trim())
       return "Enter the API key above to continue reading where it stopped; nothing read so far is read again.";
     if (
-      serverUrl.trim() !== resumableFetch.serverUrl ||
+      !matchesReadServer(serverUrl, resumableFetch) ||
       octopusSpaceId !== resumableFetch.octopusSpaceId
     )
-      return `This read belongs to ${resumableFetch.serverUrl}${resumableFetch.octopusSpaceId ? ` (${resumableFetch.octopusSpaceId})` : ""}. Switch back to it to resume.`;
+      return `This read belongs to ${readServerText(resumableFetch)}${resumableFetch.octopusSpaceId ? ` (${resumableFetch.octopusSpaceId})` : ""}. Switch back to it to resume.`;
     if (!sameProjects(serverChosenIds, resumableFetch.projectIds))
       return `This read reads ${pluralize(resumableFetch.projectIds.length, "project")} chosen before. Choose them again to resume, or read the new choice from the start.`;
     return "Resume continues on the same import session where it stopped; nothing read so far is read again.";
   };
+
+  const renderReopenRetry = () =>
+    unreadSessionId ? <Button size="small" onClick={() => void reopenSession(unreadSessionId)}>Try again</Button> : null;
 
   const renderResumeNotice = () => (
     <ImportStatusBanner
@@ -2444,7 +2482,7 @@ const ImportProjects: React.FC = () => {
 
           {!session && workflowPhase === "idle" && (reopenNotice || resumableSessions.length) ? (
             <div className="mt-6 space-y-4">
-              {reopenNotice ? <ImportStatusBanner testId="reopen-notice" type="info" message={reopenNotice} /> : null}
+              {reopenNotice ? <ImportStatusBanner testId="reopen-notice" type="info" message={reopenNotice} action={renderReopenRetry()} /> : null}
               <ImportResumeList sessions={resumableSessions} onContinue={(id) => void reopenSession(id)} />
             </div>
           ) : null}

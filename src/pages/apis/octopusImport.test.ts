@@ -4,7 +4,7 @@ const request = vi.fn();
 vi.mock('utils/request', () => ({ axiosInstance: { request: (...args: unknown[]) => request(...args) } }));
 
 const {
-  connectOctopusImport, extractOctopusImport, fetchOctopusImportHistory, getOctopusImportProjects, listOctopusServerProjects,
+  connectOctopusImport, extractOctopusImport, fetchOctopusImportHistory, getOctopusImportProjects, listOctopusImportSessions, listOctopusServerProjects,
   previewOctopusImport, selectOctopusImportProjects, validateOctopusImport, isRetryableAfter, confirmationFailureMessage,
   OctopusImportSessionState, OctopusImportConfirmationFailureReason,
 } = await import('./octopusImport');
@@ -57,6 +57,19 @@ describe('octopusImport api', () => {
     expect(JSON.parse(config.data)).toEqual({
       spaceId: 1, serverUrl: 'https://octopus.example.com', apiKey: 'API-SECRET', octopusSpaceId: 'Spaces-1',
     });
+  });
+
+  // Pinned on both sides: OctopusImportControllerTests.SessionsAsync_IsAGetOnTheSessionsRoute_AndDispatchesTheBoundRequest.
+  it('listsResumableSessions_WithAGetOnTheSessionsRoute', async () => {
+    request.mockResolvedValue({ status: 200, data: { code: 200, msg: null, data: [] } });
+
+    await listOctopusImportSessions(1);
+
+    const config = request.mock.calls[0][0];
+    expect(config.method).toBe('GET');
+    expect(config.url).toBe('/octopus-import/sessions');
+    expect(config.params).toEqual({ spaceId: 1 });
+    expect(config.data).toBeUndefined();
   });
 
   it('readsTheProjectsOfASession_WithAGet', async () => {

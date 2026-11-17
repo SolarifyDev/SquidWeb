@@ -2487,6 +2487,45 @@ describe('ImportProjects reopened after a reload', () => {
     expect(location()).toBe('');
   });
 
+  // Only "not found" means the session is gone: a restart or a proxy error keeps it in the URL, and Try again reopens it.
+  it.each([
+    ['a 503', () => api.getOctopusImportStatus.mockResolvedValueOnce({ code: 503, msg: 'Service Unavailable', data: null })],
+    ['a network error', () => api.getOctopusImportStatus.mockRejectedValueOnce(new Error('Network Error'))],
+  ])('statusUnreadable_%s_KeepsTheParam_AndTryAgainReopensIt', async (_case, failOnce) => {
+    failOnce();
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Previewed, true)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    const notice = await screen.findByTestId('reopen-notice');
+    expect(notice).toHaveTextContent('could not be read');
+    expect(notice).not.toHaveTextContent('no longer available');
+    expect(location()).toBe(`?session=${REOPENED_ID}`);
+
+    fireEvent.click(within(notice).getByRole('button', { name: 'Try again' }));
+
+    await screen.findByText('By project');
+    expect(location()).toBe(`?session=${REOPENED_ID}`);
+  });
+
+  // A read started before the session kept its URL is prefilled with a guess; the user's correction resumes, with the corrected URL.
+  it('readWithoutAKeptUrl_TheCorrectedUrlResumes', async () => {
+    const legacy = serverSession(OctopusImportSessionState.Uploaded, false);
+    delete (legacy.sourceSummary!.historyFetch as { serverUrl?: string }).serverUrl;
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(legacy));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByRole('button', { name: 'Resume fetch' });
+    expect(screen.getByLabelText('Server URL')).toHaveValue('https://octopus.acme.com');
+
+    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: SERVER_URL } });
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-RELOADED-SECRET' } });
+    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
+
+    await screen.findByText('By project');
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledWith(REOPENED_ID, 1, { serverUrl: SERVER_URL, apiKey: 'API-RELOADED-SECRET' }, 'Spaces-1', expect.anything());
+  });
+
   it('connect_KeepsTheSessionInTheUrl_ReplacingTheEntry_AndImportMoreClearsIt', async () => {
     renderAt('/import');
     await connectToServer();
