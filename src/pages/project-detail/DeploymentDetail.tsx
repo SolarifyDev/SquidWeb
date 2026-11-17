@@ -654,8 +654,10 @@ const DeploymentDetail: React.FC = () => {
 
   const taskSummary = taskDetails?.task ?? null
   const taskState = taskSummary?.state ?? null
-  const taskHasPendingInterruptions = hasTaskPendingInterruptions(taskSummary)
-  const taskMayBeWaitingInterruption = taskState === 'Paused' || taskState === 'Suspended'
+  // History imported from Octopus is read-only: no polling, no cancel, no interruption handling.
+  const taskIsImported = Boolean(taskSummary?.isImported)
+  const taskHasPendingInterruptions = !taskIsImported && hasTaskPendingInterruptions(taskSummary)
+  const taskMayBeWaitingInterruption = !taskIsImported && (taskState === 'Paused' || taskState === 'Suspended')
   const taskId = deployment?.taskId ?? taskSummary?.id ?? locationState?.taskId ?? null
   const environmentId = deployment?.environmentId ?? locationState?.environmentId ?? null
   const pendingInterruptions = useMemo(() => uniquePendingInterruptions(interruptions), [interruptions])
@@ -695,14 +697,14 @@ const DeploymentDetail: React.FC = () => {
   const activeInterruptionElements = activeInterruption?.form?.elements ?? []
   const activeInterruptionDetailElements = activeInterruptionElements.filter((element) => element.control.type !== 'SubmitButtonGroup')
   const activeInterruptionSubmitGroups = activeInterruptionElements.filter((element) => element.control.type === 'SubmitButtonGroup')
-  const showCancelButton = taskId != null && (
+  const showCancelButton = taskId != null && !taskIsImported && (
     taskState === 'Pending'
     || taskState === 'Executing'
     || taskState === 'Paused'
     || taskState === 'Suspended'
     || taskState === 'Cancelling'
   )
-  const canCancelTask = taskId != null && (
+  const canCancelTask = taskId != null && !taskIsImported && (
     taskState === 'Pending'
     || taskState === 'Executing'
     || taskState === 'Paused'
@@ -878,7 +880,7 @@ const DeploymentDetail: React.FC = () => {
   }, [taskId, verbose, tail])
 
   useEffect(() => {
-    if (taskId == null || !isTaskActive(taskState) || taskHasPendingInterruptions) return
+    if (taskId == null || taskIsImported || !isTaskActive(taskState) || taskHasPendingInterruptions) return
 
     let cancelled = false
 
@@ -896,7 +898,7 @@ const DeploymentDetail: React.FC = () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [taskId, taskState, taskHasPendingInterruptions, verbose, tail])
+  }, [taskId, taskState, taskIsImported, taskHasPendingInterruptions, verbose, tail])
 
   useEffect(() => {
     const shouldLoadInterruptions = taskHasPendingInterruptions || taskMayBeWaitingInterruption
@@ -1281,6 +1283,9 @@ const DeploymentDetail: React.FC = () => {
             </div>
             {taskState !== 'Success' ? (
               <div className={`mt-1 text-sm ${deploymentTone.text}`}>{deploymentStateLabel(taskState)}</div>
+            ) : null}
+            {taskIsImported ? (
+              <div className="mt-1 text-sm text-slate-500">Imported from Octopus (read-only)</div>
             ) : null}
           </div>
           <div className="flex items-center gap-2 mr-2">

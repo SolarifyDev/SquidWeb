@@ -1,0 +1,833 @@
+import {
+  OctopusHistoryFetchPhase,
+  OctopusImportChoiceReason,
+  OctopusImportPreviewAction,
+  OctopusImportProjectDestinationState,
+  OctopusImportRequiredInputKind,
+  type OctopusHistoryFetchCounts,
+  type OctopusHistoryFetchProgress,
+  type OctopusImportFillDestination,
+  type OctopusImportFillPairing,
+  type OctopusImportOriginEvidence,
+  OctopusImportFillEvidenceState,
+  type OctopusImportChangeCounts,
+  type OctopusImportKindChangeCounts,
+  type OctopusImportMissingSensitiveValue,
+  type OctopusImportPreviewPlan,
+  type OctopusImportPreviewResource,
+  type OctopusImportProjectDestination,
+  type OctopusServerPermissions,
+} from 'pages/apis/octopusImport';
+import { formatVariableSetRouteId } from 'pages/apis/variableSet';
+
+/** Deployment-history kinds. The server owns these rows: it re-plans them on validate. */
+export const HISTORY_SOURCE_TYPES = ['Release', 'Deployment', 'ServerTask'];
+
+export type PreviewActionBucket = 'create' | 'reuse' | 'alreadyImported' | 'update' | 'fill' | 'skip' | 'other';
+
+export type PreviewActionCounts = Record<PreviewActionBucket, number>;
+
+export interface ProjectPreviewSummary {
+  projectSourceId: string;
+  projectName: string;
+  counts: PreviewActionCounts;
+  newReleases: number;
+  newDeployments: number;
+}
+
+export interface ListedPreviewResource {
+  resource: OctopusImportPreviewResource;
+  label: string | null;
+}
+
+const normalizeType = (sourceType: string) => sourceType.trim().toLowerCase();
+
+const isOfType = (resource: OctopusImportPreviewResource, type: string) =>
+  normalizeType(resource.sourceType) === type.toLowerCase();
+
+export const isHistoryResource = (resource: OctopusImportPreviewResource) =>
+  HISTORY_SOURCE_TYPES.some(type => isOfType(resource, type));
+
+/** The plan to post to validate: history rows are dropped because the server merges its own. */
+export const withoutHistoryRows = (plan: OctopusImportPreviewPlan): OctopusImportPreviewPlan => ({
+  ...plan,
+  resources: plan.resources.filter(resource => !isHistoryResource(resource)),
+});
+
+export const actionBucket = (action: OctopusImportPreviewAction): PreviewActionBucket => {
+  switch (Number(action)) {
+    case OctopusImportPreviewAction.Create:
+      return 'create';
+    case OctopusImportPreviewAction.ReuseExisting:
+      return 'reuse';
+    case OctopusImportPreviewAction.AlreadyImported:
+      return 'alreadyImported';
+    case OctopusImportPreviewAction.Update:
+      return 'update';
+    case OctopusImportPreviewAction.FillMissingSecret:
+      return 'fill';
+    case OctopusImportPreviewAction.Skip:
+      return 'skip';
+    default:
+      return 'other';
+  }
+};
+
+const emptyCounts = (): PreviewActionCounts => ({
+  create: 0,
+  reuse: 0,
+  alreadyImported: 0,
+  update: 0,
+  fill: 0,
+  skip: 0,
+  other: 0,
+});
+
+export const summarizeActions = (resources: OctopusImportPreviewResource[]): PreviewActionCounts =>
+  resources.reduce((counts, resource) => {
+    counts[actionBucket(resource.previewAction)] += 1;
+    return counts;
+  }, emptyCounts());
+
+const writesHistory = (resource: OctopusImportPreviewResource, type: string) => {
+  const bucket = actionBucket(resource.previewAction);
+  return isOfType(resource, type) && (bucket === 'create' || bucket === 'update');
+};
+
+/** The name of each Octopus project, by its source id: one pass, so naming a row's project never searches the rows again. */
+const projectNamesOf = (resources: OctopusImportPreviewResource[]) => {
+  const names = new Map<string, string>();
+  for (const resource of resources)
+    if (isOfType(resource, 'Project') && !names.has(resource.sourceId)) names.set(resource.sourceId, resource.sourceName);
+
+  return names;
+};
+
+/** One row per Octopus project, grouped by `ownerProjectSourceId`; shared resources are left out. */
+export const summarizeByProject = (resources: OctopusImportPreviewResource[]): ProjectPreviewSummary[] => {
+  const groups = new Map<string, OctopusImportPreviewResource[]>();
+  const names = projectNamesOf(resources);
+
+  for (const resource of resources) {
+    const owner = resource.ownerProjectSourceId;
+    if (!owner) continue;
+    const owned = groups.get(owner);
+    if (owned) owned.push(resource);
+    else groups.set(owner, [resource]);
+  }
+
+  return Array.from(groups, ([projectSourceId, owned]) => ({
+    projectSourceId,
+    projectName: names.get(projectSourceId) ?? projectSourceId,
+    counts: summarizeActions(owned),
+    newReleases: owned.filter(resource => writesHistory(resource, 'Release')).length,
+    newDeployments: owned.filter(resource => writesHistory(resource, 'Deployment')).length,
+  })).sort((left, right) => left.projectName.localeCompare(right.projectName));
+};
+
+const countAction = (resources: OctopusImportPreviewResource[], ...actions: OctopusImportPreviewAction[]) =>
+  resources.filter(resource => actions.includes(Number(resource.previewAction))).length;
+
+/** The server's change counts, computed from the resources (plans of an older server carry no summary). */
+export const changeCountsOf = (resources: OctopusImportPreviewResource[]): OctopusImportChangeCounts => {
+  const counts = {
+    alreadyImported: countAction(resources, OctopusImportPreviewAction.AlreadyImported),
+    reused: countAction(resources, OctopusImportPreviewAction.ReuseExisting),
+    create: countAction(resources, OctopusImportPreviewAction.Create),
+    update: countAction(resources, OctopusImportPreviewAction.Update),
+    fill: countAction(resources, OctopusImportPreviewAction.FillMissingSecret),
+    skip: countAction(resources, OctopusImportPreviewAction.Skip),
+    unsupported: countAction(resources, OctopusImportPreviewAction.Unsupported),
+    blocked: countAction(resources, OctopusImportPreviewAction.Blocked, OctopusImportPreviewAction.RenameRequired),
+    total: resources.length,
+  };
+
+  return { ...counts, incremental: counts.create + counts.update + counts.fill + counts.reused };
+};
+
+/** Change counts per resource kind, in the order each kind first appears. */
+export const kindCountsOf = (resources: OctopusImportPreviewResource[]): OctopusImportKindChangeCounts[] => {
+  const kinds = Array.from(new Set(resources.map(resource => resource.sourceType)));
+
+  return kinds.map(kind => ({ kind, counts: changeCountsOf(resources.filter(resource => resource.sourceType === kind)) }));
+};
+
+/** True when confirming would write nothing: no resource is created, updated or filled. */
+export const isNothingNew = (resources: OctopusImportPreviewResource[]) =>
+  !resources.some(resource => {
+    const bucket = actionBucket(resource.previewAction);
+    return bucket === 'create' || bucket === 'update' || bucket === 'fill';
+  });
+
+/** Importing again changes nothing in Squid. The server decides; plans of an older server fall back to the resource actions. */
+export const isUpToDate = (plan: OctopusImportPreviewPlan) =>
+  plan.summary ? plan.summary.isUpToDate : isNothingNew(plan.resources);
+
+/** The plan posted to validate: without history rows (the server re-plans them), with the user's pairing confirmation and choices. */
+export const planToValidate = (plan: OctopusImportPreviewPlan, pairingConfirmed: boolean): OctopusImportPreviewPlan => {
+  const posted = withoutHistoryRows(plan);
+  if (!plan.fillPairing) return posted;
+
+  return { ...posted, fillPairing: { ...plan.fillPairing, confirmed: pairingConfirmed } };
+};
+
+export interface ChoiceRow {
+  resource: OctopusImportPreviewResource;
+  /** Rows that follow it (the actions of a step): imported with it, never chosen on their own. */
+  followers: OctopusImportPreviewResource[];
+}
+
+export interface ChoiceGroups {
+  deleted: ChoiceRow[];
+  added: ChoiceRow[];
+  missed: ChoiceRow[];
+}
+
+/** A row the user ticks: it has a choice and follows no other row. */
+const isChoiceRoot = (resource: OctopusImportPreviewResource) => Boolean(resource.choice && !resource.choice.followsSourceId);
+
+/** The rows that follow each root, by the root's source id: one pass over the rows, whatever the number of roots. */
+const followersByRoot = (resources: OctopusImportPreviewResource[]) => {
+  const followers = new Map<string, OctopusImportPreviewResource[]>();
+  for (const resource of resources) {
+    const root = resource.choice?.followsSourceId;
+    if (!root) continue;
+    const rows = followers.get(root);
+    if (rows) rows.push(resource);
+    else followers.set(root, [resource]);
+  }
+
+  return followers;
+};
+
+const choiceRowsOf = (
+  resources: OctopusImportPreviewResource[],
+  reason: OctopusImportChoiceReason,
+  followers: Map<string, OctopusImportPreviewResource[]>,
+): ChoiceRow[] =>
+  resources
+    .filter(resource => isChoiceRoot(resource) && Number(resource.choice?.reason) === reason)
+    .map(resource => ({ resource, followers: followers.get(resource.sourceId) ?? [] }));
+
+/** The rows the user decides on, by reason: deleted in Squid after an earlier import, added in Octopus since, or missed by an earlier import. */
+export const choiceGroups = (resources: OctopusImportPreviewResource[]): ChoiceGroups => {
+  const followers = followersByRoot(resources);
+
+  return {
+    deleted: choiceRowsOf(resources, OctopusImportChoiceReason.DeletedInSquid, followers),
+    added: choiceRowsOf(resources, OctopusImportChoiceReason.AddedInOctopus, followers),
+    missed: choiceRowsOf(resources, OctopusImportChoiceReason.MissedByEarlierImport, followers),
+  };
+};
+
+/** True when any group offers a row to decide on. */
+export const hasChoices = (groups: ChoiceGroups) => Object.values(groups).some(rows => rows.length > 0);
+
+/** The plan with `selected` set on the given choice roots; followers and every other row are left as they are. */
+export const withSelection = (plan: OctopusImportPreviewPlan, sourceIds: string[], selected: boolean): OctopusImportPreviewPlan => {
+  const chosen = new Set(sourceIds);
+
+  return {
+    ...plan,
+    resources: plan.resources.map(resource =>
+      isChoiceRoot(resource) && chosen.has(resource.sourceId) ? { ...resource, choice: { ...resource.choice!, selected } } : resource),
+  };
+};
+
+const selectionOf = (plan: OctopusImportPreviewPlan) =>
+  new Map(plan.resources.filter(isChoiceRoot).map(resource => [resource.sourceId, Boolean(resource.choice?.selected)]));
+
+/** True when a choice differs from the plan the server last returned: its counts no longer describe what would be imported. */
+export const selectionChanged = (plan: OctopusImportPreviewPlan, previewed: OctopusImportPreviewPlan) => {
+  const previewedSelection = selectionOf(previewed);
+
+  return Array.from(selectionOf(plan)).some(([sourceId, selected]) => previewedSelection.get(sourceId) !== selected);
+};
+
+const CHOICE_KIND_TEXT: Record<string, string> = {
+  DeploymentStep: 'Step',
+  DeploymentAction: 'Action',
+  LifecyclePhase: 'Lifecycle phase',
+};
+
+export const choiceKindText = (sourceType: string) => CHOICE_KIND_TEXT[sourceType] ?? sourceType;
+
+/** "+2 actions": what is imported along with a ticked row; null when nothing follows it. */
+export const followersText = (followers: OctopusImportPreviewResource[]) => {
+  if (!followers.length) return null;
+  const kinds = new Set(followers.map(follower => choiceKindText(follower.sourceType).toLowerCase()));
+  const noun = kinds.size === 1 ? Array.from(kinds)[0] : 'item';
+
+  return `+${countOf(followers.length, noun)}`;
+};
+
+const LISTED_LABELS: Partial<Record<PreviewActionBucket, string | null>> = {
+  create: null,
+  reuse: null,
+  alreadyImported: 'Already imported',
+  update: 'Update',
+};
+
+/** Resources of one type shown in the preview lists, labelled when they were imported before. */
+export const listedResources = (resources: OctopusImportPreviewResource[], type: string): ListedPreviewResource[] =>
+  resources
+    .filter(resource => isOfType(resource, type))
+    .filter(resource => actionBucket(resource.previewAction) in LISTED_LABELS)
+    .map(resource => ({ resource, label: LISTED_LABELS[actionBucket(resource.previewAction)] ?? null }));
+
+/** The per-project phases whose items Octopus pages with a total. */
+const TOTALLED_PROJECT_PHASES = [OctopusHistoryFetchPhase.Releases, OctopusHistoryFetchPhase.Deployments];
+
+const hasPhaseTotal = (progress: OctopusHistoryFetchProgress): progress is OctopusHistoryFetchProgress & { phaseItemsTotal: number } =>
+  typeof progress.phaseItemsTotal === 'number';
+
+/** How much of the current phase is read, in [0, 1]; null when the server reports no total. */
+export const phaseFraction = (progress: OctopusHistoryFetchProgress) => {
+  if (!hasPhaseTotal(progress)) return null;
+  if (progress.phaseItemsTotal <= 0) return 1;
+
+  return Math.min(1, Math.max(0, (progress.phaseItemsDone ?? 0) / progress.phaseItemsTotal));
+};
+
+/** Where each stage sits on the bar, in percent: the catalog, then the chosen projects, then the closure at the end of them. */
+const CATALOG_SPAN = [0, 10] as const;
+const PROJECTS_SPAN = [10, 95] as const;
+
+/** Where each per-project phase sits within one project's share; deployments (each with its task's details) take most. */
+const PROJECT_PHASE_SPANS: Partial<Record<OctopusHistoryFetchPhase, readonly [number, number]>> = {
+  [OctopusHistoryFetchPhase.ProjectConfiguration]: [0, 0.05],
+  [OctopusHistoryFetchPhase.Releases]: [0.05, 0.35],
+  [OctopusHistoryFetchPhase.Deployments]: [0.35, 1],
+};
+
+const within = ([start, end]: readonly [number, number], fraction: number) => start + (end - start) * fraction;
+
+/** A phase whose total is not known yet (its first page not read) counts as just started. */
+const phaseFractionOrStart = (progress: OctopusHistoryFetchProgress) => phaseFraction(progress) ?? 0;
+
+const catalogFraction = (progress: OctopusHistoryFetchProgress) =>
+  progress.catalogKindCount ? ((progress.catalogIndex ?? 0) + phaseFractionOrStart(progress)) / progress.catalogKindCount : 0;
+
+const projectsFraction = (progress: OctopusHistoryFetchProgress, phaseSpan: readonly [number, number]) =>
+  progress.projectCount > 0 ? (progress.projectIndex + within(phaseSpan, phaseFractionOrStart(progress))) / progress.projectCount : 1;
+
+/** How far the whole fetch is, in percent; it only moves forward as the server moves through phases and projects. */
+const overallPercent = (progress: OctopusHistoryFetchProgress) => {
+  const phaseSpan = PROJECT_PHASE_SPANS[progress.phase];
+
+  if (progress.phase === OctopusHistoryFetchPhase.Catalog) return within(CATALOG_SPAN, catalogFraction(progress));
+  if (phaseSpan) return within(PROJECTS_SPAN, Math.min(1, projectsFraction(progress, phaseSpan)));
+
+  return PROJECTS_SPAN[1];
+};
+
+/** Percent for the fetch progress bar; held below 100 until the server reports done. */
+export const fetchProgressPercent = (progress: OctopusHistoryFetchProgress | null) => {
+  if (!progress) return 0;
+  if (progress.done) return 100;
+
+  return Math.min(99, Math.floor(overallPercent(progress)));
+};
+
+export const FETCH_PHASE_LABELS: Record<OctopusHistoryFetchPhase, string> = {
+  [OctopusHistoryFetchPhase.Releases]: 'Reading releases',
+  [OctopusHistoryFetchPhase.Deployments]: 'Reading deployments',
+  [OctopusHistoryFetchPhase.Done]: 'Finished reading from Octopus',
+  [OctopusHistoryFetchPhase.Catalog]: 'Reading space configuration',
+  [OctopusHistoryFetchPhase.ProjectConfiguration]: 'Reading project configuration',
+  [OctopusHistoryFetchPhase.Closure]: 'Reading referenced resources',
+};
+
+export const fetchPhaseLabel = (phase: OctopusHistoryFetchPhase) => FETCH_PHASE_LABELS[phase] ?? 'Reading from Octopus';
+
+const PER_PROJECT_PHASES = [
+  OctopusHistoryFetchPhase.ProjectConfiguration,
+  OctopusHistoryFetchPhase.Releases,
+  OctopusHistoryFetchPhase.Deployments,
+];
+
+const formatCount = (value: number) => value.toLocaleString('en-US');
+
+const itemsPosition = (progress: OctopusHistoryFetchProgress) =>
+  hasPhaseTotal(progress) ? `: ${formatCount(progress.phaseItemsDone ?? 0)} of ${formatCount(progress.phaseItemsTotal)}` : '';
+
+const catalogPosition = (progress: OctopusHistoryFetchProgress) =>
+  progress.catalogKindCount ? ` (kind ${(progress.catalogIndex ?? 0) + 1} of ${progress.catalogKindCount})` : '';
+
+/** The project being read; the server's projectIndex is 0-based. */
+const projectPosition = (progress: OctopusHistoryFetchProgress) =>
+  ` (project ${progress.projectIndex + 1} of ${progress.projectCount} chosen)`;
+
+/** The phase and where the read is in it: the catalog kind or the project, and the items read of the phase's total when the server reports one. */
+export const fetchPositionLabel = (progress: OctopusHistoryFetchProgress) => {
+  const label = fetchPhaseLabel(progress.phase);
+
+  if (progress.phase === OctopusHistoryFetchPhase.Catalog) return label + catalogPosition(progress) + itemsPosition(progress);
+  if (TOTALLED_PROJECT_PHASES.includes(progress.phase)) return label + projectPosition(progress) + itemsPosition(progress);
+  if (PER_PROJECT_PHASES.includes(progress.phase)) return label + projectPosition(progress);
+
+  return label;
+};
+
+export interface HistoryFetchNotices {
+  projectsNotFound: number;
+  detailsTooLarge: number;
+  /** Config-as-Code projects whose project document only was read; the preview skips them. */
+  configAsCodeProjects: number;
+  /** Every scoped project was missing and nothing was read: almost always the wrong space. */
+  nothingFound: boolean;
+}
+
+const fetchedNothing = (counts: OctopusHistoryFetchCounts) =>
+  counts.releases === 0 && counts.deployments === 0 && counts.serverTasks === 0;
+
+export const historyFetchNotices = (progress: OctopusHistoryFetchProgress): HistoryFetchNotices => {
+  const projectsNotFound = progress.counts.projectsNotFound ?? 0;
+  const detailsTooLarge = progress.counts.detailsTooLarge ?? 0;
+  const configAsCodeProjects = progress.counts.configAsCodeProjects ?? 0;
+  const allMissing = projectsNotFound > 0 && projectsNotFound >= progress.projectCount;
+
+  return { projectsNotFound, detailsTooLarge, configAsCodeProjects, nothingFound: allMissing && fetchedNothing(progress.counts) };
+};
+
+export type ImportSource = 'file' | 'server';
+
+/** How a step of the import stands: done, the one the user is on (or that failed), or still ahead. */
+export type ImportSectionStatus = 'done' | 'current' | 'error' | 'future';
+
+export type ImportSectionId = 'source' | 'connect' | 'file' | 'projects' | 'read' | 'preview';
+
+export interface ImportSectionInput {
+  phase: string;
+  /** The phase the workflow was in when it failed. */
+  lastActivePhase: string | null;
+  probed: boolean;
+  fetchStarted: boolean;
+}
+
+export interface ImportSection {
+  id: ImportSectionId;
+  title: string;
+  status: ImportSectionStatus;
+}
+
+const FILE_SECTIONS: Array<Pick<ImportSection, 'id' | 'title'>> = [
+  { id: 'source', title: 'Source' },
+  { id: 'file', title: 'File' },
+  { id: 'read', title: 'Read file' },
+  { id: 'projects', title: 'Projects' },
+  { id: 'preview', title: 'Preview and import' },
+];
+
+const SERVER_SECTIONS: Array<Pick<ImportSection, 'id' | 'title'>> = [
+  { id: 'source', title: 'Source' },
+  { id: 'connect', title: 'Connect' },
+  { id: 'projects', title: 'Space and projects' },
+  { id: 'read', title: 'Read from Octopus' },
+  { id: 'preview', title: 'Preview and import' },
+];
+
+const FILE_PHASE_SECTIONS: Record<string, number> = {
+  uploading: 2,
+  extracting: 2,
+  choosing: 3,
+  previewing: 4,
+  ready: 4,
+  validating: 4,
+  confirming: 4,
+  statusUnknown: 4,
+  succeeded: 4,
+};
+
+const SERVER_PHASE_SECTIONS: Record<string, number> = {
+  choosing: 2,
+  connecting: 3,
+  fetching: 3,
+  extracting: 4,
+  previewing: 4,
+  ready: 4,
+  validating: 4,
+  confirming: 4,
+  statusUnknown: 4,
+  succeeded: 4,
+};
+
+const idleSection = (source: ImportSource, input: ImportSectionInput) => {
+  if (source === 'file') return 1;
+  if (input.fetchStarted) return 3;
+  return input.probed ? 2 : 1;
+};
+
+const sectionOf = (source: ImportSource, phase: string | null, input: ImportSectionInput) => {
+  const sections = source === 'file' ? FILE_PHASE_SECTIONS : SERVER_PHASE_SECTIONS;
+  return phase && phase in sections ? sections[phase] : idleSection(source, input);
+};
+
+const statusAt = (index: number, current: number, failed: boolean): ImportSectionStatus => {
+  if (index < current) return 'done';
+  if (index > current) return 'future';
+  return failed ? 'error' : 'current';
+};
+
+/** The steps of a source, each with its status: a failure marks the step the workflow was in; a finished import marks them all done. */
+export const importSections = (source: ImportSource, input: ImportSectionInput): ImportSection[] => {
+  const sections = source === 'file' ? FILE_SECTIONS : SERVER_SECTIONS;
+  const failed = input.phase === 'failed';
+  const current = sectionOf(source, failed ? input.lastActivePhase : input.phase, input);
+
+  return sections.map((section, index) => ({
+    ...section,
+    status: input.phase === 'succeeded' ? 'done' : statusAt(index, current, failed),
+  }));
+};
+
+// Lease conflicts, timeouts, rate limits and server errors are worth retrying.
+export const isTransientStatus = (code: number) => code === 408 || code === 409 || code === 429 || code >= 500;
+
+/**
+ * How the page recovers from a failed read: `resume` the same session, `reconnect` (a new key, or the right server and space) and
+ * then resume, `restart` with a new session, or `none` (retrying cannot help). Mirrors the backend's OctopusImportErrorKinds.
+ */
+export type FetchFailureRecovery = 'resume' | 'reconnect' | 'restart' | 'none';
+
+const RECOVERY_BY_KIND: Record<string, FetchFailureRecovery> = {
+  Unreachable: 'resume',
+  Concurrency: 'resume',
+  Rejected: 'resume',
+  Unauthorized: 'reconnect',
+  KeyRestricted: 'reconnect',
+  KeyUserMismatch: 'reconnect',
+  NotOctopus: 'reconnect',
+  Denied: 'reconnect',
+  NotFound: 'reconnect',
+  ServerMismatch: 'reconnect',
+  SessionNotFound: 'restart',
+  SessionStateConflict: 'restart',
+  SessionExpired: 'restart',
+  NotServerSource: 'restart',
+  TooLarge: 'none',
+};
+
+const recoveryWithoutKind = (code: number): FetchFailureRecovery => {
+  if (isTransientStatus(code)) return 'resume';
+  return code === 404 ? 'restart' : 'none';
+};
+
+export const fetchFailureRecovery = (code: number, errorKind: string | null | undefined, thrown: boolean): FetchFailureRecovery => {
+  if (thrown) return 'resume';
+  if (errorKind) return RECOVERY_BY_KIND[errorKind] ?? 'none';
+
+  return recoveryWithoutKind(code);
+};
+
+const START_AGAIN = 'This import session can no longer continue. Start again: an import never overwrites what is already in Squid.';
+
+/** The diagnostic code of a session the server closed because it reached its maximum age (OctopusImportSessionExpiry.MaxAgeReachedCode). */
+export const SESSION_MAX_AGE_REACHED = 'octopus.session.max_age_reached';
+const CHECK_SERVER = 'Check the server URL and the Octopus space, connect again, then resume.';
+
+const ERROR_KIND_HINTS: Record<string, string> = {
+  KeyRestricted:
+    'The API key cannot read the whole Octopus space, so the import would silently leave data out. Use a dedicated read-only service account '
+    + 'with unrestricted view permissions in this space (ideally with an expiring key), connect with its key, then resume.',
+  Unauthorized: 'The Octopus server rejected the API key. Enter a valid key and connect again, then resume.',
+  KeyUserMismatch: 'This key belongs to another Octopus user than the one the read started with. Use a key of the same user, or start again.',
+  ServerMismatch: 'This import session reads another Octopus server or space. Switch back to it, or start again.',
+  NotOctopus: CHECK_SERVER,
+  Denied: CHECK_SERVER,
+  NotFound: CHECK_SERVER,
+  Unreachable: 'The Octopus server could not be reached. Resume when it is reachable again; everything read so far is kept.',
+  Rejected: 'The Octopus server refused a request. Resume to retry; items it keeps refusing are skipped and listed.',
+  Concurrency: 'A read of this session is already running. Resume once it has finished.',
+  ProjectSelection: 'Choose at least one project, using the projects listed for this source.',
+  ProjectSelectionBeyondRead: 'Only projects read from Octopus can be chosen now. Connect again to add projects.',
+  TooLarge:
+    'A response exceeded the import size limit. An administrator must raise the limit (SQUID_OCTOPUS_IMPORT_HISTORY_MAX_BYTES) before '
+    + 'importing again.',
+  SessionNotFound: START_AGAIN,
+  SessionStateConflict: START_AGAIN,
+  SessionExpired: 'This import session reached its maximum age. ' + START_AGAIN,
+  NotServerSource: START_AGAIN,
+};
+
+/** What the user can do about a failure of the given kind; null when the kind is unknown. */
+export const errorKindHint = (errorKind: string | null | undefined) => (errorKind ? ERROR_KIND_HINTS[errorKind] ?? null : null);
+
+/** Why a key cannot import the chosen space, one line per problem; null when it can or nothing is known for that space. */
+export const permissionProblem = (permissions: OctopusServerPermissions | null | undefined, octopusSpaceId: string | null) => {
+  if (!permissions || permissions.sufficient) return null;
+  if ((permissions.octopusSpaceId ?? null) !== octopusSpaceId) return null;
+
+  return [
+    permissions.restricted.length
+      ? `Limited to some projects, environments, tenants or project groups: ${permissions.restricted.join(', ')}`
+      : null,
+    permissions.missing.length ? `Not granted: ${permissions.missing.join(', ')}` : null,
+    permissions.incomplete ? 'Octopus could not report the complete permission set of this key.' : null,
+  ].filter((line): line is string => line !== null);
+};
+
+const encodeSegment = (value: string) => encodeURIComponent(value);
+
+/** The existing Squid project an Octopus project lands on; null for a new or not imported one. */
+export const projectDestinationLink = (spaceSlug: string, destination: OctopusImportProjectDestination) => {
+  if (Number(destination.state) !== OctopusImportProjectDestinationState.Existing) return null;
+  const routeName = destination.projectSlug || destination.projectName;
+
+  return routeName ? `/${spaceSlug}/projects/${encodeSegment(routeName)}` : null;
+};
+
+const projectVariablesLink = (spaceSlug: string, projectName: string | null) =>
+  projectName ? `/${spaceSlug}/projects/${encodeSegment(projectName)}/variables` : null;
+
+const libraryVariableSetLink = (spaceSlug: string, id: number | null) =>
+  id ? `/${spaceSlug}/library/variables/${formatVariableSetRouteId(id)}` : null;
+
+export const fillDestinationLink = (spaceSlug: string, destination: OctopusImportFillDestination) => {
+  switch (destination.ownerKind) {
+    case 'Project':
+      return projectVariablesLink(spaceSlug, destination.ownerName);
+    case 'LibraryVariableSet':
+      return libraryVariableSetLink(spaceSlug, destination.ownerId);
+    case 'Feed':
+      return `/${spaceSlug}/external/feeds`;
+    default:
+      return null;
+  }
+};
+
+const OWNER_KIND_TEXT: Record<string, string> = {
+  Project: 'project',
+  LibraryVariableSet: 'library variable set',
+  Feed: 'feed',
+};
+
+export const describeFillDestination = (destination: OctopusImportFillDestination) => {
+  const kind = OWNER_KIND_TEXT[destination.ownerKind] ?? destination.ownerKind;
+  return destination.ownerName ? `${kind} "${destination.ownerName}"` : `${kind} ${destination.ownerId}`;
+};
+
+/** Where to set a secret an import left missing. */
+export const missingSecretLink = (spaceSlug: string, missing: OctopusImportMissingSensitiveValue) => {
+  switch (Number(missing.kind)) {
+    case OctopusImportRequiredInputKind.FeedPassword:
+      return `/${spaceSlug}/external/feeds`;
+    case OctopusImportRequiredInputKind.AccountSecret:
+      return `/${spaceSlug}/infrastructure/accounts`;
+    case OctopusImportRequiredInputKind.CertificatePrivateKey:
+      return `/${spaceSlug}/library/certificates`;
+    case OctopusImportRequiredInputKind.SensitiveActionProperty:
+      return missing.ownerName ? `/${spaceSlug}/projects/${encodeSegment(missing.ownerName)}/deployments/process` : null;
+    default:
+      return missing.ownerKind === 'LibraryVariableSet'
+        ? libraryVariableSetLink(spaceSlug, missing.destinationOwnerId)
+        : projectVariablesLink(spaceSlug, missing.ownerName);
+  }
+};
+
+const ownedBy = (resource: OctopusImportPreviewResource, projectSourceId: string | null) =>
+  (resource.ownerProjectSourceId ?? null) === projectSourceId;
+
+/** Resources of a project (or, for null, of no project) whose fields this import writes, old -> new. */
+export const changedResources = (resources: OctopusImportPreviewResource[], projectSourceId: string | null) =>
+  resources.filter(resource => ownedBy(resource, projectSourceId) && (resource.changes?.length ?? 0) > 0);
+
+/** A project that was not chosen for this import, or what belongs to one. */
+export const PROJECT_NOT_CHOSEN = 'octopus.preview.project_not_chosen';
+/** A shared resource that no chosen project uses. */
+export const NOT_USED_BY_CHOSEN_PROJECTS = 'octopus.preview.not_used_by_chosen_projects';
+
+const OUTSIDE_SELECTION_CODES = [PROJECT_NOT_CHOSEN, NOT_USED_BY_CHOSEN_PROJECTS];
+
+/** A Config-as-Code (version-controlled) Octopus project, or what belongs to one: Squid does not import it. */
+export const CONFIG_AS_CODE_NOT_SUPPORTED = 'octopus.preview.config_as_code_not_supported';
+
+/** Not imported because it lies outside the chosen projects. */
+export const isOutsideSelection = (resource: OctopusImportPreviewResource) =>
+  OUTSIDE_SELECTION_CODES.includes(resource.skipReason?.code ?? '') || resource.diagnostics.some(diagnostic => OUTSIDE_SELECTION_CODES.includes(diagnostic.code));
+
+export const outsideSelectionResources = (resources: OctopusImportPreviewResource[]) => resources.filter(isOutsideSelection);
+
+/** Resources of a project (or, for null, of no project) that are not imported, with the reason; rows outside the chosen projects are listed apart. */
+export const skippedResources = (resources: OctopusImportPreviewResource[], projectSourceId: string | null) =>
+  resources.filter(resource => ownedBy(resource, projectSourceId) && resource.skipReason && !isOutsideSelection(resource));
+
+/** Secrets an earlier import left missing that this import fills. */
+export const fillResources = (resources: OctopusImportPreviewResource[]) =>
+  resources.filter(resource => Number(resource.previewAction) === OctopusImportPreviewAction.FillMissingSecret);
+
+export const REQUIRED_INPUT_KIND_LABELS: Record<OctopusImportRequiredInputKind, string> = {
+  [OctopusImportRequiredInputKind.SensitiveVariableValue]: 'Sensitive variable',
+  [OctopusImportRequiredInputKind.FeedPassword]: 'Feed password',
+  [OctopusImportRequiredInputKind.AccountSecret]: 'Account secret',
+  [OctopusImportRequiredInputKind.CertificatePrivateKey]: 'Certificate private key',
+  [OctopusImportRequiredInputKind.SensitiveActionProperty]: 'Step secret',
+};
+
+export const requiredInputKindLabel = (kind: OctopusImportRequiredInputKind) => REQUIRED_INPUT_KIND_LABELS[kind] ?? 'Secret';
+
+const RESOURCE_TYPE_TEXT: Record<string, string> = {
+  LibraryVariableSet: 'Library variable set',
+};
+
+const resourceTypeText = (sourceType: string) => RESOURCE_TYPE_TEXT[sourceType] ?? sourceType;
+
+/** "Environment: Production, Test; Role: web"; empty when unscoped. */
+export const scopeSummary = (scopes: Record<string, string[]> | null | undefined) =>
+  Object.entries(scopes ?? {})
+    .filter(([, values]) => values.length > 0)
+    .map(([field, values]) => `${field}: ${values.join(', ')}`)
+    .join('; ');
+
+export interface WithheldSecretRow {
+  key: string;
+  kind: string;
+  name: string;
+  where: string;
+  field: string;
+  scope: string;
+  fillable: boolean;
+}
+
+const whereOf = (projectNames: Map<string, string>, resource: OctopusImportPreviewResource) =>
+  resource.ownerProjectSourceId
+    ? `Project "${projectNames.get(resource.ownerProjectSourceId) ?? resource.ownerProjectSourceId}"`
+    : `${resourceTypeText(resource.sourceType)} "${resource.sourceName}"`;
+
+/** Secrets the Octopus server withheld on resources this import creates: they are imported empty ("value missing"). Names only. */
+export const withheldSecrets = (resources: OctopusImportPreviewResource[]): WithheldSecretRow[] => {
+  const projectNames = projectNamesOf(resources);
+
+  return resources
+    .filter(resource => Number(resource.previewAction) === OctopusImportPreviewAction.Create)
+    .flatMap(resource => resource.requiredInputs
+      .filter(input => input.withheldByServer)
+      .map(input => ({
+        key: `${resource.sourceId}:${input.inputKey}`,
+        kind: requiredInputKindLabel(input.kind),
+        name: input.name,
+        where: whereOf(projectNames, resource),
+        field: input.fieldName,
+        scope: scopeSummary(input.sourceScopes),
+        fillable: Boolean(input.fillable),
+      })));
+};
+
+/** The preview's origin check: the source would link to rows of another Octopus and nothing proves it is the same one. */
+export const IMPORT_ORIGIN_UNPROVEN = 'octopus.preview.import_origin_unproven';
+
+/** The preview's origin check: matching process ids tie the source to the space's Octopus; the user confirms the pairing. */
+export const IMPORT_ORIGIN_PAIRING_REQUIRED = 'octopus.preview.import_origin_pairing_required';
+
+export interface PairingCopy {
+  title: string;
+  intro: string;
+  /** The incoming source, as the pairing names it. */
+  incoming: string[];
+  /** What the space was imported from. */
+  recorded: string[];
+  confirmLabel: string;
+}
+
+export interface OriginNotice {
+  title: string;
+  /** Both origins as the server names them; empty when the server sent no verdict. */
+  origins: string[];
+  hint: string;
+}
+
+const hasDiagnostic = (plan: OctopusImportPreviewPlan | null | undefined, code: string) => Boolean(plan?.diagnostics?.some(d => d.code === code));
+
+const countOf = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+const listed = (lines: Array<[string, string | null | undefined]>) => lines.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
+
+const isServerSource = (pairing: OctopusImportFillPairing) => Boolean(pairing.sourceInstallationId);
+
+const incomingLines = (pairing: OctopusImportFillPairing) =>
+  isServerSource(pairing)
+    ? listed([['Server', pairing.sourceServerHost], ['Space', pairing.sourceOctopusSpaceId], ['Installation', pairing.sourceInstallationId]])
+    : listed([['Export file fingerprint', pairing.fileExportSourceId]]);
+
+// The space's API import names its server (unknown parts shown as such); a file-imported space names the pinned fingerprint.
+const recordedLines = (pairing: OctopusImportFillPairing) =>
+  pairing.installationId || !pairing.recordedExportSourceId
+    ? [`Server: ${pairing.serverHost ?? 'unknown'}`, `Space: ${pairing.octopusSpaceId ?? 'unknown'}`, `Version: ${pairing.octopusVersion ?? 'unknown'}`, `Installation: ${pairing.installationId ?? 'unknown'}`]
+    : listed([['Export file fingerprint', pairing.recordedExportSourceId]]);
+
+const pairingIntro = (pairing: OctopusImportFillPairing, links: boolean) => {
+  const subject = isServerSource(pairing) ? 'This Octopus server' : 'This export file';
+  const action = links ? 'link to what an earlier import created in this space' : 'fill secrets an earlier import read from the Octopus API';
+
+  return `${subject} would ${action}. Ids like Projects-1 repeat across Octopus servers, and only ${countOf(pairing.matchingStructureIds, 'matching step, action or phase id')} tie it to this space's Octopus. Continue only if it comes from:`;
+};
+
+/** The words of the pairing confirmation: who the incoming source is (server or export file), and whether it links or fills. */
+export const pairingCopyOf = (pairing: OctopusImportFillPairing, links: boolean): PairingCopy => {
+  const server = isServerSource(pairing);
+
+  return {
+    title: server ? 'Confirm this is the Octopus server this space came from' : 'Confirm where this export file comes from',
+    intro: pairingIntro(pairing, links),
+    incoming: incomingLines(pairing),
+    recorded: recordedLines(pairing),
+    confirmLabel: server ? 'This is the same Octopus server this space was imported from' : 'This export file comes from the same Octopus server this space was imported from',
+  };
+};
+
+/** The pairing's words for a preview plan: it links when the origin check asks for the pairing, otherwise it fills. */
+export const pairingCopy = (plan: OctopusImportPreviewPlan): PairingCopy => pairingCopyOf(plan.fillPairing as OctopusImportFillPairing, linksEarlierImport(plan));
+
+/** The origin check asks the pairing: the source would link to what an earlier import created. */
+export const linksEarlierImport = (plan: OctopusImportPreviewPlan | null | undefined) => hasDiagnostic(plan, IMPORT_ORIGIN_PAIRING_REQUIRED);
+
+const DIFFERENT_OCTOPUS_TITLE = 'This import comes from a different Octopus than this space';
+
+const ORIGIN_REFUSAL_TITLES: Record<string, string> = {
+  'installation-mismatch': 'This import comes from another Octopus installation than this space',
+  'other-origin-rows': 'This import would link to resources another Octopus source created in this space',
+  'export-fingerprint-mismatch': "This export file's fingerprint is not one this space was imported from",
+};
+
+const ORIGIN_REFUSAL_HINT = 'Ids like Projects-1 repeat across Octopus servers, and nothing ties this source to the Octopus this space was imported from. Nothing will be linked or written. Import it into another space, or import the Octopus server or export file this space came from.';
+
+const ORIGIN_PROOF_BASIS: Record<string, string> = {
+  installation: 'its installation id',
+  'export-fingerprint': 'its export file fingerprint',
+  'confirmed-pairing': 'the pairing you confirmed',
+};
+
+const hasOriginVerdict = (plan: OctopusImportPreviewPlan | null | undefined, state: OctopusImportFillEvidenceState) =>
+  plan?.origin != null && Number(plan.origin.state) === state;
+
+// "a, b and c", or "a, b, c and 2 more" beyond the origins the server names.
+const creatorsText = (creators: string[], more: number) => {
+  const names = more > 0 ? [...creators, `${more} more`] : creators;
+
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
+
+const creatorLines = (origin: OctopusImportOriginEvidence) =>
+  origin.creators?.length ? [`Resources it would link to were created by: ${creatorsText(origin.creators, origin.moreCreators ?? 0)}`] : [];
+
+const refusedOriginNotice = (origin: OctopusImportOriginEvidence): OriginNotice => ({
+  title: ORIGIN_REFUSAL_TITLES[origin.basis ?? ''] ?? DIFFERENT_OCTOPUS_TITLE,
+  origins: [`This source: ${origin.source}`, `This space was imported from: ${origin.recorded}`, ...creatorLines(origin)],
+  hint: ORIGIN_REFUSAL_HINT,
+});
+
+/**
+ * Shown when the origin check refuses the import: the server's verdict names both origins; a server without the verdict is still
+ * recognised by its blocker diagnostic.
+ */
+export const originNotice = (plan: OctopusImportPreviewPlan | null | undefined): OriginNotice | null => {
+  if (hasOriginVerdict(plan, OctopusImportFillEvidenceState.Unproven)) return refusedOriginNotice(plan?.origin as OctopusImportOriginEvidence);
+
+  return hasDiagnostic(plan, IMPORT_ORIGIN_UNPROVEN) ? { title: DIFFERENT_OCTOPUS_TITLE, origins: [], hint: ORIGIN_REFUSAL_HINT } : null;
+};
+
+/** One quiet line when the import links to earlier imports of a proven Octopus: what proved it. */
+export const originProof = (plan: OctopusImportPreviewPlan | null | undefined): string | null =>
+  hasOriginVerdict(plan, OctopusImportFillEvidenceState.Proven)
+    ? `Same Octopus as this space, proven by ${ORIGIN_PROOF_BASIS[plan?.origin?.basis ?? ''] ?? 'its recorded origin'}: it links to what earlier imports created.`
+    : null;
