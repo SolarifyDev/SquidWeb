@@ -34,6 +34,7 @@ import {
   selectOctopusImportProjects,
   OctopusImportResumeStep,
   OctopusImportSessionState,
+  OctopusImportConfirmationStage,
   type OctopusHistoryFetchProgress,
   type OctopusImportBlockerSummary,
   type OctopusImportEnvelope,
@@ -85,6 +86,8 @@ import { ImportMetricTiles } from "./ImportMetricTiles";
 import { ImportStatusBanner } from "./ImportStatusBanner";
 import { ImportProjectPicker } from "./ImportProjectPicker";
 import { ImportResumeList } from "./ImportResumeList";
+import { ImportConfirmProgressPanel } from "./ImportConfirmProgressPanel";
+import { confirmProgressKey, isImportingSession } from "./importConfirmProgress";
 import {
   SESSION_PARAM,
   isServerSession,
@@ -120,7 +123,10 @@ type WorkflowPhase =
 const MAX_IMPORT_UPLOAD_BYTES = 100 * 1024 * 1024;
 const IMPORT_POLL_INITIAL_DELAY_MS = 1500;
 const IMPORT_POLL_MAX_DELAY_MS = 15000;
-const IMPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+// The page stops following an import only once its progress has not moved for this long: a big import may run far longer.
+const IMPORT_POLL_STALL_TIMEOUT_MS = 10 * 60 * 1000;
+// A running import's progress is polled at least this often, so the bar and the current item stay live.
+const IMPORT_PROGRESS_POLL_DELAY_MS = 2000;
 const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
 // The step that failed after the read, and the session it left: extract, choose and preview redo only themselves, "import" validates again.
@@ -1296,20 +1302,21 @@ const ImportProjects: React.FC = () => {
   };
 
   // Polls until the import settles: a terminal state, or Validated again with a failure newer than previousAttemptId (it imported
-  // nothing and can be imported again).
+  // nothing and can be imported again). It gives up only when the import's progress stops moving for the stall timeout.
   const pollFinalStatus = async (
     sessionId: string,
     signal: AbortSignal,
     token: number,
     previousAttemptId?: string | null,
   ) => {
-    const startedAt = Date.now();
+    let movedAt = Date.now();
+    let progressKey = "";
     let delay = IMPORT_POLL_INITIAL_DELAY_MS;
 
     for (;;) {
-      if (Date.now() - startedAt >= IMPORT_POLL_TIMEOUT_MS) {
+      if (Date.now() - movedAt >= IMPORT_POLL_STALL_TIMEOUT_MS) {
         throw new Error(
-          "The import is still running after 10 minutes. Check the status again later.",
+          "The import made no progress for 10 minutes. Check the status again later.",
         );
       }
 
@@ -1323,9 +1330,15 @@ const ImportProjects: React.FC = () => {
         setSession(statusSession);
         setBlockerSummary(statusData?.blockerSummary ?? null);
         if (isImportTerminalState(statusSession.state) || isRetryableAfter(statusSession, previousAttemptId)) return statusSession;
+
+        const key = confirmProgressKey(statusSession.confirmationProgress);
+        if (key !== progressKey) {
+          progressKey = key;
+          movedAt = Date.now();
+        }
       }
 
-      await wait(delay, signal);
+      await wait(isImportingSession(statusSession) ? Math.min(delay, IMPORT_PROGRESS_POLL_DELAY_MS) : delay, signal);
       delay = Math.min(
         Math.ceil(delay * 1.5),
         IMPORT_POLL_MAX_DELAY_MS,
@@ -1403,7 +1416,7 @@ const ImportProjects: React.FC = () => {
     } catch (error) {
       if (workflowTokenRef.current !== token) return;
       if (isAbortError(error)) return;
-      showStatusUnknown("Polling stopped after 10 minutes. The import may still be running; check its status again.");
+      showStatusUnknown("The import made no progress for 10 minutes. It may still be running; check its status again.");
     }
   };
 
@@ -1941,6 +1954,18 @@ const ImportProjects: React.FC = () => {
     </div>
   );
 
+  // A finished attempt's progress belongs to that attempt: while a new one starts, the bar starts again instead.
+  const liveConfirmProgress = session?.confirmationProgress?.finished ? null : session?.confirmationProgress;
+
+  // The import that failed or rolled back keeps showing how far it got, its activity folded away.
+  const renderFinalConfirmProgress = () => {
+    const progress = session?.confirmationProgress;
+    if (!progress?.finished || progress.stage === OctopusImportConfirmationStage.Succeeded) return null;
+    if (workflowPhase !== "failed" && workflowPhase !== "ready") return null;
+
+    return <ImportConfirmProgressPanel progress={progress} />;
+  };
+
   // What the active step is doing right now; a read from Octopus shows its progress and can be cancelled, an upload too.
   const renderProcessing = () =>
     (isProcessingFile || isFinalizingImport) && workflowMessage ? (
@@ -1955,6 +1980,7 @@ const ImportProjects: React.FC = () => {
           ) : null}
         </div>
         {workflowPhase === "fetching" ? renderFetchProgress() : null}
+        {workflowPhase === "confirming" ? <ImportConfirmProgressPanel progress={liveConfirmProgress} /> : null}
       </div>
     ) : null;
 
@@ -2098,6 +2124,7 @@ const ImportProjects: React.FC = () => {
       <>
         {renderProcessing()}
         {renderWorkflowBanners()}
+        {renderFinalConfirmProgress()}
       </>
     ) : null;
 

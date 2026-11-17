@@ -7,6 +7,7 @@ import {
   OctopusImportChoiceReason,
   OctopusImportCompatibilitySeverity,
   OctopusImportConfirmationFailureReason,
+  OctopusImportConfirmationStage,
   OctopusImportFillEvidenceState,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
@@ -25,6 +26,7 @@ import {
 } from 'pages/apis/octopusImport';
 import ImportProjects from './ImportProjects';
 import { SESSION_MAX_AGE_REACHED } from './importPreviewSummary';
+import { confirmProgress } from './importConfirmProgress.testData';
 
 vi.mock('pages/apis/octopusImport', async importOriginal => {
   const actual = await importOriginal<typeof import('pages/apis/octopusImport')>();
@@ -572,7 +574,7 @@ describe('ImportProjects', () => {
     for (let i = 0; i < 60 && !screen.queryByText('Check status'); i++) await advance(15000);
 
     const checkStatus = await screen.findByRole('button', { name: 'Check status' });
-    expect(screen.getByText(/Polling stopped after 10 minutes/)).toBeInTheDocument();
+    expect(screen.getByText(/made no progress for 10 minutes/)).toBeInTheDocument();
 
     api.getOctopusImportStatus.mockResolvedValue(ok({
       session: session(OctopusImportSessionState.Succeeded),
@@ -582,6 +584,72 @@ describe('ImportProjects', () => {
 
     await screen.findByText('Project list');
     expect(api.confirmOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('showsLiveProgress_WhileTheImportRuns', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(ok({ session: { ...session(OctopusImportSessionState.Importing), confirmationProgress: confirmProgress() }, blockerSummary: noBlockers }))
+      .mockResolvedValue(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(await screen.findByText('Importing release 1.2.3 of Project X (3,121 of 4,990)', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-progress-phases')).toHaveTextContent('Releases 3,120/4,990');
+    for (let i = 0; i < 4 && !screen.queryByText('Project list'); i++) await advance(15000);
+    await screen.findByText('Project list');
+  });
+
+  // A big import runs far longer than 10 minutes: the page keeps following it while its progress moves, and polls it every 2s.
+  it('keepsFollowingPastTenMinutes_WhileTheProgressMoves', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const startedAt = Date.now();
+    let polls = 0;
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus.mockImplementation(async () => {
+      polls++;
+      if (Date.now() - startedAt > 14 * 60 * 1000) return ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers });
+      return ok({ session: { ...session(OctopusImportSessionState.Importing), confirmationProgress: confirmProgress({ itemsDone: polls }) }, blockerSummary: noBlockers });
+    });
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 70 && !screen.queryByText('Project list') && !screen.queryByText('Check status'); i++) await advance(15000);
+
+    expect(screen.queryByText('Check status')).not.toBeInTheDocument();
+    await screen.findByText('Project list');
+    expect(polls).toBeGreaterThan(14 * 60 / 2 * 0.8);
+  });
+
+  // The import rolled back: the reason shows, and how far it got stays readable under it.
+  it('rolledBackImport_KeepsItsFinalProgressReadable', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const rolledBack = {
+      ...session(OctopusImportSessionState.Validated),
+      lastConfirmationFailure: { attemptId: 'attempt-1', reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1, diagnostics: [{ message: 'Project Web could not be written.' }] },
+      confirmationProgress: confirmProgress({ current: null, finished: true, stage: OctopusImportConfirmationStage.RolledBack }),
+    } as OctopusImportSession;
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus.mockResolvedValue(ok({ session: rolledBack, blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Project Web could not be written.'); i++) await advance(15000);
+
+    await screen.findByText('Project Web could not be written.');
+    expect(screen.getByTestId('confirm-progress-current')).toHaveTextContent('Rolled back, nothing was imported');
+    expect(screen.getByTestId('confirm-progress-phases')).toHaveTextContent('Releases 3,120/4,990');
   });
 
   it('ignoresAStaleProbeResponse_WhenTheServerUrlChangedMeanwhile', async () => {
@@ -2475,6 +2543,21 @@ describe('ImportProjects reopened after a reload', () => {
     await screen.findByText('Project list');
     expect(api.getOctopusImportStatus.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(api.confirmOctopusImport).not.toHaveBeenCalled();
+  });
+
+  // The reloaded page follows the running import and shows its live progress at once.
+  it('importing_ShowsTheLiveProgressAfterAReload', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const running = serverSession(OctopusImportSessionState.Importing, true, { confirmationProgress: confirmProgress() });
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(statusOf(running))
+      .mockResolvedValueOnce(statusOf(running))
+      .mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Succeeded, true)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    expect(await screen.findByText('Importing release 1.2.3 of Project X (3,121 of 4,990)')).toBeInTheDocument();
+    for (let i = 0; i < 4 && !screen.queryByText('Project list'); i++) await advance(15000);
+    await screen.findByText('Project list');
   });
 
   it('noLongerAvailable_DropsTheParam_SaysWhy_AndListsWhatCanBeContinued', async () => {

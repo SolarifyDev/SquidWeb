@@ -82,6 +82,36 @@ export enum OctopusImportResourceOutcomeState {
   SecretFilled = 8,
 }
 
+/** Where a running confirmation stands. Append-only: mirrors the backend ordinals. */
+export enum OctopusImportConfirmationStage {
+  Validating = 0,
+  WaitingForSpaceLock = 1,
+  Importing = 2,
+  FillingSecrets = 3,
+  RecordingSourceMap = 4,
+  Committing = 5,
+  Succeeded = 6,
+  Failed = 7,
+  RolledBack = 8,
+}
+
+/** A group of resource kinds a confirmation counts progress by. Append-only: mirrors the backend ordinals. */
+export enum OctopusImportConfirmationPhase {
+  ProjectGroups = 0,
+  Environments = 1,
+  Lifecycles = 2,
+  Feeds = 3,
+  Accounts = 4,
+  Teams = 5,
+  LibraryVariableSets = 6,
+  Projects = 7,
+  Channels = 8,
+  Variables = 9,
+  Processes = 10,
+  Releases = 11,
+  Deployments = 12,
+}
+
 export enum OctopusHistoryFetchPhase {
   Releases,
   Deployments,
@@ -258,6 +288,51 @@ export interface OctopusHistoryFetchProgress {
   done: boolean;
 }
 
+export interface OctopusImportConfirmationPhaseProgress {
+  phase: OctopusImportConfirmationPhase;
+  done: number;
+  total: number;
+}
+
+/** The item a confirmation is importing now. */
+export interface OctopusImportConfirmationItem {
+  phase: OctopusImportConfirmationPhase;
+  /** The Octopus resource kind, e.g. "Release". */
+  kind: string;
+  name?: string | null;
+  projectName?: string | null;
+  /** Its position in the run, 1-based. */
+  index: number;
+}
+
+/** One finished item, or a stage change (then kind and name are absent). */
+export interface OctopusImportConfirmationLogEntry {
+  at: string;
+  stage: OctopusImportConfirmationStage;
+  phase?: OctopusImportConfirmationPhase | null;
+  kind?: string | null;
+  name?: string | null;
+  projectName?: string | null;
+  outcome?: OctopusImportResourceOutcomeState | null;
+}
+
+/** Live progress of the running confirmation, or the final progress of the attempt that last ended. */
+export interface OctopusImportConfirmationProgress {
+  attemptId: string;
+  /** The in-place transient retry this progress counts, 1-based. */
+  attempt: number;
+  stage: OctopusImportConfirmationStage;
+  itemsDone: number;
+  itemsTotal: number;
+  phases: OctopusImportConfirmationPhaseProgress[];
+  current?: OctopusImportConfirmationItem | null;
+  /** The most recent entries, newest last, at most 20. */
+  recentLog: OctopusImportConfirmationLogEntry[];
+  finished: boolean;
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface OctopusServerConnection {
   serverUrl: string;
   apiKey: string;
@@ -282,6 +357,8 @@ export interface OctopusImportSession {
   lastStateChangedAt?: string | null;
   /** Set only while the session is Validated after an attempt that imported nothing: the same plan can be imported again. */
   lastConfirmationFailure?: OctopusImportConfirmationFailure | null;
+  /** The running import's live progress, or how far the attempt that last ended got; absent on older servers. */
+  confirmationProgress?: OctopusImportConfirmationProgress | null;
 }
 
 /** An import session of the current user that a reloaded page can continue; never carries the API key or anything secret. */
