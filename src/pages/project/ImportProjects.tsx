@@ -24,7 +24,9 @@ import {
   fetchOctopusImportHistory,
   getOctopusImportProjects,
   getOctopusImportStatus,
+  confirmationFailureMessage,
   isImportTerminalState,
+  isRetryableAfter,
   listOctopusServerProjects,
   previewOctopusImport,
   probeOctopusServer,
@@ -111,7 +113,8 @@ const FETCH_RETRY_DELAYS_MS = [1000, 3000, 8000];
 // The step that failed after the read, and the session it left: extract, choose and preview redo only themselves, "import" validates again.
 type RetryStep =
   | { step: StepAfterRead; session: OctopusImportSession }
-  | { step: "import" };
+  // importAgain: the last attempt imported nothing and the same validated plan can be imported again, without reading again.
+  | { step: "import"; importAgain?: boolean };
 
 type StepAfterRead = "extract" | "choose" | "preview";
 
@@ -1237,10 +1240,13 @@ const ImportProjects: React.FC = () => {
     }
   };
 
+  // Polls until the import settles: a terminal state, or Validated again with a failure newer than previousAttemptId (it imported
+  // nothing and can be imported again).
   const pollFinalStatus = async (
     sessionId: string,
     signal: AbortSignal,
     token: number,
+    previousAttemptId?: string | null,
   ) => {
     const startedAt = Date.now();
     let delay = IMPORT_POLL_INITIAL_DELAY_MS;
@@ -1261,7 +1267,7 @@ const ImportProjects: React.FC = () => {
       if (statusSession) {
         setSession(statusSession);
         setBlockerSummary(statusData?.blockerSummary ?? null);
-        if (isImportTerminalState(statusSession.state)) return statusSession;
+        if (isImportTerminalState(statusSession.state) || isRetryableAfter(statusSession, previousAttemptId)) return statusSession;
       }
 
       await wait(delay, signal);
@@ -1305,6 +1311,11 @@ const ImportProjects: React.FC = () => {
       return;
     }
 
+    if (Number(finalSession.state) === OctopusImportSessionState.Validated && finalSession.lastConfirmationFailure) {
+      applyRetryableFailure(finalSession);
+      return;
+    }
+
     setWorkflowPhase("failed");
     setWorkflowMessage(null);
     setWorkflowError(
@@ -1312,14 +1323,25 @@ const ImportProjects: React.FC = () => {
     );
   };
 
+  // The import imported nothing (rolled back, interrupted or not started) and its session is Validated again: the same plan is
+  // imported again from here, without reading the source again.
+  const applyRetryableFailure = (validatedSession: OctopusImportSession) => {
+    setWorkflowPhase("ready");
+    setWorkflowMessage(null);
+    setWorkflowWarning(null);
+    setWorkflowError(confirmationFailureMessage(validatedSession.lastConfirmationFailure!));
+    setRetryStep({ step: "import", importAgain: true });
+  };
+
   // Once the confirmation was accepted the import runs on the server; the page only tracks it.
   const awaitFinalSession = async (
     sessionId: string,
     signal: AbortSignal,
     token: number,
+    previousAttemptId?: string | null,
   ) => {
     try {
-      const finalSession = await pollFinalStatus(sessionId, signal, token);
+      const finalSession = await pollFinalStatus(sessionId, signal, token, previousAttemptId);
       if (workflowTokenRef.current !== token) return;
       applyFinalSession(finalSession);
     } catch (error) {
@@ -1495,6 +1517,8 @@ const ImportProjects: React.FC = () => {
       return;
     }
 
+    // A failure already on the session is not this attempt's outcome: only a newer one ends the polling as "import again".
+    const previousAttemptId = session.lastConfirmationFailure?.attemptId ?? null;
     const { token, controller } = beginValidation("Validating preview plan...");
 
     try {
@@ -1532,6 +1556,7 @@ const ImportProjects: React.FC = () => {
         confirmedSession.sessionId,
         controller.signal,
         token,
+        previousAttemptId,
       );
     } catch (error) {
       failValidation(error, token);
@@ -1553,7 +1578,7 @@ const ImportProjects: React.FC = () => {
       </Button>
     ) : retryStep && (workflowPhase === "failed" || workflowPhase === "ready") ? (
       <Button size="small" onClick={() => void retryFailedStep()}>
-        Try again
+        {retryStep.step === "import" && retryStep.importAgain ? "Import again" : "Try again"}
       </Button>
     ) : null;
 

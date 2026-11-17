@@ -5,7 +5,8 @@ vi.mock('utils/request', () => ({ axiosInstance: { request: (...args: unknown[])
 
 const {
   connectOctopusImport, extractOctopusImport, fetchOctopusImportHistory, getOctopusImportProjects, listOctopusServerProjects,
-  previewOctopusImport, selectOctopusImportProjects, validateOctopusImport,
+  previewOctopusImport, selectOctopusImportProjects, validateOctopusImport, isRetryableAfter, confirmationFailureMessage,
+  OctopusImportSessionState, OctopusImportConfirmationFailureReason,
 } = await import('./octopusImport');
 
 describe('octopusImport api', () => {
@@ -95,5 +96,22 @@ describe('octopusImport api', () => {
     await call();
 
     expect(request.mock.calls[0][0].timeout).toBe(5 * 60 * 1000);
+  });
+
+  it.each([
+    [OctopusImportSessionState.Validated, 'attempt-2', 'attempt-1', true],   // a new failure: import again
+    [OctopusImportSessionState.Validated, 'attempt-1', 'attempt-1', false],  // the failure seen before confirming
+    [OctopusImportSessionState.Validated, 'attempt-1', null, true],
+    [OctopusImportSessionState.Validated, null, null, false],                // validated, never failed: still queued
+    [OctopusImportSessionState.Importing, 'attempt-2', 'attempt-1', false],
+  ])('isRetryableAfter %#', (state, attemptId, previous, expected) => {
+    const session = { sessionId: 's', destinationSpaceId: 1, state, lastConfirmationFailure: attemptId ? { attemptId, reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1 } : null };
+
+    expect(isRetryableAfter(session, previous)).toBe(expected);
+  });
+
+  it('confirmationFailureMessage_PrefersTheDiagnostic_ThenTheReason', () => {
+    expect(confirmationFailureMessage({ attemptId: 'a', reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1, diagnostics: [{ message: 'Root cause.' } as never] })).toBe('Root cause.');
+    expect(confirmationFailureMessage({ attemptId: 'a', reason: OctopusImportConfirmationFailureReason.Interrupted, transient: true, attempts: 1 })).toMatch(/stopped before it finished/);
   });
 });

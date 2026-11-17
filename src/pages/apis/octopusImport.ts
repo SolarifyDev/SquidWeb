@@ -28,6 +28,14 @@ export enum OctopusImportSessionState {
   Expired,
 }
 
+/** Why the last confirmation attempt of a session that is Validated again imported nothing. Mirrors the backend ordinals. */
+export enum OctopusImportConfirmationFailureReason {
+  RolledBack,
+  TransientRetriesExhausted,
+  Interrupted,
+  NotStarted,
+}
+
 export enum OctopusImportPreviewAction {
   Create,
   ReuseExisting,
@@ -248,6 +256,18 @@ export interface OctopusImportSession {
   maxExpiresAt?: string | null;
   completedAt?: string | null;
   lastStateChangedAt?: string | null;
+  /** Set only while the session is Validated after an attempt that imported nothing: the same plan can be imported again. */
+  lastConfirmationFailure?: OctopusImportConfirmationFailure | null;
+}
+
+/** The last confirmation attempt of a session that is Validated again; it imported nothing (rolled back, interrupted, or not started). */
+export interface OctopusImportConfirmationFailure {
+  attemptId: string;
+  failedAt?: string | null;
+  reason: OctopusImportConfirmationFailureReason;
+  transient: boolean;
+  attempts: number;
+  diagnostics?: OctopusImportDiagnostic[];
 }
 
 export interface OctopusImportExtractionCount {
@@ -560,6 +580,30 @@ export interface OctopusImportConnectResponseData {
 export interface OctopusImportStatusResponseData {
   session: OctopusImportSession;
   blockerSummary: OctopusImportBlockerSummary;
+}
+
+/**
+ * A confirmation that imported nothing returned its session to Validated with a new failure: the import can be tried again with the
+ * same plan. A failure the page already knew about (the attempt id seen before confirming) is not a new outcome.
+ */
+export function isRetryableAfter(
+  session: OctopusImportSession | null | undefined,
+  previousAttemptId: string | null | undefined,
+) {
+  const attemptId = session?.lastConfirmationFailure?.attemptId;
+  return Number(session?.state) === OctopusImportSessionState.Validated && Boolean(attemptId) && attemptId !== previousAttemptId;
+}
+
+const CONFIRMATION_FAILURE_MESSAGES: Record<OctopusImportConfirmationFailureReason, string> = {
+  [OctopusImportConfirmationFailureReason.RolledBack]: 'The import failed and was rolled back. Nothing was imported.',
+  [OctopusImportConfirmationFailureReason.TransientRetriesExhausted]: 'The database kept failing while importing. Nothing was imported.',
+  [OctopusImportConfirmationFailureReason.Interrupted]: 'The server running the import stopped before it finished. Nothing was imported.',
+  [OctopusImportConfirmationFailureReason.NotStarted]: 'The import did not start because the database failed. Nothing was imported.',
+};
+
+/** What to tell the user about a failed attempt: its first diagnostic, or a sentence for its reason. */
+export function confirmationFailureMessage(failure: OctopusImportConfirmationFailure) {
+  return failure.diagnostics?.[0]?.message || CONFIRMATION_FAILURE_MESSAGES[Number(failure.reason) as OctopusImportConfirmationFailureReason] || 'The import did not complete. Nothing was imported.';
 }
 
 export function isImportTerminalState(

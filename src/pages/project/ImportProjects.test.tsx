@@ -6,6 +6,7 @@ import {
   OctopusHistoryFetchPhase,
   OctopusImportChoiceReason,
   OctopusImportCompatibilitySeverity,
+  OctopusImportConfirmationFailureReason,
   OctopusImportFillEvidenceState,
   OctopusImportPreviewAction,
   OctopusImportProjectDestinationState,
@@ -482,6 +483,71 @@ describe('ImportProjects', () => {
 
     await screen.findByText('Release Releases-1 could not be written.');
     expect(screen.queryByText('Import did not return a final session state.')).not.toBeInTheDocument();
+    expect(api.getOctopusImportStatus).toHaveBeenCalledTimes(2);
+  });
+
+  // A rolled-back import leaves the session Validated with the reason: polling stops at once, the reason shows, and "Import again"
+  // validates and confirms the same plan again without reading from Octopus again.
+  it('rolledBackImport_StopsPolling_ShowsTheReason_AndImportAgainConfirmsTheSamePlan', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const rolledBack = {
+      ...session(OctopusImportSessionState.Validated),
+      lastConfirmationFailure: { attemptId: 'attempt-1', reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1, diagnostics: [{ message: 'Project Web could not be written.' }] },
+    } as OctopusImportSession;
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus.mockResolvedValueOnce(ok({ session: rolledBack, blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Project Web could not be written.'); i++) await advance(15000);
+
+    await screen.findByText('Project Web could not be written.');
+    expect(api.getOctopusImportStatus).toHaveBeenCalledTimes(1);
+    const fetchesBefore = api.fetchOctopusImportHistory.mock.calls.length;
+
+    api.validateOctopusImport.mockImplementation(async (_sessionId, _spaceId, plan) => ok({
+      session: rolledBack,
+      previewPlan: plan,
+      validation: { requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    api.getOctopusImportStatus.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import again' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Project list'); i++) await advance(15000);
+
+    await screen.findByText('Project list');
+    expect(api.confirmOctopusImport).toHaveBeenCalledTimes(2);
+    expect(api.fetchOctopusImportHistory.mock.calls.length).toBe(fetchesBefore);
+  });
+
+  // The failure the page saw before confirming is not this attempt's outcome: the page keeps following the import.
+  it('aFailureSeenBeforeConfirming_DoesNotEndThePolling', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const earlier = {
+      ...session(OctopusImportSessionState.Validated),
+      lastConfirmationFailure: { attemptId: 'attempt-old', reason: OctopusImportConfirmationFailureReason.Interrupted, transient: true, attempts: 1, diagnostics: [] },
+    } as OctopusImportSession;
+    api.previewOctopusImport.mockResolvedValue(ok({
+      session: earlier,
+      previewPlan: { generatedAt: '', resources: previewResources, requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(ok({ session: earlier, blockerSummary: noBlockers }))
+      .mockResolvedValueOnce(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 6 && !screen.queryByText('Project list'); i++) await advance(15000);
+
+    await screen.findByText('Project list');
     expect(api.getOctopusImportStatus).toHaveBeenCalledTimes(2);
   });
 
