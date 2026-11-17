@@ -15,7 +15,7 @@ import {
   LoadingOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSpace } from "contexts/SpaceContext";
 import {
   confirmOctopusImport,
@@ -27,10 +27,12 @@ import {
   confirmationFailureMessage,
   isImportTerminalState,
   isRetryableAfter,
+  listOctopusImportSessions,
   listOctopusServerProjects,
   previewOctopusImport,
   probeOctopusServer,
   selectOctopusImportProjects,
+  OctopusImportResumeStep,
   OctopusImportSessionState,
   type OctopusHistoryFetchProgress,
   type OctopusImportBlockerSummary,
@@ -38,6 +40,7 @@ import {
   type OctopusImportMissingSensitiveValue,
   type OctopusImportPreviewPlan,
   type OctopusImportProjectList,
+  type OctopusImportResumableSession,
   type OctopusImportSession,
   type OctopusImportValidation,
   type OctopusImportUploadResponseData,
@@ -81,6 +84,15 @@ import { ImportStepSection } from "./ImportStepSection";
 import { ImportMetricTiles } from "./ImportMetricTiles";
 import { ImportStatusBanner } from "./ImportStatusBanner";
 import { ImportProjectPicker } from "./ImportProjectPicker";
+import { ImportResumeList } from "./ImportResumeList";
+import {
+  SESSION_PARAM,
+  isServerSession,
+  progressOf,
+  reopenServerUrl,
+  reopenStepOf,
+  sessionIdFrom,
+} from "./importSessionResume";
 import {
   canPreviewChoice,
   fileSelectionRequest,
@@ -162,7 +174,13 @@ type ResumableHistoryFetch = {
   recovery: "resume" | "reconnect";
   /** The projects the stopped read reads (stored on its session); the picker shows them while the read can be resumed. */
   projectIds: string[];
+  /** Reopened after a reload, so never connected in this page: the key entered again is enough to resume (the server checks it). */
+  reopened?: boolean;
 };
+
+// A reloaded page reopening its session: what it says when the session cannot be continued.
+const REOPEN_UNAVAILABLE = "That import is no longer available. Start a new one, or continue another below.";
+const REOPEN_FINISHED = "That import has already finished.";
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -216,6 +234,7 @@ const wait = (ms: number, signal?: AbortSignal) =>
 
 const ImportProjects: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { space } = useSpace();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const validationTimerRef = useRef<number | null>(null);
@@ -287,6 +306,10 @@ const ImportProjects: React.FC = () => {
   const [previewedChoice, setPreviewedChoice] = useState<ChoiceCount | null>(null);
   const [fileDocumentCount, setFileDocumentCount] = useState<number | null>(null);
   const [readSeconds, setReadSeconds] = useState<number | null>(null);
+  // This user's earlier sessions in the space that can be continued (shown until the page has a session of its own).
+  const [resumableSessions, setResumableSessions] = useState<OctopusImportResumableSession[]>([]);
+  // Why the session a reloaded page named could not be continued.
+  const [reopenNotice, setReopenNotice] = useState<string | null>(null);
   const readStartedAtRef = useRef(0);
 
   const projectListPath = `/${space.slug}/projects`;
@@ -307,10 +330,12 @@ const ImportProjects: React.FC = () => {
   // An import was handed to the server (or may have been): nothing that starts over may run until its outcome is known.
   const isImportPending = isFinalizingImport || workflowPhase === "statusUnknown";
   const inputsDisabled = isProcessingFile || isImportPending;
+  // A read reopened after a reload was never connected here: the URL and the key entered again are enough, the server checks the key.
+  const reopenedReadReady = Boolean(resumableFetch?.reopened && serverUrl.trim() && apiKey.trim());
   const canResumeFetch = Boolean(
     resumableFetch &&
       resumableFetch.recovery === "resume" &&
-      isServerReady &&
+      (isServerReady || reopenedReadReady) &&
       serverUrl.trim() === resumableFetch.serverUrl &&
       octopusSpaceId === resumableFetch.octopusSpaceId &&
       sameProjects(serverChosenIds, resumableFetch.projectIds) &&
@@ -385,6 +410,18 @@ const ImportProjects: React.FC = () => {
     };
   }, []);
 
+  // On arrival: the session the URL names is reopened (the page was reloaded); otherwise the sessions that can be continued are listed.
+  useEffect(() => {
+    const reloadedSessionId = sessionIdFrom(searchParams.toString());
+    if (reloadedSessionId) void reopenSession(reloadedSessionId);
+    else void loadResumableSessions();
+  }, []);
+
+  // The page's session lives in the URL, so a reload reopens it; the history entry is replaced, never added.
+  useEffect(() => {
+    if (session?.sessionId && searchParams.get(SESSION_PARAM) !== session.sessionId) setSessionParam(session.sessionId);
+  }, [session?.sessionId]);
+
   const showServerPlan = (plan: OctopusImportPreviewPlan | null) => {
     setPreviewPlan(plan);
     setPreviewedPlan(plan);
@@ -433,7 +470,9 @@ const ImportProjects: React.FC = () => {
   const invalidateAttempt = (keepResume: boolean) => {
     clearWorkflow();
     clearSessionSteps();
-    if (!keepResume) setResumableFetch(null);
+    if (keepResume) return;
+    setResumableFetch(null);
+    setSessionParam(null);
   };
 
   const failWith = (
@@ -645,6 +684,7 @@ const ImportProjects: React.FC = () => {
       octopusSpaceId: fetchSpaceId,
       recovery: "resume",
       projectIds: serverChosenIds,
+      reopened: Boolean(resumableFetch?.reopened && !probe),
     };
     setResumableFetch(resumeTarget);
 
@@ -713,7 +753,7 @@ const ImportProjects: React.FC = () => {
 
   // Only the server source reads from Octopus; an export file is never combined with a server read.
   const currentConnection = (): OctopusServerConnection | null =>
-    isServerReady ? { serverUrl: serverUrl.trim(), apiKey } : null;
+    isServerReady || reopenedReadReady ? { serverUrl: serverUrl.trim(), apiKey } : null;
 
   const failWorkflow = (error: unknown, token: number) => {
     if (workflowTokenRef.current !== token) return;
@@ -1022,7 +1062,7 @@ const ImportProjects: React.FC = () => {
       space.id,
       signal,
     );
-    if (workflowTokenRef.current !== token) return;
+    if (workflowTokenRef.current !== token) return false;
 
     const previewSession = previewEnvelope.data?.session ?? extractedSession;
     const previewData = previewEnvelope.data?.previewPlan ?? null;
@@ -1035,7 +1075,7 @@ const ImportProjects: React.FC = () => {
 
     if (!previewData) {
       failStep(previewEnvelope, "Preview failed.");
-      return;
+      return false;
     }
 
     setRetryStep(null);
@@ -1054,6 +1094,7 @@ const ImportProjects: React.FC = () => {
       setWorkflowError(null);
       setWorkflowWarning(null);
     }
+    return true;
   };
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1108,8 +1149,12 @@ const ImportProjects: React.FC = () => {
     window.requestAnimationFrame(() => document.getElementById("import-zip-file-input")?.closest("section")?.scrollIntoView?.({ behavior: "smooth", block: "start" }));
   };
 
+  // A reopened read keeps its space and projects while the URL and key are entered again (it has no connection to reset).
+  const keepsReopenedRead = Boolean(resumableFetch?.reopened && !probe);
+
   const handleServerUrlChange = (value: string) => {
     setServerUrl(value);
+    if (keepsReopenedRead) return;
     resetProbe();
     invalidateAttempt(true);
   };
@@ -1117,6 +1162,7 @@ const ImportProjects: React.FC = () => {
   // A new key may resume the same session (after connecting with it), so the resume target is kept.
   const handleApiKeyChange = (value: string) => {
     setApiKey(value);
+    if (keepsReopenedRead) return;
     resetProbe();
     invalidateAttempt(true);
   };
@@ -1281,6 +1327,7 @@ const ImportProjects: React.FC = () => {
   const applyFinalSession = (finalSession: OctopusImportSession) => {
     setSession(finalSession);
     if (finalSession.state === OctopusImportSessionState.Succeeded) {
+      setSessionParam(null);
       setWorkflowPhase("succeeded");
       setWorkflowMessage(null);
       setWorkflowWarning(null);
@@ -1413,6 +1460,113 @@ const ImportProjects: React.FC = () => {
 
     await settleUnconfirmedImport(session.sessionId, { msg: "The import did not start.", errorKind: null }, controller.signal, token);
   };
+
+  // ── Reopening after a reload ─────────────────────────────────────────────
+
+  // Only the session id is ever written to the URL: never the API key or anything else the user typed.
+  const setSessionParam = (sessionId: string | null) =>
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (sessionId) next.set(SESSION_PARAM, sessionId);
+      else next.delete(SESSION_PARAM);
+      return next;
+    }, { replace: true });
+
+  const loadResumableSessions = async () => {
+    try {
+      const listEnvelope = await listOctopusImportSessions(space.id);
+      if (listEnvelope.code === 200) setResumableSessions(listEnvelope.data ?? []);
+    } catch {
+      // The list is only a shortcut; the page works without it.
+    }
+  };
+
+  // Reads where the session stands and continues it there; a session that cannot be continued is dropped from the URL, with why.
+  const reopenSession = async (sessionId: string) => {
+    const { token, controller } = beginWorkflow();
+    setResumableSessions([]);
+    try {
+      const reopened = (await readImportStatus(sessionId, controller.signal))?.session ?? null;
+      if (workflowTokenRef.current !== token) return;
+
+      const step = reopened ? reopenStepOf(reopened) : null;
+      if (!reopened || step === null) {
+        forgetReopenedSession(reopened);
+        return;
+      }
+
+      hydrateFrom(reopened);
+      await continueReopened(reopened, step, controller.signal, token);
+    } catch (error) {
+      failWorkflow(error, token);
+    }
+  };
+
+  const forgetReopenedSession = (closed: OctopusImportSession | null) => {
+    setSessionParam(null);
+    setReopenNotice(closedSessionText(closed));
+    void loadResumableSessions();
+  };
+
+  const closedSessionText = (closed: OctopusImportSession | null) => {
+    if (closed?.state === OctopusImportSessionState.Succeeded) return REOPEN_FINISHED;
+    return closed?.result?.diagnostics?.find((d) => d.code === SESSION_MAX_AGE_REACHED)?.message ?? REOPEN_UNAVAILABLE;
+  };
+
+  // What the steps above the preview show for the reopened session. The API key is never restored: it was never stored.
+  const hydrateFrom = (reopened: OctopusImportSession) => {
+    const fetch = reopened.sourceSummary?.historyFetch ?? null;
+    const server = isServerSession(reopened);
+
+    setSource(server ? "server" : "file");
+    setSession(reopened);
+    if (!server) return;
+
+    setServerUrl(reopenServerUrl(reopened));
+    setOctopusSpaceId(fetch?.octopusSpaceId ?? null);
+    setServerChosenIds(reopened.sourceSummary?.selectedProjectIds ?? []);
+    setFetchProgress(fetch ? progressOf(fetch) : null);
+  };
+
+  // The step functions are given the source explicitly: this render's closure still holds the source before the reopen.
+  const continueReopened = async (reopened: OctopusImportSession, step: OctopusImportResumeStep, signal: AbortSignal, token: number) => {
+    switch (step) {
+      case OctopusImportResumeStep.ResumeRead:
+        offerReopenedRead(reopened);
+        return;
+      case OctopusImportResumeStep.FollowImport:
+        await followRunningImport(reopened.sessionId, signal, token);
+        return;
+      case OctopusImportResumeStep.RetryImport:
+        if (await previewSession(reopened, signal, token)) applyRetryableFailure(reopened);
+        return;
+      case OctopusImportResumeStep.Preview:
+        await previewSession(reopened, signal, token);
+        return;
+      default:
+        await continueReopenedRead(reopened, signal, token);
+    }
+  };
+
+  // Extract unless that already happened, then choose an export file's projects, or preview a read from Octopus (it chose them first).
+  const continueReopenedRead = async (reopened: OctopusImportSession, signal: AbortSignal, token: number) => {
+    const extracted = Number(reopened.state) === OctopusImportSessionState.Uploaded ? await extractSession(reopened, signal, token) : reopened;
+    if (!extracted) return;
+
+    if (isServerSession(reopened)) await previewSession(extracted, signal, token);
+    else await chooseProjects(extracted, signal, token);
+  };
+
+  // The read stopped part way: Resume fetch waits for the key, entered again, and continues from the session's cursor.
+  const offerReopenedRead = (reopened: OctopusImportSession) =>
+    setResumableFetch({
+      session: reopened,
+      serverUrl: reopenServerUrl(reopened),
+      octopusSpaceId: reopened.sourceSummary?.historyFetch?.octopusSpaceId ?? null,
+      recovery: "resume",
+      projectIds: reopened.sourceSummary?.selectedProjectIds ?? [],
+      reopened: true,
+    });
 
   const beginValidation = (text: string) => {
     const token = ++workflowTokenRef.current;
@@ -1592,6 +1746,8 @@ const ImportProjects: React.FC = () => {
     if (!resumableFetch) return "";
     if (resumableFetch.recovery === "reconnect")
       return "Fix the cause below and connect again (for example with a new API key), then resume. Everything read so far is kept.";
+    if (resumableFetch.reopened && !apiKey.trim())
+      return "Enter the API key above to continue reading where it stopped; nothing read so far is read again.";
     if (
       serverUrl.trim() !== resumableFetch.serverUrl ||
       octopusSpaceId !== resumableFetch.octopusSpaceId
@@ -1889,7 +2045,11 @@ const ImportProjects: React.FC = () => {
     return probing ? "Connecting…" : "";
   };
 
-  const fileSummary = () => (draftFile ? `${draftFile.name} · ${formatFileSize(draftFile.size)}` : "");
+  // A reopened export-file session has no file in this page: its name comes from the session.
+  const fileSummary = () => {
+    if (draftFile) return `${draftFile.name} · ${formatFileSize(draftFile.size)}`;
+    return !useServerSource ? session?.sourceSummary?.fileName ?? "" : "";
+  };
 
   const sourceSummary = IMPORT_SOURCE_CARDS.find((card) => card.source === source)?.title ?? "";
 
@@ -2281,6 +2441,13 @@ const ImportProjects: React.FC = () => {
           </button>
 
           <h1 className="m-0 text-2xl font-bold text-slate-900">Import projects</h1>
+
+          {!session && workflowPhase === "idle" && (reopenNotice || resumableSessions.length) ? (
+            <div className="mt-6 space-y-4">
+              {reopenNotice ? <ImportStatusBanner testId="reopen-notice" type="info" message={reopenNotice} /> : null}
+              <ImportResumeList sessions={resumableSessions} onContinue={(id) => void reopenSession(id)} />
+            </div>
+          ) : null}
 
           <div data-testid={`${source}-import-sections`} className="mt-6 space-y-4">
             {sections.map(renderSection)}

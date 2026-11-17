@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as importApi from 'pages/apis/octopusImport';
 import {
@@ -12,7 +12,9 @@ import {
   OctopusImportProjectDestinationState,
   OctopusImportRequiredInputKind,
   OctopusImportResourceOutcomeState,
+  OctopusImportResumeStep,
   OctopusImportSessionState,
+  OctopusImportSourceKind,
   type OctopusHistoryFetchProgress,
   type OctopusImportChangeCounts,
   type OctopusImportOriginEvidence,
@@ -40,6 +42,7 @@ vi.mock('pages/apis/octopusImport', async importOriginal => {
     listOctopusServerProjects: vi.fn(),
     getOctopusImportProjects: vi.fn(),
     selectOctopusImportProjects: vi.fn(),
+    listOctopusImportSessions: vi.fn(),
   };
 });
 
@@ -223,6 +226,7 @@ describe('ImportProjects', () => {
     api.listOctopusServerProjects.mockResolvedValue(ok(projectList()));
     api.getOctopusImportProjects.mockResolvedValue(ok(projectList()));
     api.selectOctopusImportProjects.mockResolvedValue(ok(session(OctopusImportSessionState.Uploaded)));
+    api.listOctopusImportSessions.mockResolvedValue(ok([]));
   });
 
   it('rendersServerForm_ProbesWithoutPuttingTheKeyInAQuery', async () => {
@@ -2296,3 +2300,233 @@ function replannedChoices(posted: OctopusImportPreviewPlan): OctopusImportPrevie
     summary: { ...posted.summary!, isUpToDate: created === 0, counts: counts({ alreadyImported: 1, create: created, skip: 3 - created }) },
   };
 }
+
+describe('ImportProjects reopened after a reload', () => {
+  const REOPENED_ID = '6a1d2c3b-0000-4000-8000-0000000000aa';
+  const SERVER_URL = 'https://octopus.acme.com/octopus';
+
+  // Shows the page's URL query, so a test sees what a reload would reopen.
+  const LocationProbe = () => <div data-testid="location">{useLocation().search}</div>;
+
+  const renderAt = (entry: string) => render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route path="/import" element={<><ImportProjects /><LocationProbe /></>} />
+        <Route path="/Spaces-1/projects" element={<div>Project list</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  const location = () => screen.getByTestId('location').textContent ?? '';
+
+  // Browser storage the key must never reach (a runtime without it has nothing to leak into).
+  const storages = () => [window.localStorage, window.sessionStorage].filter((storage): storage is Storage => Boolean(storage));
+
+  const serverSession = (state: OctopusImportSessionState, done: boolean, extra: Partial<OctopusImportSession> = {}): OctopusImportSession => ({
+    sessionId: REOPENED_ID,
+    destinationSpaceId: 1,
+    state,
+    sourceSummary: {
+      fileName: 'history.zip', contentType: 'application/zip', sizeBytes: 0, detectedFormat: 'OctopusServer', sha256: null,
+      selectedProjectIds: ['Projects-1'],
+      historyFetch: {
+        serverHost: 'octopus.acme.com', serverUrl: SERVER_URL, octopusSpaceId: 'Spaces-1', installationId: null, octopusVersion: null, spaceless: false,
+        projectIds: ['Projects-1'], projectIndex: 0, phase: done ? OctopusHistoryFetchPhase.Done : OctopusHistoryFetchPhase.Catalog,
+        counts: progress(0, done).counts, totalBytes: 0, done,
+      },
+    },
+    ...extra,
+  });
+
+  const fileSession = (state: OctopusImportSessionState): OctopusImportSession => ({
+    sessionId: REOPENED_ID,
+    destinationSpaceId: 1,
+    state,
+    sourceSummary: { fileName: 'acme-export.zip', contentType: 'application/zip', sizeBytes: 10, detectedFormat: 'OctopusExport', sha256: null },
+  });
+
+  const statusOf = (reopened: OctopusImportSession) => ok({ session: reopened, blockerSummary: noBlockers });
+
+  const listedRow = {
+    sessionId: REOPENED_ID,
+    state: OctopusImportSessionState.Uploaded,
+    resumeStep: OctopusImportResumeStep.ResumeRead,
+    sourceKind: OctopusImportSourceKind.OctopusServer,
+    serverUrl: SERVER_URL,
+    serverHost: 'octopus.acme.com',
+    octopusSpaceId: 'Spaces-1',
+    selectedProjectCount: 1,
+    selectedProjectNames: ['Web'],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3 * 3600_000).toISOString(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storages().forEach(storage => storage.clear());
+    api.listOctopusImportSessions.mockResolvedValue(ok([]));
+    api.fetchOctopusImportHistory.mockResolvedValue(ok(progress(2, true)));
+    api.extractOctopusImport.mockResolvedValue(ok({
+      session: session(OctopusImportSessionState.Extracted),
+      extraction: { extractedAt: '', documentCount: 1, resourceCount: 1, counts: [], files: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    api.previewOctopusImport.mockImplementation(async () => ok({
+      session: serverSession(OctopusImportSessionState.Previewed, true),
+      previewPlan: { generatedAt: '', resources: previewResources, requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    api.getOctopusImportProjects.mockResolvedValue(ok(projectList()));
+    api.connectOctopusImport.mockResolvedValue(ok({ session: { ...session(OctopusImportSessionState.Uploaded), sessionId: REOPENED_ID } }));
+    api.probeOctopusServer.mockResolvedValue(ok({
+      octopusVersion: '2024.1', installationId: 'install-1', spaceless: false, spaces: [{ id: 'Spaces-1', name: 'Default', isDefault: true }],
+    }));
+    api.listOctopusServerProjects.mockResolvedValue(ok(projectList()));
+    api.selectOctopusImportProjects.mockResolvedValue(ok(session(OctopusImportSessionState.Uploaded)));
+    api.validateOctopusImport.mockImplementation(async (_sessionId, _spaceId, plan) => ok({
+      session: serverSession(OctopusImportSessionState.Validated, true),
+      previewPlan: plan,
+      validation: { requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('readInProgress_PrefillsServerAndSpace_AsksForTheKey_ThenResumesTheSameSession', async () => {
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Uploaded, false)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    const resume = await screen.findByRole('button', { name: 'Resume fetch' });
+
+    expect(screen.getByLabelText('Server URL')).toHaveValue(SERVER_URL);
+    expect(screen.getByLabelText('API key')).toHaveValue('');
+    expect(resume).toBeDisabled();
+    expect(screen.getByTestId('resume-notice')).toHaveTextContent('Enter the API key');
+
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'API-RELOADED-SECRET' } });
+    expect(screen.getByRole('button', { name: 'Resume fetch' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume fetch' }));
+
+    await screen.findByText('By project');
+    expect(api.fetchOctopusImportHistory).toHaveBeenCalledWith(REOPENED_ID, 1, { serverUrl: SERVER_URL, apiKey: 'API-RELOADED-SECRET' }, 'Spaces-1', expect.anything());
+    expect(api.connectOctopusImport).not.toHaveBeenCalled();
+    expect(api.probeOctopusServer).not.toHaveBeenCalled();
+    expect(api.extractOctopusImport).toHaveBeenCalledTimes(1);
+    expect(location()).toBe(`?session=${REOPENED_ID}`);
+    expect(location()).not.toContain('API-RELOADED-SECRET');
+    storages().forEach(storage => expect(Object.keys(storage).map(key => `${key}=${storage.getItem(key)}`).join('\n')).not.toContain('API-RELOADED-SECRET'));
+  });
+
+  it('previewed_ShowsThePreviewDirectly_WithoutExtractingAgain', async () => {
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Previewed, true)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByText('By project');
+    expect(api.previewOctopusImport).toHaveBeenCalledWith(REOPENED_ID, 1, expect.anything());
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+    expect(api.fetchOctopusImportHistory).not.toHaveBeenCalled();
+  });
+
+  it('validated_ShowsThePreview_ImportEnabled', async () => {
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Validated, true)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByText('By project');
+    expect(screen.getByRole('button', { name: IMPORT_AFTER_LOADING })).toBeEnabled();
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+  });
+
+  it('retryableFailure_ShowsTheReason_AndOffersImportAgain', async () => {
+    const failed = serverSession(OctopusImportSessionState.Validated, true, {
+      lastConfirmationFailure: { attemptId: 'attempt-1', reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1, diagnostics: [{ message: 'Project Web could not be written.' }] },
+    } as Partial<OctopusImportSession>);
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(failed));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByText('Project Web could not be written.');
+    expect(screen.getByRole('button', { name: 'Import again' })).toBeInTheDocument();
+  });
+
+  it('exportFileExtracted_ChoosesItsProjects_WithoutUploadingAgain', async () => {
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(fileSession(OctopusImportSessionState.Extracted)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByTestId('session-project-choice');
+    expect(api.getOctopusImportProjects).toHaveBeenCalledWith(REOPENED_ID, 1, expect.anything());
+    expect(api.uploadOctopusImport).not.toHaveBeenCalled();
+    expect(api.extractOctopusImport).not.toHaveBeenCalled();
+    expect(screen.getByTestId('import-section-file-summary')).toHaveTextContent('acme-export.zip');
+  });
+
+  it('importing_FollowsTheRunningImport_UntilItEnds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.getOctopusImportStatus
+      .mockResolvedValueOnce(statusOf(serverSession(OctopusImportSessionState.Importing, true)))
+      .mockResolvedValueOnce(statusOf(serverSession(OctopusImportSessionState.Importing, true)))
+      .mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Succeeded, true)));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    for (let i = 0; i < 4 && !screen.queryByText('Project list'); i++) await advance(15000);
+
+    await screen.findByText('Project list');
+    expect(api.getOctopusImportStatus.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(api.confirmOctopusImport).not.toHaveBeenCalled();
+  });
+
+  it('noLongerAvailable_DropsTheParam_SaysWhy_AndListsWhatCanBeContinued', async () => {
+    api.getOctopusImportStatus.mockResolvedValue({ code: 404, msg: 'Not found', data: null, errorKind: 'SessionNotFound' });
+    api.listOctopusImportSessions.mockResolvedValue(ok([listedRow]));
+    renderAt(`/import?session=${REOPENED_ID}`);
+
+    await screen.findByText(/no longer available/);
+    await screen.findByTestId('import-resume-list');
+    expect(location()).toBe('');
+  });
+
+  it('connect_KeepsTheSessionInTheUrl_ReplacingTheEntry_AndImportMoreClearsIt', async () => {
+    renderAt('/import');
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+
+    await screen.findByText('By project');
+    expect(location()).toBe(`?session=${REOPENED_ID}`);
+    expect(location()).not.toContain('API-SECRET');
+
+    api.getOctopusImportStatus.mockResolvedValue(statusOf({ ...serverSession(OctopusImportSessionState.Succeeded, true), result: {
+        succeeded: true, completedAt: '', resources: [], idMappings: [], diagnostics: [],
+        missingSensitiveValues: [{
+          kind: OctopusImportRequiredInputKind.FeedPassword, name: 'ACR', ownerName: null, ownerKind: null,
+          field: 'Password', scopeSummary: null, destinationId: 9, destinationOwnerId: null, fillable: true,
+        }],
+      } }));
+    api.confirmOctopusImport.mockResolvedValue(ok({ session: serverSession(OctopusImportSessionState.Validated, true), blockerSummary: noBlockers }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+
+    await screen.findByTestId('missing-secrets-after-import', {}, { timeout: 4000 });
+    expect(location()).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import more projects' }));
+    expect(location()).toBe('');
+  });
+
+  it('list_ShownWithoutAParam_ContinueReopensTheRow_ThenHides', async () => {
+    api.listOctopusImportSessions.mockResolvedValue(ok([listedRow]));
+    api.getOctopusImportStatus.mockResolvedValue(statusOf(serverSession(OctopusImportSessionState.Previewed, true)));
+    renderAt('/import');
+
+    const list = await screen.findByTestId('import-resume-list');
+    expect(within(list).getByTestId('import-resume-row')).toHaveTextContent('octopus.acme.com · Spaces-1 · 1 project (Web)');
+    expect(within(list).queryByLabelText('API key')).not.toBeInTheDocument();
+
+    fireEvent.click(within(list).getByRole('button', { name: 'Continue' }));
+
+    await screen.findByText('By project');
+    expect(screen.queryByTestId('import-resume-list')).not.toBeInTheDocument();
+    expect(location()).toBe(`?session=${REOPENED_ID}`);
+  });
+});

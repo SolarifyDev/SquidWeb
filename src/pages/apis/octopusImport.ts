@@ -28,6 +28,26 @@ export enum OctopusImportSessionState {
   Expired,
 }
 
+/** Where a reopened import session continues. Mirrors the backend ordinals (OctopusImportResumeStep). */
+export enum OctopusImportResumeStep {
+  /** The read from Octopus stopped part way: the API key is entered again and the read resumes where it stopped. */
+  ResumeRead,
+  /** The source is read: extract it (or choose an export file's projects), then preview. */
+  ContinueAfterRead,
+  /** Previewed or validated: the preview is shown again (a validated session with the choices it was validated with). */
+  Preview,
+  /** The import is running: follow it until it ends. */
+  FollowImport,
+  /** The last attempt imported nothing: the same plan can be imported again. */
+  RetryImport,
+}
+
+/** What an import session reads. Mirrors the backend ordinals (OctopusImportSourceKind). */
+export enum OctopusImportSourceKind {
+  ExportFile,
+  OctopusServer,
+}
+
 /** Why the last confirmation attempt of a session that is Validated again imported nothing. Mirrors the backend ordinals. */
 export enum OctopusImportConfirmationFailureReason {
   RolledBack,
@@ -168,6 +188,10 @@ export interface OctopusHistoryFetchCounts {
 
 export interface OctopusImportHistoryFetch {
   serverHost: string | null;
+  /** The server's base URL (scheme, host, path; never credentials), kept so a reloaded page can resume the read. Absent on older sessions. */
+  serverUrl?: string | null;
+  /** Up to five names of the chosen projects, recorded while reading; display only. */
+  chosenProjectNames?: string[] | null;
   octopusSpaceId: string | null;
   installationId: string | null;
   octopusVersion: string | null;
@@ -258,6 +282,29 @@ export interface OctopusImportSession {
   lastStateChangedAt?: string | null;
   /** Set only while the session is Validated after an attempt that imported nothing: the same plan can be imported again. */
   lastConfirmationFailure?: OctopusImportConfirmationFailure | null;
+}
+
+/** An import session of the current user that a reloaded page can continue; never carries the API key or anything secret. */
+export interface OctopusImportResumableSession {
+  sessionId: string;
+  state: OctopusImportSessionState;
+  resumeStep: OctopusImportResumeStep;
+  sourceKind: OctopusImportSourceKind;
+  fileName?: string | null;
+  serverUrl?: string | null;
+  serverHost?: string | null;
+  octopusSpaceId?: string | null;
+  /** How many projects were chosen; null imports the whole space. */
+  selectedProjectCount?: number | null;
+  selectedProjectNames?: string[];
+  readProgress?: OctopusHistoryFetchProgress | null;
+  /** A chunk of the read still holds the session (another tab, or a read interrupted moments ago). */
+  readActive?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastStateChangedAt?: string | null;
+  expiresAt: string;
+  maxExpiresAt?: string | null;
 }
 
 /** The last confirmation attempt of a session that is Validated again; it imported nothing (rolled back, interrupted, or not started). */
@@ -829,6 +876,16 @@ export function getOctopusImportStatus(
       signal,
     },
   );
+}
+
+// The current user's import sessions in the space that a reloaded page can continue, newest first.
+export function listOctopusImportSessions(spaceId: number, signal?: AbortSignal) {
+  return requestImport<OctopusImportResumableSession[]>("/sessions", {
+    method: "GET",
+    spaceId,
+    query: { spaceId },
+    signal,
+  });
 }
 
 // Lists a space's projects and project groups only (no history), before a session exists; the key travels only in the body.
