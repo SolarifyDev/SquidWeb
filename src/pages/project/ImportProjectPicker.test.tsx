@@ -50,6 +50,18 @@ describe('ImportProjectPicker', () => {
     expect(count()).toHaveTextContent('0 of 4 projects chosen');
   });
 
+  it('marksAConfigAsCodeProject_AndCannotTickIt_SelectAllLeavesItOut', () => {
+    const onChange = vi.fn();
+    const source: OctopusImportProjectList = { ...list, projects: [...list.projects, { id: 'Projects-9', name: 'Git', projectGroupId: 'ProjectGroups-2', isDisabled: false, previouslyImported: false, isConfigAsCode: true }] };
+    render(<Harness source={source} onChange={onChange} />);
+
+    expect(within(screen.getByTestId('picker-project-Projects-9')).getByText('Config as Code (not supported)')).toBeInTheDocument();
+    expect(checkbox('Git')).toBeDisabled();
+    expect(checkbox('Services (0/1)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+    expect(onChange).toHaveBeenLastCalledWith(['Projects-1', 'Projects-2', 'Projects-3', 'Projects-4']);
+  });
+
   it('marksProjectsImportedBefore_AndDisabledInOctopus', () => {
     render(<Harness />);
 

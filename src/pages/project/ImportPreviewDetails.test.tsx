@@ -209,6 +209,14 @@ describe('ImportPreviewOverview', () => {
     expect(onChangeProjects).toHaveBeenCalledTimes(1);
   });
 
+  it('saysHowManyConfigAsCodeProjectsAreNotImported', () => {
+    const scoped = plan();
+    scoped.summary!.configAsCodeProjectCount = 2;
+    renderInRouter(<ImportPreviewOverview plan={scoped} spaceSlug="Spaces-1" />);
+
+    expect(screen.getByTestId('project-scope-config-as-code')).toHaveTextContent('2 projects are version-controlled (Config as Code) in Octopus and are not imported: Squid does not import Config-as-Code projects.');
+  });
+
   it('showsNoProjectScope_ForAWholeSpacePlanWithoutAChangeHandler', () => {
     renderInRouter(<ImportPreviewOverview plan={plan()} spaceSlug="Spaces-1" />);
 

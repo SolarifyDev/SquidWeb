@@ -54,28 +54,33 @@ export const filterProjects = (list: OctopusImportProjectList, search: string): 
   return list.projects.filter((project) => matches(project.name) || matches(names.get(project.projectGroupId ?? "")));
 };
 
+/** A Config-as-Code project cannot be imported, so it is never chosen (it is shown, marked, with its box disabled). */
+export const isChoosable = (project: OctopusImportProjectOption) => !project.isConfigAsCode;
+
 /** Ticks (or unticks) the given projects; set lookups keep it linear for a space with thousands of projects. */
 export const setChosen = (selected: string[], projects: OctopusImportProjectOption[], chosen: boolean) => {
   const current = new Set(selected);
-  const changed = new Set(projects.map((project) => project.id));
+  const changed = new Set((chosen ? projects.filter(isChoosable) : projects).map((project) => project.id));
 
   return chosen ? [...selected, ...[...changed].filter((id) => !current.has(id))] : selected.filter((id) => !changed.has(id));
 };
 
-/** The tri-state checkbox of a group: how many of its projects are chosen. */
+/** The tri-state checkbox of a group: how many of the projects it can choose are chosen. */
 export const groupState = (group: ProjectGroupView, selected: ReadonlySet<string>): ProjectGroupState => {
-  const chosen = group.projects.filter((project) => selected.has(project.id)).length;
-  const total = group.projects.length;
+  const choosable = group.projects.filter(isChoosable);
+  const chosen = choosable.filter((project) => selected.has(project.id)).length;
+  const total = choosable.length;
 
   return { chosen, total, checked: total > 0 && chosen === total, indeterminate: chosen > 0 && chosen < total };
 };
 
 /** The selection the picker starts with: the session's, else every project (an export file) or none (an Octopus server). */
 export const initialSelection = (list: OctopusImportProjectList, defaultAll: boolean) => {
-  const known = new Set(list.projects.map((project) => project.id));
+  const choosable = list.projects.filter(isChoosable).map((project) => project.id);
+  const known = new Set(choosable);
   if (list.selectedProjectIds) return list.selectedProjectIds.filter((id) => known.has(id));
 
-  return defaultAll ? list.projects.map((project) => project.id) : [];
+  return defaultAll ? choosable : [];
 };
 
 /** The same projects, in any order. */
@@ -90,11 +95,12 @@ export interface SelectionRequest {
 }
 
 /**
- * What an export file sends for the chosen projects: every project ticked is the whole space (null), sent only to clear an earlier
- * selection, so an untouched picker previews exactly what it did before projects could be chosen.
+ * What an export file sends for the chosen projects: every project that can be chosen ticked is the whole space (null), sent only to
+ * clear an earlier selection, so an untouched picker previews exactly what it did before projects could be chosen (the preview then
+ * skips a Config-as-Code project with its own reason).
  */
 export const fileSelectionRequest = (list: OctopusImportProjectList, selected: string[]): SelectionRequest => {
-  const everyProject = list.projects.every((project) => selected.includes(project.id));
+  const everyProject = list.projects.filter(isChoosable).every((project) => selected.includes(project.id));
   if (everyProject) return { send: list.selectedProjectIds != null, projectIds: null };
 
   return { send: true, projectIds: list.projects.filter((project) => selected.includes(project.id)).map((project) => project.id) };

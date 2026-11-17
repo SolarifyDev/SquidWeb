@@ -489,6 +489,15 @@ const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan; groups: ChoiceGro
 
 // ── Project selection ────────────────────────────────────────────────────────
 
+const ConfigAsCodeScope: React.FC<{ count: number }> = ({ count }) =>
+  count > 0 ? (
+    <ImportStatusBanner
+      testId="project-scope-config-as-code"
+      type="info"
+      message={`${pluralize(count, "project")} ${count === 1 ? "is" : "are"} version-controlled (Config as Code) in Octopus and ${count === 1 ? "is" : "are"} not imported: Squid does not import Config-as-Code projects.`}
+    />
+  ) : null;
+
 const ProjectScope: React.FC<{ notChosen: number; onChangeProjects?: () => void }> = ({ notChosen, onChangeProjects }) => {
   const change = onChangeProjects ? (
     <Button type="link" size="small" onClick={onChangeProjects}>
@@ -536,6 +545,8 @@ const PreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: str
       ) : null}
 
       <ProjectScope notChosen={summary.notChosenProjectCount ?? 0} onChangeProjects={onChangeProjects} />
+
+      <ConfigAsCodeScope count={summary.configAsCodeProjectCount ?? 0} />
 
       <OverallSummary counts={summary.counts} notChosen={outside.length} />
 

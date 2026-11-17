@@ -111,6 +111,37 @@ describe('fileSelectionRequest', () => {
   });
 });
 
+// A Config-as-Code project cannot be imported: select-all, a group tick and the starting selection leave it out.
+describe('configAsCodeProjects', () => {
+  const cacList = (selectedProjectIds: string[] | null = null): OctopusImportProjectList => ({
+    ...list(selectedProjectIds),
+    projects: [...list().projects.slice(0, 2), { ...project('Projects-9', 'Git', 'ProjectGroups-1'), isConfigAsCode: true }],
+  });
+
+  it('setChosen_TickingLeavesItOut_UntickingStillRemovesIt', () => {
+    const projects = cacList().projects;
+
+    expect(setChosen([], projects, true)).toEqual(['Projects-1', 'Projects-2']);
+    expect(setChosen(['Projects-1', 'Projects-9'], projects, false)).toEqual([]);
+  });
+
+  it('groupState_CountsOnlyProjectsThatCanBeChosen', () => {
+    const group = groupProjects(cacList())[0];
+
+    expect(groupState(group, new Set(['Projects-1', 'Projects-2']))).toEqual({ chosen: 2, total: 2, checked: true, indeterminate: false });
+  });
+
+  it.each([
+    [null, true, ['Projects-1', 'Projects-2']],
+    [['Projects-1', 'Projects-9'], false, ['Projects-1']],
+  ])('initialSelection_NeverStartsWithIt %j %s', (selected, defaultAll, expected) => {
+    expect(initialSelection(cacList(selected), defaultAll)).toEqual(expected);
+  });
+
+  it('fileSelectionRequest_EveryImportableProjectTicked_IsTheWholeFile', () => {
+    expect(fileSelectionRequest(cacList(), ['Projects-1', 'Projects-2'])).toEqual({ send: false, projectIds: null });
+  });
+});
 
 describe('sameProjects', () => {
   it('sameProjects_IgnoresOrder_ButNotMembership', () => {

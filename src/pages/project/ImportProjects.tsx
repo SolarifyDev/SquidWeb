@@ -1782,6 +1782,14 @@ const ImportProjects: React.FC = () => {
             message={`${pluralize(skippedItems, "item")} could not be read (the Octopus server refused the request, or it kept timing out) and ${skippedItems === 1 ? "was" : "were"} skipped.`}
           />
         ) : null}
+        {fetchNotices.configAsCodeProjects > 0 ? (
+          <ImportStatusBanner
+            type="info"
+            message={`${pluralize(fetchNotices.configAsCodeProjects, "project")} ${
+              fetchNotices.configAsCodeProjects === 1 ? "is" : "are"
+            } version-controlled (Config as Code) in Octopus; only ${fetchNotices.configAsCodeProjects === 1 ? "its" : "their"} name was read, and ${fetchNotices.configAsCodeProjects === 1 ? "it is" : "they are"} not imported.`}
+          />
+        ) : null}
         {fetchNotices.detailsTooLarge > 0 ? (
           <ImportStatusBanner
             type="info"

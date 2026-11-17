@@ -56,6 +56,7 @@ import {
   IMPORT_ORIGIN_UNPROVEN,
   NOT_USED_BY_CHOSEN_PROJECTS,
   PROJECT_NOT_CHOSEN,
+  CONFIG_AS_CODE_NOT_SUPPORTED,
   outsideSelectionResources,
 } from './importPreviewSummary';
 
@@ -304,7 +305,7 @@ describe('historyFetchNotices', () => {
   });
 
   it('treatsMissingFieldsAsZero_ForAnOlderServer', () => {
-    expect(historyFetchNotices(fetched({ releases: 1 }))).toEqual({ projectsNotFound: 0, detailsTooLarge: 0, nothingFound: false });
+    expect(historyFetchNotices(fetched({ releases: 1 }))).toEqual({ projectsNotFound: 0, detailsTooLarge: 0, configAsCodeProjects: 0, nothingFound: false });
   });
 
   it('flagsNothingFound_OnlyWhenEveryProjectIsMissingAndNothingWasRead', () => {
@@ -315,6 +316,10 @@ describe('historyFetchNotices', () => {
 
   it('reportsOversizedDetails', () => {
     expect(historyFetchNotices(fetched({ detailsTooLarge: 3 })).detailsTooLarge).toBe(3);
+  });
+
+  it('reportsConfigAsCodeProjects', () => {
+    expect(historyFetchNotices(fetched({ configAsCodeProjects: 2 })).configAsCodeProjects).toBe(2);
   });
 });
 
@@ -651,6 +656,7 @@ describe('resource selections', () => {
   it('selectionCodes_ArePinnedToTheServers', () => {
     expect(PROJECT_NOT_CHOSEN).toBe('octopus.preview.project_not_chosen');
     expect(NOT_USED_BY_CHOSEN_PROJECTS).toBe('octopus.preview.not_used_by_chosen_projects');
+    expect(CONFIG_AS_CODE_NOT_SUPPORTED).toBe('octopus.preview.config_as_code_not_supported');
   });
 
   it('fillResources_OnlyFillMissingSecret', () => {

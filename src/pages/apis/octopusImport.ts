@@ -154,6 +154,8 @@ export interface OctopusHistoryFetchCounts {
   configurationDocuments?: number;
   /** Secret values the server did not return; imported as "value missing". */
   secretsWithheld?: number;
+  /** Config-as-Code projects read: their project document only, nothing of their own (Squid does not import them). */
+  configAsCodeProjects?: number;
 }
 
 export interface OctopusImportHistoryFetch {
@@ -421,6 +423,8 @@ export interface OctopusImportPreviewSummary {
   choices?: OctopusImportChoiceCount[] | null;
   /** Octopus projects in the source that were not chosen for this import; absent on older servers. */
   notChosenProjectCount?: number;
+  /** Chosen (or, without a selection, all) Octopus projects that are Config as Code and therefore not imported; absent on older servers. */
+  configAsCodeProjectCount?: number;
 }
 
 export interface OctopusImportProjectGroupOption {
@@ -435,6 +439,8 @@ export interface OctopusImportProjectOption {
   isDisabled: boolean;
   /** An earlier import into this Squid space recorded this Octopus project. Advisory only: the preview decides. */
   previouslyImported: boolean;
+  /** The project is version-controlled (Config as Code) in Octopus; Squid does not import it. Absent on older servers. */
+  isConfigAsCode?: boolean;
 }
 
 /** The projects of an Octopus space or export file, to choose which are imported. */

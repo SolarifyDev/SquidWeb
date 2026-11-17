@@ -367,6 +367,8 @@ export const fetchPositionLabel = (progress: OctopusHistoryFetchProgress) => {
 export interface HistoryFetchNotices {
   projectsNotFound: number;
   detailsTooLarge: number;
+  /** Config-as-Code projects whose project document only was read; the preview skips them. */
+  configAsCodeProjects: number;
   /** Every scoped project was missing and nothing was read: almost always the wrong space. */
   nothingFound: boolean;
 }
@@ -377,9 +379,10 @@ const fetchedNothing = (counts: OctopusHistoryFetchCounts) =>
 export const historyFetchNotices = (progress: OctopusHistoryFetchProgress): HistoryFetchNotices => {
   const projectsNotFound = progress.counts.projectsNotFound ?? 0;
   const detailsTooLarge = progress.counts.detailsTooLarge ?? 0;
+  const configAsCodeProjects = progress.counts.configAsCodeProjects ?? 0;
   const allMissing = projectsNotFound > 0 && projectsNotFound >= progress.projectCount;
 
-  return { projectsNotFound, detailsTooLarge, nothingFound: allMissing && fetchedNothing(progress.counts) };
+  return { projectsNotFound, detailsTooLarge, configAsCodeProjects, nothingFound: allMissing && fetchedNothing(progress.counts) };
 };
 
 export type ImportSource = 'file' | 'server';
@@ -630,6 +633,9 @@ export const PROJECT_NOT_CHOSEN = 'octopus.preview.project_not_chosen';
 export const NOT_USED_BY_CHOSEN_PROJECTS = 'octopus.preview.not_used_by_chosen_projects';
 
 const OUTSIDE_SELECTION_CODES = [PROJECT_NOT_CHOSEN, NOT_USED_BY_CHOSEN_PROJECTS];
+
+/** A Config-as-Code (version-controlled) Octopus project, or what belongs to one: Squid does not import it. */
+export const CONFIG_AS_CODE_NOT_SUPPORTED = 'octopus.preview.config_as_code_not_supported';
 
 /** Not imported because it lies outside the chosen projects. */
 export const isOutsideSelection = (resource: OctopusImportPreviewResource) =>

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Button, Checkbox, Collapse, Input, Spin, Tag, Tooltip } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import type { OctopusImportProjectList, OctopusImportProjectOption } from "pages/apis/octopusImport";
-import { filterProjects, groupProjects, groupState, setChosen, type ProjectGroupView } from "./importProjectSelection";
+import { filterProjects, groupProjects, groupState, isChoosable, setChosen, type ProjectGroupView } from "./importProjectSelection";
 
 export interface ImportProjectPickerProps {
   list: OctopusImportProjectList | null;
@@ -17,9 +17,12 @@ export const EXPANDED_PROJECT_LIMIT = 200;
 
 const REIMPORT_HINT = "Re-importing it only adds what is missing in Squid; nothing already there is overwritten.";
 
+const CONFIG_AS_CODE_HINT =
+  "This project is version-controlled (Config as Code) in Octopus: its process and settings live in a git repository, not in Octopus, so Squid cannot import it.";
+
 const ProjectRow: React.FC<{ project: OctopusImportProjectOption; checked: boolean; disabled?: boolean; onToggle: (checked: boolean) => void }> = ({ project, checked, disabled, onToggle }) => (
   <div data-testid={`picker-project-${project.id}`} className="flex flex-wrap items-center gap-2 py-0.5">
-    <Checkbox checked={checked} disabled={disabled} onChange={(event) => onToggle(event.target.checked)}>
+    <Checkbox checked={checked} disabled={disabled || !isChoosable(project)} onChange={(event) => onToggle(event.target.checked)}>
       {project.name}
     </Checkbox>
     {project.previouslyImported ? (
@@ -28,6 +31,11 @@ const ProjectRow: React.FC<{ project: OctopusImportProjectOption; checked: boole
       </Tooltip>
     ) : null}
     {project.isDisabled ? <Tag>Disabled in Octopus</Tag> : null}
+    {project.isConfigAsCode ? (
+      <Tooltip title={CONFIG_AS_CODE_HINT}>
+        <Tag color="orange">Config as Code (not supported)</Tag>
+      </Tooltip>
+    ) : null}
   </div>
 );
 
