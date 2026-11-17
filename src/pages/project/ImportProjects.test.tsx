@@ -652,6 +652,57 @@ describe('ImportProjects', () => {
     expect(screen.getByTestId('confirm-progress-phases')).toHaveTextContent('Releases 3,120/4,990');
   });
 
+  // "Import again" starts a new attempt: until the job writes its progress the bar starts again, never the rolled-back attempt's red end.
+  it('importAgainAfterARollback_StartsTheBarAgain_InsteadOfTheOldAttemptsEnd', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const rolledBack = {
+      ...session(OctopusImportSessionState.Validated),
+      lastConfirmationFailure: { attemptId: 'attempt-1', reason: OctopusImportConfirmationFailureReason.RolledBack, transient: false, attempts: 1, diagnostics: [{ message: 'Project Web could not be written.' }] },
+      confirmationProgress: confirmProgress({ current: null, finished: true, stage: OctopusImportConfirmationStage.RolledBack }),
+    } as OctopusImportSession;
+    api.getOctopusImportStatus.mockReset();
+    api.getOctopusImportStatus.mockResolvedValueOnce(ok({ session: rolledBack, blockerSummary: noBlockers }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    for (let i = 0; i < 4 && !screen.queryByText('Project Web could not be written.'); i++) await advance(15000);
+    await screen.findByText('Project Web could not be written.');
+
+    type ConfirmResult = Awaited<ReturnType<typeof api.confirmOctopusImport>>;
+    let resolveConfirm: (value: ConfirmResult) => void = () => undefined;
+    api.validateOctopusImport.mockImplementation(async (_sessionId, _spaceId, plan) => ok({ session: rolledBack, previewPlan: plan, validation: { requiredInputs: [], diagnostics: [], hasBlockers: false }, blockerSummary: noBlockers }));
+    api.confirmOctopusImport.mockReturnValueOnce(new Promise<ConfirmResult>(resolve => {
+      resolveConfirm = resolve;
+    }));
+    api.getOctopusImportStatus.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Succeeded), blockerSummary: noBlockers }));
+    fireEvent.click(screen.getByRole('button', { name: 'Import again' }));
+
+    // The confirm request is still in flight: the page holds the rolled-back session, whose progress is the old attempt's end.
+    expect(await screen.findByTestId('confirm-progress-current')).toHaveTextContent('Starting the import...');
+    expect(screen.queryByText('Rolled back, nothing was imported')).not.toBeInTheDocument();
+
+    await act(async () => resolveConfirm(ok({ session: session(OctopusImportSessionState.Importing), blockerSummary: noBlockers })));
+    for (let i = 0; i < 4 && !screen.queryByText('Project list'); i++) await advance(15000);
+    await screen.findByText('Project list');
+  });
+
+  // A finished import that succeeded has nothing left to show as progress: no final bar under a session the page can still act on.
+  it('succeededFinalProgress_ShowsNoProgressPanel', async () => {
+    api.previewOctopusImport.mockResolvedValue(ok({
+      session: { ...session(OctopusImportSessionState.Previewed), confirmationProgress: confirmProgress({ current: null, finished: true, stage: OctopusImportConfirmationStage.Succeeded, itemsDone: 4990 }) },
+      previewPlan: { generatedAt: '', resources: previewResources, requiredInputs: [], diagnostics: [], hasBlockers: false },
+      blockerSummary: noBlockers,
+    }));
+    renderPage();
+    await connectToServer();
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+    await screen.findByText('By project');
+
+    expect(screen.queryByTestId('confirm-progress')).not.toBeInTheDocument();
+  });
+
   it('ignoresAStaleProbeResponse_WhenTheServerUrlChangedMeanwhile', async () => {
     type ProbeResult = Awaited<ReturnType<typeof api.probeOctopusServer>>;
     let resolveProbe: (value: ProbeResult) => void = () => undefined;
