@@ -80,6 +80,7 @@ import { ImportMetricTiles } from "./ImportMetricTiles";
 import { ImportStatusBanner } from "./ImportStatusBanner";
 import { ImportProjectPicker } from "./ImportProjectPicker";
 import {
+  canPreviewChoice,
   fileSelectionRequest,
   initialSelection,
   sameProjects,
@@ -861,7 +862,8 @@ const ImportProjects: React.FC = () => {
   const changeChosenInSession = (selected: string[]) =>
     setProjectChoice((choice) => (choice ? { ...choice, selected } : choice));
 
-  // An export file sends nothing for an untouched picker (the whole space); a read from Octopus always sends what is ticked.
+  // An export file sends nothing for an untouched picker (the whole space) unless it holds a Config-as-Code project; a read from
+  // Octopus always sends what is ticked.
   const selectionRequestOf = (choice: SessionProjectChoice, list: OctopusImportProjectList) =>
     useServerSource
       ? { send: true, projectIds: choice.selected }
@@ -869,7 +871,7 @@ const ImportProjects: React.FC = () => {
 
   const previewChosenProjects = async () => {
     const choice = projectChoice;
-    if (!choice?.list || !choice.selected.length) return;
+    if (!choice?.list || !canPreviewChoice(choice.list, choice.selected, !useServerSource)) return;
 
     const request = selectionRequestOf(choice, choice.list);
     const { token, controller } = beginWorkflow();
@@ -1632,7 +1634,7 @@ const ImportProjects: React.FC = () => {
   const previewImportButton = (
     <Button
       type={buttonType("previewProjects")}
-      disabled={!projectChoice?.list || !projectChoice.selected.length}
+      disabled={!projectChoice?.list || !canPreviewChoice(projectChoice.list, projectChoice.selected, !useServerSource)}
       onClick={() => void previewChosenProjects()}
     >
       Preview import

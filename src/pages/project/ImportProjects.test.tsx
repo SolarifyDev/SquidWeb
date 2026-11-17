@@ -1687,6 +1687,38 @@ describe('ImportProjects', () => {
     expect(api.selectOctopusImportProjects).toHaveBeenCalledWith('session-1', 1, null, expect.anything());
   });
 
+  it('file_withAConfigAsCodeProject_UntouchedPicker_SendsTheImportableProjects', async () => {
+    const list = projectList();
+    list.projects[1] = { ...list.projects[1], isConfigAsCode: true };
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    api.getOctopusImportProjects.mockResolvedValue(ok(list));
+    renderPage();
+    await pickFile();
+    await screen.findByTestId('session-project-choice');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+
+    await screen.findByText('By project');
+    expect(api.selectOctopusImportProjects).toHaveBeenCalledWith('session-1', 1, ['Projects-1', 'Projects-3'], expect.anything());
+  });
+
+  it('file_everyProjectConfigAsCode_PreviewsTheWholeFile', async () => {
+    const list = projectList();
+    list.projects = list.projects.map((item) => ({ ...item, isConfigAsCode: true }));
+    api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
+    api.getOctopusImportProjects.mockResolvedValue(ok(list));
+    renderPage();
+    await pickFile();
+    await screen.findByTestId('session-project-choice');
+
+    expect(screen.getByRole('button', { name: 'Preview import' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+
+    await screen.findByText('By project');
+    expect(api.selectOctopusImportProjects).not.toHaveBeenCalled();
+    expect(api.previewOctopusImport).toHaveBeenCalledTimes(1);
+  });
+
   it('file_previewIsDisabled_WithNothingChosen', async () => {
     api.uploadOctopusImport.mockResolvedValue(ok({ session: session(OctopusImportSessionState.Uploaded), blockerSummary: noBlockers }));
     renderPage();

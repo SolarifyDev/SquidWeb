@@ -94,14 +94,22 @@ export interface SelectionRequest {
   projectIds: string[] | null;
 }
 
+/** No project can be ticked: every one is Config as Code, or there are none. */
+const nothingChoosable = (list: OctopusImportProjectList) => !list.projects.some(isChoosable);
+
 /**
- * What an export file sends for the chosen projects: every project that can be chosen ticked is the whole space (null), sent only to
- * clear an earlier selection, so an untouched picker previews exactly what it did before projects could be chosen (the preview then
- * skips a Config-as-Code project with its own reason).
+ * What an export file sends for the chosen projects: every project ticked is the whole space (null), sent only to clear an earlier
+ * selection, so an untouched picker previews exactly what it did before projects could be chosen. A Config-as-Code project can never
+ * be ticked, so a file holding one sends what is ticked, unless nothing can be ticked: then the whole file is the only choice (the
+ * preview skips such a project with its own reason).
  */
 export const fileSelectionRequest = (list: OctopusImportProjectList, selected: string[]): SelectionRequest => {
-  const everyProject = list.projects.filter(isChoosable).every((project) => selected.includes(project.id));
-  if (everyProject) return { send: list.selectedProjectIds != null, projectIds: null };
+  const everyProject = list.projects.every((project) => selected.includes(project.id));
+  if (everyProject || nothingChoosable(list)) return { send: list.selectedProjectIds != null, projectIds: null };
 
   return { send: true, projectIds: list.projects.filter((project) => selected.includes(project.id)).map((project) => project.id) };
 };
+
+/** A preview needs a ticked project, except for an export file nothing can be ticked in (it previews the whole file). */
+export const canPreviewChoice = (list: OctopusImportProjectList, selected: string[], fromFile: boolean) =>
+  selected.length > 0 || (fromFile && nothingChoosable(list));
