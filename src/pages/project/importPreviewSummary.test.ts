@@ -20,6 +20,7 @@ import {
 } from 'pages/apis/octopusImport';
 import {
   choiceGroups,
+  hasChoices,
   followersText,
   selectionChanged,
   withSelection,
@@ -866,7 +867,7 @@ const chosen = (
   choice: { reason, selected, defaultSelected: selected, followsSourceId, ownerName: "Deployment process of 'Web'" },
 });
 
-const { DeletedInSquid, AddedInOctopus } = OctopusImportChoiceReason;
+const { DeletedInSquid, AddedInOctopus, MissedByEarlierImport } = OctopusImportChoiceReason;
 
 const choicePlan = () => planOf([
   resource('Project', 'Projects-1', AlreadyImported, 'Projects-1'),
@@ -875,12 +876,14 @@ const choicePlan = () => planOf([
   chosen('DeploymentAction', 'Actions-71', AddedInOctopus, false, 'Steps-7'),
   chosen('DeploymentAction', 'Actions-72', AddedInOctopus, false, 'Steps-7'),
   chosen('Channel', 'Channels-3', AddedInOctopus, true),
+  chosen('DeploymentStep', 'Projects-2/step/Steps-1', MissedByEarlierImport, true),
+  chosen('DeploymentAction', 'Projects-2/action/Actions-1', MissedByEarlierImport, true, 'Projects-2/step/Steps-1'),
   resource('Release', 'Releases-9', Create, 'Projects-1'),
 ]);
 
 describe('choices', () => {
   it('reasonOrdinals_matchBackend', () => {
-    expect([DeletedInSquid, AddedInOctopus]).toEqual([0, 1]);
+    expect([DeletedInSquid, AddedInOctopus, MissedByEarlierImport]).toEqual([0, 1, 2]);
   });
 
   it('choiceGroups_GroupsRootsByReason_CountsFollowers_AndNeverListsAFollower', () => {
@@ -891,10 +894,24 @@ describe('choices', () => {
     expect(groups.added[0].followers.map(row => row.sourceId)).toEqual(['Actions-71', 'Actions-72']);
     expect(groups.added[1].followers).toEqual([]);
     expect(groups.deleted[0].followers).toEqual([]);
+    expect(groups.missed.map(row => row.resource.sourceId)).toEqual(['Projects-2/step/Steps-1']);
+    expect(groups.missed[0].followers.map(row => row.sourceId)).toEqual(['Projects-2/action/Actions-1']);
+  });
+
+  it.each([
+    ['deleted', DeletedInSquid],
+    ['added', AddedInOctopus],
+    ['missed', MissedByEarlierImport],
+  ] as const)('hasChoices_IsTrue_ForAnyOneGroup(%s)', (_, reason) => {
+    expect(hasChoices(choiceGroups([chosen('DeploymentStep', 'Steps-1', reason, false)]))).toBe(true);
+  });
+
+  it('hasChoices_IsFalse_WithoutChoices', () => {
+    expect(hasChoices(choiceGroups([resource('Project', 'Projects-1', Create)]))).toBe(false);
   });
 
   it('choiceGroups_IsEmpty_ForAPlanWithoutChoices', () => {
-    expect(choiceGroups([resource('Project', 'Projects-1', Create)])).toEqual({ deleted: [], added: [] });
+    expect(choiceGroups([resource('Project', 'Projects-1', Create)])).toEqual({ deleted: [], added: [], missed: [] });
   });
 
   it('followersText_NamesTheKind_OrItems_WhenMixed', () => {
@@ -939,6 +956,7 @@ describe('choices', () => {
     expect(posted.resources.some(item => item.sourceType === 'Release')).toBe(false);
     expect(posted.resources.filter(item => item.choice).map(item => [item.sourceId, item.choice?.selected])).toEqual([
       ['Steps-2', true], ['Steps-7', false], ['Actions-71', false], ['Actions-72', false], ['Channels-3', false],
+      ['Projects-2/step/Steps-1', true], ['Projects-2/action/Actions-1', true],
     ]);
   });
 });

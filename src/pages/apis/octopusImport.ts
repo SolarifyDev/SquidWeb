@@ -142,6 +142,8 @@ export enum OctopusImportChoiceReason {
   // Append-only: mirrors the backend ordinals.
   DeletedInSquid,
   AddedInOctopus,
+  /** An import before owner-qualified child ids linked it to the same-id child of the project it was cloned from. */
+  MissedByEarlierImport,
 }
 
 export enum OctopusImportProjectDestinationState {

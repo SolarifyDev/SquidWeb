@@ -15,6 +15,7 @@ import {
 } from "pages/apis/octopusImport";
 import {
   choiceGroups,
+  hasChoices,
   choiceKindText,
   followersText,
   type ChoiceGroups,
@@ -400,7 +401,7 @@ const FillList: React.FC<{ resources: OctopusImportPreviewResource[]; spaceSlug:
   </section>
 );
 
-// ── Choices (deleted in Squid, added in Octopus since) ───────────────────────
+// ── Choices (deleted in Squid, added in Octopus since, missed by an earlier import) ─
 
 export interface PreviewChoiceProps {
   /** Ticks or unticks the given choice rows; without it the choices are shown read-only. */
@@ -420,6 +421,11 @@ const CHOICE_SECTIONS = [
     id: "added",
     title: "Added in Octopus since the last import",
     hint: "Added in Octopus after what they belong to was imported. Imported configuration is never changed unless you tick it: ticked items are added, and nothing already in Squid is overwritten. New channels are ticked because their releases and deployments need them.",
+  },
+  {
+    id: "missed",
+    title: "Missed by an earlier import",
+    hint: "What they belong to was imported, but an earlier import skipped them: Octopus gave them the same ids as in the project it was cloned from. They are ticked so the project is complete; ticked items are added, and nothing already in Squid is overwritten.",
   },
 ] as const;
 
@@ -464,9 +470,9 @@ const ChoiceSection: React.FC<{ id: string; title: string; hint: string; rows: C
   </div>
 );
 
-/** What the user decides on: items deleted in Squid after an earlier import, and items added in Octopus since. */
+/** What the user decides on: items deleted in Squid after an earlier import, items added in Octopus since, and items an earlier import missed. */
 const ChoicesPanel: React.FC<{ plan: OctopusImportPreviewPlan; groups: ChoiceGroups } & PreviewChoiceProps> = ({ plan, groups, ...choiceProps }) => {
-  if (!groups.deleted.length && !groups.added.length) return null;
+  if (!hasChoices(groups)) return null;
 
   return (
     <section data-testid="preview-choices" className="space-y-4">
@@ -528,7 +534,7 @@ const PreviewOverview: React.FC<{ plan: OctopusImportPreviewPlan; spaceSlug: str
   if (!summary || !derived) return null;
 
   const { outside, fills, rows, choices } = derived;
-  const offersLeft = choices.deleted.length + choices.added.length > 0;
+  const offersLeft = hasChoices(choices);
 
   return (
     <div className="space-y-5">

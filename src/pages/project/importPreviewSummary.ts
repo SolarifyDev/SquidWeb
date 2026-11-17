@@ -180,6 +180,7 @@ export interface ChoiceRow {
 export interface ChoiceGroups {
   deleted: ChoiceRow[];
   added: ChoiceRow[];
+  missed: ChoiceRow[];
 }
 
 /** A row the user ticks: it has a choice and follows no other row. */
@@ -208,15 +209,19 @@ const choiceRowsOf = (
     .filter(resource => isChoiceRoot(resource) && Number(resource.choice?.reason) === reason)
     .map(resource => ({ resource, followers: followers.get(resource.sourceId) ?? [] }));
 
-/** The rows the user decides on, by reason: deleted in Squid after an earlier import, or added in Octopus since. */
+/** The rows the user decides on, by reason: deleted in Squid after an earlier import, added in Octopus since, or missed by an earlier import. */
 export const choiceGroups = (resources: OctopusImportPreviewResource[]): ChoiceGroups => {
   const followers = followersByRoot(resources);
 
   return {
     deleted: choiceRowsOf(resources, OctopusImportChoiceReason.DeletedInSquid, followers),
     added: choiceRowsOf(resources, OctopusImportChoiceReason.AddedInOctopus, followers),
+    missed: choiceRowsOf(resources, OctopusImportChoiceReason.MissedByEarlierImport, followers),
   };
 };
+
+/** True when any group offers a row to decide on. */
+export const hasChoices = (groups: ChoiceGroups) => Object.values(groups).some(rows => rows.length > 0);
 
 /** The plan with `selected` set on the given choice roots; followers and every other row are left as they are. */
 export const withSelection = (plan: OctopusImportPreviewPlan, sourceIds: string[], selected: boolean): OctopusImportPreviewPlan => {

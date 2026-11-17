@@ -397,6 +397,8 @@ const choicesPlan = (): OctopusImportPreviewPlan => ({
     choiceRow('DeploymentAction', 'Actions-71', OctopusImportChoiceReason.AddedInOctopus, false, 'Steps-7'),
     choiceRow('DeploymentAction', 'Actions-72', OctopusImportChoiceReason.AddedInOctopus, false, 'Steps-7'),
     choiceRow('LifecyclePhase', 'Phases-3', OctopusImportChoiceReason.AddedInOctopus, false),
+    choiceRow('DeploymentStep', 'Projects-2/step/Steps-1', OctopusImportChoiceReason.MissedByEarlierImport, true),
+    choiceRow('DeploymentAction', 'Projects-2/action/Actions-1', OctopusImportChoiceReason.MissedByEarlierImport, true, 'Projects-2/step/Steps-1'),
   ],
 });
 
@@ -419,6 +421,9 @@ describe('ImportPreviewOverview choices', () => {
     expect(deleted).toHaveTextContent('They stay deleted unless you tick them.');
     expect(added).toHaveTextContent('Added in Octopus since the last import');
     expect(added).toHaveTextContent('nothing already in Squid is overwritten');
+    const missed = screen.getByTestId('choices-missed');
+    expect(missed).toHaveTextContent('Missed by an earlier import');
+    expect(missed).toHaveTextContent('the project it was cloned from');
     expect(screen.getByTestId('choices-footer')).toHaveTextContent('Unticked items are not remembered: the next import offers them again.');
     expect(screen.queryByTestId('choices-pending')).not.toBeInTheDocument();
   });
@@ -443,6 +448,18 @@ describe('ImportPreviewOverview choices', () => {
     expect(step).not.toBeChecked();
     expect(channel).toBeChecked();
     expect(checkboxesOf('choices-added').slice(1).every(box => !(box as HTMLInputElement).checked)).toBe(true);
+    expect(checkboxesOf('choices-missed').slice(1).map(box => (box as HTMLInputElement).checked)).toEqual([true]);
+  });
+
+  // Only rows an earlier import missed: the panel still shows them, and the up-to-date banner still names the offers.
+  it('showsThePanel_AndNamesTheOffers_WithOnlyMissedRows', () => {
+    const base = plan();
+    const onlyMissed = { ...base, summary: { ...base.summary!, isUpToDate: true }, resources: [...base.resources, choiceRow('Variable', 'Projects-2/variable/Variables-1', OctopusImportChoiceReason.MissedByEarlierImport, true)] };
+
+    renderInRouter(<ImportPreviewOverview plan={onlyMissed} spaceSlug="Spaces-1" onChoiceChange={vi.fn()} />);
+
+    expect(within(screen.getByTestId('choices-missed')).getByText('Projects-2/variable/Variables-1 name')).toBeInTheDocument();
+    expect(screen.getByTestId('preview-up-to-date')).toHaveTextContent('except the items offered below');
   });
 
   it('tickingARow_ReportsThatRowOnly', () => {
