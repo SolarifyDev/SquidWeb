@@ -192,10 +192,21 @@ describe('importPreviewSummary', () => {
 
   it.each([
     [null, 0],
-    [{ projectIndex: 0, projectCount: 0, done: false }, 0],
-    [{ projectIndex: 1, projectCount: 4, done: false }, 25],
-    [{ projectIndex: 4, projectCount: 4, done: false }, 99],
+    [{ projectIndex: 0, projectCount: 0, done: false }, 95],
+    [{ projectIndex: 1, projectCount: 4, done: false }, 32],
+    [{ projectIndex: 4, projectCount: 4, done: false }, 95],
     [{ projectIndex: 4, projectCount: 4, done: true }, 100],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.ProjectConfiguration }, 10],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Deployments, phaseItemsDone: 1200, phaseItemsTotal: 5431 }, 51],
+    [{ projectIndex: 1, projectCount: 4, done: false, phase: OctopusHistoryFetchPhase.Deployments, phaseItemsDone: 0, phaseItemsTotal: null }, 38],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Deployments, phaseItemsDone: 5431, phaseItemsTotal: 5431 }, 95],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Deployments, phaseItemsDone: 6000, phaseItemsTotal: 5431 }, 95],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Releases, phaseItemsDone: 0, phaseItemsTotal: 0 }, 39],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Releases, phaseItemsDone: 498, phaseItemsTotal: 4990 }, 16],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 1, catalogKindCount: 4, phaseItemsDone: 50, phaseItemsTotal: 100 }, 3],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 1, catalogKindCount: 4, phaseItemsTotal: null }, 2],
+    [{ projectIndex: 0, projectCount: 1, done: false, phase: OctopusHistoryFetchPhase.Catalog }, 0],
+    [{ projectIndex: 2, projectCount: 2, done: false, phase: OctopusHistoryFetchPhase.Closure, phaseItemsDone: 0, phaseItemsTotal: null }, 95],
   ])('fetchProgressPercent(%o) = %i', (partial, expected) => {
     const progress = partial
       ? {
@@ -207,6 +218,42 @@ describe('importPreviewSummary', () => {
       : null;
 
     expect(fetchProgressPercent(progress)).toBe(expected);
+  });
+});
+
+describe('fetchProgressPercent across a whole fetch', () => {
+  // Every poll of a two-project fetch, in the order the server moves: the catalog (a chunk ending on a kind boundary
+  // reports no total), each project's configuration, releases and deployments (no total until their first page), the closure.
+  const polls: Partial<OctopusHistoryFetchProgress>[] = [
+    { phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 0, catalogKindCount: 3, phaseItemsTotal: null },
+    { phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 0, catalogKindCount: 3, phaseItemsDone: 100, phaseItemsTotal: 100 },
+    { phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 1, catalogKindCount: 3, phaseItemsTotal: null },
+    { phase: OctopusHistoryFetchPhase.Catalog, catalogIndex: 2, catalogKindCount: 3, phaseItemsDone: 30, phaseItemsTotal: 30 },
+    ...[0, 1].flatMap(projectIndex => [
+      { phase: OctopusHistoryFetchPhase.ProjectConfiguration, projectIndex },
+      { phase: OctopusHistoryFetchPhase.Releases, projectIndex, phaseItemsTotal: null },
+      { phase: OctopusHistoryFetchPhase.Releases, projectIndex, phaseItemsDone: 4990, phaseItemsTotal: 4990 },
+      { phase: OctopusHistoryFetchPhase.Deployments, projectIndex, phaseItemsTotal: null },
+      { phase: OctopusHistoryFetchPhase.Deployments, projectIndex, phaseItemsDone: 300, phaseItemsTotal: 5431 },
+      { phase: OctopusHistoryFetchPhase.Deployments, projectIndex, phaseItemsDone: 5431, phaseItemsTotal: 5431 },
+    ]),
+    { phase: OctopusHistoryFetchPhase.Closure, projectIndex: 2 },
+    { phase: OctopusHistoryFetchPhase.Done, projectIndex: 2, done: true },
+  ];
+
+  it('neverGoesBackwards_AndEndsAt100', () => {
+    const percents = polls.map(poll => fetchProgressPercent({
+      projectIndex: 0,
+      projectCount: 2,
+      done: false,
+      counts: { releases: 0, deployments: 0, serverTasks: 0, detailsFetched: 0, detailsSkipped: 0 },
+      totalBytes: 0,
+      ...poll,
+    } as OctopusHistoryFetchProgress));
+
+    percents.forEach((percent, index) => expect(percent).toBeGreaterThanOrEqual(percents[index - 1] ?? 0));
+    expect(percents.at(-1)).toBe(100);
+    expect(new Set(percents).size).toBeGreaterThan(polls.length / 2);
   });
 });
 
@@ -260,8 +307,16 @@ describe('fetchPositionLabel', () => {
   });
 
   it.each([
-    [at(OctopusHistoryFetchPhase.Releases), 'Reading releases (project 1 of 2 chosen)'],
-    [at(OctopusHistoryFetchPhase.ProjectConfiguration), 'Reading project configuration (project 1 of 2 chosen)'],
+    [at(OctopusHistoryFetchPhase.Releases), 'Reading releases (project 2 of 2 chosen)'],
+    [at(OctopusHistoryFetchPhase.Releases, { projectIndex: 0, projectCount: 1 }), 'Reading releases (project 1 of 1 chosen)'],
+    [at(OctopusHistoryFetchPhase.ProjectConfiguration), 'Reading project configuration (project 2 of 2 chosen)'],
+    [at(OctopusHistoryFetchPhase.Deployments, { projectIndex: 0, projectCount: 1, phaseItemsDone: 1200, phaseItemsTotal: 5431 }),
+      'Reading deployments (project 1 of 1 chosen): 1,200 of 5,431'],
+    [at(OctopusHistoryFetchPhase.Releases, { phaseItemsDone: 30, phaseItemsTotal: 4990 }), 'Reading releases (project 2 of 2 chosen): 30 of 4,990'],
+    [at(OctopusHistoryFetchPhase.Deployments, { phaseItemsDone: 0, phaseItemsTotal: null }), 'Reading deployments (project 2 of 2 chosen)'],
+    [at(OctopusHistoryFetchPhase.Catalog, { catalogIndex: 3, catalogKindCount: 14, phaseItemsDone: 20, phaseItemsTotal: 75 }),
+      'Reading space configuration (kind 4 of 14): 20 of 75'],
+    [at(OctopusHistoryFetchPhase.ProjectConfiguration, { phaseItemsDone: 0, phaseItemsTotal: null }), 'Reading project configuration (project 2 of 2 chosen)'],
     [at(OctopusHistoryFetchPhase.Catalog, { catalogIndex: 3, catalogKindCount: 14 }), 'Reading space configuration (kind 4 of 14)'],
     [at(OctopusHistoryFetchPhase.Catalog), 'Reading space configuration'],
     [at(OctopusHistoryFetchPhase.Closure), 'Reading referenced resources'],

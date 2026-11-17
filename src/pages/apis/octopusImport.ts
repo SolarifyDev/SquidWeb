@@ -213,6 +213,10 @@ export interface OctopusHistoryFetchProgress {
   /** The catalog kind being read, of `catalogKindCount`, while the phase is Catalog. */
   catalogIndex?: number;
   catalogKindCount?: number;
+  /** Items of the current phase already read: the current project's releases or deployments, or the current catalog kind's resources. Absent on older servers. */
+  phaseItemsDone?: number;
+  /** What Octopus reported in all for the same thing; null until the phase's first page is read, and absent on older servers. */
+  phaseItemsTotal?: number | null;
   counts: OctopusHistoryFetchCounts;
   totalBytes: number;
   done: boolean;

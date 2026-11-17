@@ -560,7 +560,7 @@ describe('ImportProjects', () => {
     fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
 
     const fetchProgress = await screen.findByTestId('history-fetch-progress');
-    expect(fetchProgress).toHaveTextContent('Reading releases (project 1 of 2 chosen)');
+    expect(fetchProgress).toHaveTextContent('Reading releases (project 2 of 2 chosen)');
     expect(fetchProgress).toHaveTextContent('4 releases, 6 deployments, 6 tasks, 5 details fetched, 1 unchanged');
     expect(steps().querySelector('.ant-steps-item-process')).toHaveTextContent('Read from Octopus');
     expect(screen.getByLabelText('Server URL')).toBeDisabled();
@@ -893,6 +893,24 @@ describe('ImportProjects', () => {
     await screen.findByText('Extraction produced blocking diagnostics.');
 
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [{ phaseItemsDone: 1200, phaseItemsTotal: 5431 }, 'Reading deployments (project 1 of 1 chosen): 1,200 of 5,431', '51%'],
+    [{}, 'Reading deployments (project 1 of 1 chosen)', '39%'],
+  ])('showsHowManyItemsOfThePhaseAreRead_WhenTheServerReportsATotal %#', async (totals, label, percent) => {
+    api.fetchOctopusImportHistory.mockReset();
+    api.fetchOctopusImportHistory
+      .mockResolvedValueOnce(ok({ ...progress(0, false), projectCount: 1, ...totals }))
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    renderPage();
+    await connectToServer();
+
+    fireEvent.click(screen.getByRole('button', { name: READ_FROM_OCTOPUS }));
+
+    const fetchProgress = await screen.findByTestId('history-fetch-progress');
+    expect(fetchProgress.querySelector('.font-medium')).toHaveTextContent(new RegExp(`^${label.replace(/[()]/g, '\\$&')}$`));
+    expect(document.querySelector('.ant-progress-text')).toHaveTextContent(percent);
   });
 
   it('showsConfigurationProgress_WhileReadingTheSpaceCatalog', async () => {

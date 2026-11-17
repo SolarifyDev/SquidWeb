@@ -207,13 +207,58 @@ export const listedResources = (resources: OctopusImportPreviewResource[], type:
     .filter(resource => actionBucket(resource.previewAction) in LISTED_LABELS)
     .map(resource => ({ resource, label: LISTED_LABELS[actionBucket(resource.previewAction)] ?? null }));
 
+/** The per-project phases whose items Octopus pages with a total. */
+const TOTALLED_PROJECT_PHASES = [OctopusHistoryFetchPhase.Releases, OctopusHistoryFetchPhase.Deployments];
+
+const hasPhaseTotal = (progress: OctopusHistoryFetchProgress): progress is OctopusHistoryFetchProgress & { phaseItemsTotal: number } =>
+  typeof progress.phaseItemsTotal === 'number';
+
+/** How much of the current phase is read, in [0, 1]; null when the server reports no total. */
+export const phaseFraction = (progress: OctopusHistoryFetchProgress) => {
+  if (!hasPhaseTotal(progress)) return null;
+  if (progress.phaseItemsTotal <= 0) return 1;
+
+  return Math.min(1, Math.max(0, (progress.phaseItemsDone ?? 0) / progress.phaseItemsTotal));
+};
+
+/** Where each stage sits on the bar, in percent: the catalog, then the chosen projects, then the closure at the end of them. */
+const CATALOG_SPAN = [0, 10] as const;
+const PROJECTS_SPAN = [10, 95] as const;
+
+/** Where each per-project phase sits within one project's share; deployments (each with its task's details) take most. */
+const PROJECT_PHASE_SPANS: Partial<Record<OctopusHistoryFetchPhase, readonly [number, number]>> = {
+  [OctopusHistoryFetchPhase.ProjectConfiguration]: [0, 0.05],
+  [OctopusHistoryFetchPhase.Releases]: [0.05, 0.35],
+  [OctopusHistoryFetchPhase.Deployments]: [0.35, 1],
+};
+
+const within = ([start, end]: readonly [number, number], fraction: number) => start + (end - start) * fraction;
+
+/** A phase whose total is not known yet (its first page not read) counts as just started. */
+const phaseFractionOrStart = (progress: OctopusHistoryFetchProgress) => phaseFraction(progress) ?? 0;
+
+const catalogFraction = (progress: OctopusHistoryFetchProgress) =>
+  progress.catalogKindCount ? ((progress.catalogIndex ?? 0) + phaseFractionOrStart(progress)) / progress.catalogKindCount : 0;
+
+const projectsFraction = (progress: OctopusHistoryFetchProgress, phaseSpan: readonly [number, number]) =>
+  progress.projectCount > 0 ? (progress.projectIndex + within(phaseSpan, phaseFractionOrStart(progress))) / progress.projectCount : 1;
+
+/** How far the whole fetch is, in percent; it only moves forward as the server moves through phases and projects. */
+const overallPercent = (progress: OctopusHistoryFetchProgress) => {
+  const phaseSpan = PROJECT_PHASE_SPANS[progress.phase];
+
+  if (progress.phase === OctopusHistoryFetchPhase.Catalog) return within(CATALOG_SPAN, catalogFraction(progress));
+  if (phaseSpan) return within(PROJECTS_SPAN, Math.min(1, projectsFraction(progress, phaseSpan)));
+
+  return PROJECTS_SPAN[1];
+};
+
 /** Percent for the fetch progress bar; held below 100 until the server reports done. */
 export const fetchProgressPercent = (progress: OctopusHistoryFetchProgress | null) => {
   if (!progress) return 0;
   if (progress.done) return 100;
-  if (progress.projectCount <= 0) return 0;
 
-  return Math.min(99, Math.floor((progress.projectIndex / progress.projectCount) * 100));
+  return Math.min(99, Math.floor(overallPercent(progress)));
 };
 
 export const FETCH_PHASE_LABELS: Record<OctopusHistoryFetchPhase, string> = {
@@ -233,16 +278,25 @@ const PER_PROJECT_PHASES = [
   OctopusHistoryFetchPhase.Deployments,
 ];
 
+const formatCount = (value: number) => value.toLocaleString('en-US');
+
+const itemsPosition = (progress: OctopusHistoryFetchProgress) =>
+  hasPhaseTotal(progress) ? `: ${formatCount(progress.phaseItemsDone ?? 0)} of ${formatCount(progress.phaseItemsTotal)}` : '';
+
 const catalogPosition = (progress: OctopusHistoryFetchProgress) =>
   progress.catalogKindCount ? ` (kind ${(progress.catalogIndex ?? 0) + 1} of ${progress.catalogKindCount})` : '';
 
-/** The phase and where the read is in it: the catalog kind, or the project. */
+/** The project being read; the server's projectIndex is 0-based. */
+const projectPosition = (progress: OctopusHistoryFetchProgress) =>
+  ` (project ${progress.projectIndex + 1} of ${progress.projectCount} chosen)`;
+
+/** The phase and where the read is in it: the catalog kind or the project, and the items read of the phase's total when the server reports one. */
 export const fetchPositionLabel = (progress: OctopusHistoryFetchProgress) => {
   const label = fetchPhaseLabel(progress.phase);
 
-  if (progress.phase === OctopusHistoryFetchPhase.Catalog) return label + catalogPosition(progress);
-  if (PER_PROJECT_PHASES.includes(progress.phase))
-    return `${label} (project ${progress.projectIndex} of ${progress.projectCount} chosen)`;
+  if (progress.phase === OctopusHistoryFetchPhase.Catalog) return label + catalogPosition(progress) + itemsPosition(progress);
+  if (TOTALLED_PROJECT_PHASES.includes(progress.phase)) return label + projectPosition(progress) + itemsPosition(progress);
+  if (PER_PROJECT_PHASES.includes(progress.phase)) return label + projectPosition(progress);
 
   return label;
 };
