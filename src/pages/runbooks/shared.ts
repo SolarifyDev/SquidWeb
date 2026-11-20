@@ -1,3 +1,4 @@
+import type { ServerTaskListItemDto } from 'pages/apis/serverTask'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 
 const PROJECT_LOOKUP_TTL_MS = 30_000
@@ -7,6 +8,55 @@ export const RUNBOOK_NAME_MAX_LENGTH = 200
 export const RUNBOOK_DESCRIPTION_MAX_LENGTH = 4000
 export const RUNBOOK_TAG_MAX_LENGTH = 100
 export const RUNBOOK_TAGS_MAX_COUNT = 50
+
+export type RunbookTaskCategory = 'running' | 'waiting' | 'needsApproval' | 'completed'
+
+export interface RunbookTaskStatus {
+  category: RunbookTaskCategory | 'failed'
+  label: string
+  tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral'
+}
+
+const RUNNING_TASK_STATES = new Set(['executing', 'cancelling'])
+const WAITING_TASK_STATES = new Set(['pending'])
+const FAILED_TASK_STATES = new Set(['failed', 'timedout', 'cancelled', 'canceled'])
+
+export function classifyRunbookTask(task: Pick<ServerTaskListItemDto, 'state' | 'hasPendingInterruptions' | 'isCompleted'>): RunbookTaskStatus {
+  const state = task.state.trim().toLowerCase()
+  if (task.hasPendingInterruptions || state === 'paused' || state.includes('approval') || state.includes('manual')) {
+    return { category: 'needsApproval', label: 'Needs approval', tone: 'warning' }
+  }
+  if (RUNNING_TASK_STATES.has(state)) return { category: 'running', label: 'Running', tone: 'info' }
+  if (WAITING_TASK_STATES.has(state)) return { category: 'waiting', label: 'Waiting', tone: 'neutral' }
+  if (state === 'success') return { category: 'completed', label: 'Success', tone: 'success' }
+  if (FAILED_TASK_STATES.has(state)) return { category: 'failed', label: task.state || 'Failed', tone: 'danger' }
+  if (task.isCompleted) return { category: 'completed', label: task.state || 'Completed', tone: 'success' }
+  return { category: 'waiting', label: task.state || 'Waiting', tone: 'neutral' }
+}
+
+export function formatRunbookTaskDateTime(value: string | null | undefined) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+export function formatRunbookTaskDuration(seconds: number) {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
+  if (safe < 60) return `${safe}s`
+  const minutes = Math.floor(safe / 60)
+  const remainingSeconds = safe % 60
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+}
 
 export function findProjectByRouteName(projects: ProjectDto[], projectName: string) {
   return projects.find((project) => project.slug === projectName || project.name === projectName)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useBeforeUnload, useLocation, useNavigate } from 'react-router-dom'
+import { useParams, useBeforeUnload, useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { Dropdown, Modal, Select, Spin, message, type MenuProps } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
 import { updateProject, type ProjectDto } from 'pages/apis/project'
@@ -38,6 +38,7 @@ import {
 } from './step-editors/openclaw/OpenClawActionEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
 import type { RunbookProcessContextValue } from './step-editors/shared/RunbookProcessContext'
+import type { RunbookDetailOutletContext } from 'pages/runbooks/RunbookDetailLayout'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
 
@@ -1468,6 +1469,7 @@ export function resolveProcessSelection(
 const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded = false }) => {
   const location = useLocation()
   const navigate = useNavigate()
+  const runbookDetailContext = useOutletContext<RunbookDetailOutletContext | null>()
   const { projectName, spaceId = 'Spaces-1' } = useParams<{ projectName: string; spaceId: string }>()
   const [mode, setMode] = useState<'overview' | 'editor'>('overview')
   const [loading, setLoading] = useState(false)
@@ -1737,7 +1739,14 @@ const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded
       setDraftTemplateActionType(null)
       setDraftStepName('')
       setUnsavedChanges(false)
-      updateEditorDeepLink({ editor: false })
+      if (isRunbookContext) {
+        runbookDetailContext?.processState.reload()
+        navigate(projectName
+          ? `/${spaceId}/projects/${encodedProjectName}/operations/runbooks/${runbookContext?.runbookId}`
+          : processBasePath, { replace: true })
+      } else {
+        updateEditorDeepLink({ editor: false })
+      }
       return
     }
 

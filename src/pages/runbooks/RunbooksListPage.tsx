@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Dropdown, Empty, Input, Spin, Tag } from 'antd'
+import { Alert, Button, Dropdown, Spin, message } from 'antd'
 import { MoreOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
 import { getRunbookApiErrorDetails, getRunbooks, type RunbookDto } from 'pages/apis/runbook'
+import RunbookEmptyIllustration from './RunbookEmptyIllustration'
 import { buildRunbookPath, buildRunbooksPath } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 import { useRunbookAccess } from './useRunbookAccess'
@@ -75,25 +76,19 @@ export default function RunbooksListPage() {
 
   const accessDenied = access.probeDenied && !access.probeLoading && !access.permissionsLoading
   const accessUnavailable = !access.canView && !access.probeLoading && !access.permissionsLoading
+  const createRunbook = () => navigate(`${basePath}/create`)
+  const hasRunbooks = count > 0
 
   return (
     <PageContainer className="!max-w-[1600px] !py-5">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-card">
-        <header className="flex flex-wrap items-start justify-between gap-3 px-4 pb-4 pt-5 sm:px-6">
-          <div>
-            <h1 className="m-0 text-[20px] font-semibold text-slate-900">Runbooks</h1>
-            <p className="mb-0 mt-1 text-sm text-slate-500">
-              Runbooks let you automate routine operations against your project.
-            </p>
-          </div>
-          <Button
-            className={PRIMARY_GREEN_CLASS}
-            icon={<PlusOutlined />}
-            disabled={!access.canEdit}
-            onClick={() => navigate(`${basePath}/create`)}
-          >
-            Add Runbook
-          </Button>
+        <header className="flex min-h-[68px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
+          <h1 className="m-0 text-[20px] font-semibold leading-7 text-slate-900">Runbooks</h1>
+          {hasRunbooks ? (
+            <Button className={PRIMARY_GREEN_CLASS} icon={<PlusOutlined />} disabled={!access.canEdit} onClick={createRunbook}>
+              Add Runbook
+            </Button>
+          ) : null}
         </header>
 
         {access.permissionsError ? (
@@ -121,10 +116,50 @@ export default function RunbooksListPage() {
               action={<Button size="small" onClick={() => void access.probeViewAccess()}>Retry</Button>}
             />
           </div>
+        ) : loadError ? (
+          <div className="border-t border-slate-200 p-6">
+            <Alert
+              type="error"
+              showIcon
+              message="Failed to load Runbooks."
+              description={loadError}
+              action={<Button size="small" onClick={() => void load()}>Retry</Button>}
+            />
+          </div>
+        ) : loading || access.probeLoading || access.permissionsLoading ? (
+          <div className="flex min-h-[360px] items-center justify-center border-t border-slate-200"><Spin /></div>
+        ) : !hasRunbooks ? (
+          <div className="flex min-h-[520px] items-center justify-center border-t border-slate-200 px-6 py-12">
+            <div className="grid w-full max-w-[1050px] items-center gap-10 md:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="max-w-[480px]">
+                <h2 className="m-0 text-[18px] font-semibold leading-7 text-slate-900">Add your first Runbook to get started!</h2>
+                <p className="mb-0 mt-4 text-sm leading-6 text-slate-600">
+                  Runbooks can be used to automate routine or emergency operations-centric processes, for instance, disaster recovery and database backups.
+                </p>
+                <a
+                  href="https://octopus.com/docs/runbooks"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-squid-blue hover:underline"
+                >
+                  Learn more
+                  <span aria-hidden="true" className="text-[13px]">↗</span>
+                </a>
+                <div className="mt-5">
+                  <Button className={PRIMARY_GREEN_CLASS} disabled={!access.canEdit} onClick={createRunbook}>
+                    Add Runbook
+                  </Button>
+                </div>
+              </div>
+              <div className="mx-auto flex justify-center md:justify-end">
+                <RunbookEmptyIllustration />
+              </div>
+            </div>
+          </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 px-4 py-3 sm:px-6">
-              <div className="flex w-full max-w-[420px] items-center gap-2 border-b border-slate-400 pb-1.5 focus-within:border-squid-blue">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6">
+              <div className="flex h-10 w-full max-w-[326px] items-center gap-2 rounded border border-slate-300 px-3 focus-within:border-squid-blue">
                 <SearchOutlined className="text-slate-500" />
                 <input
                   type="search"
@@ -135,37 +170,10 @@ export default function RunbooksListPage() {
                   aria-label="Filter Runbooks by name"
                 />
               </div>
-              <div className="text-xs text-slate-500">
-                {count > 0 ? `${count} Runbook${count === 1 ? '' : 's'}` : 'No Runbooks'}
-                {!access.canEdit && access.permissionsKnown ? ' · Read-only access' : ''}
-              </div>
             </div>
 
-            {loadError ? (
-              <div className="p-6">
-                <Alert
-                  type="error"
-                  showIcon
-                  message="Failed to load Runbooks."
-                  description={loadError}
-                  action={<Button size="small" onClick={() => void load()}>Retry</Button>}
-                />
-              </div>
-            ) : loading || access.probeLoading || access.permissionsLoading ? (
-              <div className="flex min-h-[260px] items-center justify-center"><Spin /></div>
-            ) : visibleRunbooks.length === 0 ? (
-              <div className="px-6 py-12">
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={filter ? 'No Runbooks match this filter.' : 'No Runbooks in this project yet.'}
-                >
-                  {!filter && access.canEdit ? (
-                    <Button className={PRIMARY_GREEN_CLASS} icon={<PlusOutlined />} onClick={() => navigate(`${basePath}/create`)}>
-                      Add Runbook
-                    </Button>
-                  ) : null}
-                </Empty>
-              </div>
+            {visibleRunbooks.length === 0 ? (
+              <div className="border-t border-slate-200 px-6 py-16 text-center text-sm text-slate-500">No Runbooks match this filter.</div>
             ) : (
               <ul className="m-0 list-none p-0">
                 {visibleRunbooks.map((runbook) => (
@@ -186,9 +194,9 @@ export default function RunbooksListPage() {
                         {(runbook.tags ?? []).length > 0 ? (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {runbook.tags.map((tag) => (
-                              <Tag key={tag} className="m-0 border-slate-200 bg-slate-50 text-[11px] text-slate-600">
+                              <span key={tag} className="inline-flex rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
                                 {tag}
-                              </Tag>
+                              </span>
                             ))}
                           </div>
                         ) : null}
@@ -202,14 +210,17 @@ export default function RunbooksListPage() {
                           placement="bottomRight"
                           menu={{
                             items: [
-                              { key: 'open', label: 'Open' },
-                              { key: 'process', label: 'Edit Process' },
+                              { key: 'clone', label: 'Clone' },
+                              { key: 'audit', label: 'Audit Trail' },
                             ],
                             onClick: ({ key }) => {
-                              const target = key === 'process'
-                                ? `${buildRunbookPath(spaceId, projectName ?? '', runbook.id)}/process`
-                                : buildRunbookPath(spaceId, projectName ?? '', runbook.id)
-                              navigate(target)
+                              if (key === 'clone') {
+                                navigate(buildRunbookPath(spaceId, projectName ?? '', runbook.id), { state: { openCopy: true } })
+                                return
+                              }
+                              if (key === 'audit') {
+                                message.info('Audit Trail is not available yet.')
+                              }
                             },
                           }}
                         >

@@ -1,11 +1,9 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Button, Dropdown, Tag, type MenuProps } from 'antd'
-import { useLocation } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
   ClockCircleOutlined,
   CodeOutlined,
-  InfoCircleOutlined,
   MoreOutlined,
   ScheduleOutlined,
 } from '@ant-design/icons'
@@ -40,19 +38,20 @@ interface RunbookPageShellProps {
   spaceId: string
   projectName: string
   activeTab: RunbookTab
-  onDelete?: () => void
-  onCopy?: () => void
+  menuItems?: MenuProps['items']
+  onMenuClick?: (key: string) => void
   defaultAction?: 'process' | null
   renderShell?: boolean
   actions?: ReactNode
   aside?: ReactNode
   children: ReactNode
   contentClassName?: string
+  forceAside?: boolean
 }
 
 function ScheduledTriggerAside() {
   return (
-    <div>
+    <div className="flex min-h-full flex-col">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
           <ClockCircleOutlined className="text-slate-500" />
@@ -69,8 +68,8 @@ function ScheduledTriggerAside() {
       <p className="mb-0 mt-4 text-sm leading-6 text-slate-600">
         No triggers are currently setup for this runbook.
       </p>
-      <div className="mt-8 flex h-24 items-end justify-center rounded-md bg-slate-50 text-slate-300">
-        <ScheduleOutlined className="mb-4 text-5xl" />
+      <div className="mt-6 flex min-h-[120px] flex-1 items-end justify-center text-slate-300">
+        <ScheduleOutlined className="mb-2 text-5xl" />
       </div>
     </div>
   )
@@ -101,38 +100,6 @@ function RunbookAside({
   activeTab: RunbookTab
 }) {
   if (activeTab === 'process') return <ProcessAside />
-  if (activeTab === 'runs') {
-    return (
-      <div>
-        <div className="flex items-center gap-2 text-[15px] font-semibold text-slate-800">
-          <InfoCircleOutlined className="text-slate-500" />
-          Runbook details
-        </div>
-        <dl className="mt-4 space-y-3 text-sm">
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Process</dt>
-            <dd className="m-0 mt-1 text-slate-700">Process {runbook.processId}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Variable set</dt>
-            <dd className="m-0 mt-1 text-slate-700">Variable set {runbook.variableSetId}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Tags</dt>
-            <dd className="m-0 mt-1 flex flex-wrap gap-1">
-              {(runbook.tags ?? []).length > 0
-                ? runbook.tags.map((tag) => (
-                  <Tag key={tag} className="m-0 border-slate-200 bg-slate-50 text-slate-600">
-                    {tag}
-                  </Tag>
-                ))
-                : <span className="text-slate-400">No tags</span>}
-            </dd>
-          </div>
-        </dl>
-      </div>
-    )
-  }
   return <ScheduledTriggerAside />
 }
 
@@ -142,29 +109,23 @@ export default function RunbookPageShell({
   projectName,
   activeTab,
   renderShell = true,
-  onDelete,
-  onCopy,
+  menuItems = [],
+  onMenuClick,
   defaultAction = 'process',
   actions,
   aside,
   children,
   contentClassName = '',
+  forceAside = false,
 }: RunbookPageShellProps) {
-  const location = useLocation()
-  const canManage = Boolean(onCopy || onDelete)
   const basePath = buildRunbookPath(spaceId, projectName, runbook.id)
   const listPath = buildRunbooksPath(spaceId, projectName)
-  const tabPaths: Record<RunbookTab, string> = {
+  const tabPaths = useMemo<Record<RunbookTab, string>>(() => ({
     overview: basePath,
     runs: buildRunbookRunsPath(spaceId, projectName, runbook.id),
     process: buildRunbookProcessPath(spaceId, projectName, runbook.id),
     settings: buildRunbookSettingsPath(spaceId, projectName, runbook.id),
-  }
-
-  const menuItems: MenuProps['items'] = [
-    ...(onCopy ? [{ key: 'copy', label: 'Copy Runbook' }] : []),
-    ...(onDelete ? [{ key: 'delete', label: 'Delete Runbook', danger: true }] : []),
-  ]
+  }), [basePath, projectName, runbook.id, spaceId])
 
   const shell = (
     <>
@@ -196,7 +157,7 @@ export default function RunbookPageShell({
 
             <div className="flex flex-wrap items-center justify-end gap-2">
               {actions}
-              {!actions && !canManage && defaultAction === 'process' ? (
+              {!actions && defaultAction === 'process' ? (
                 <Link to={tabPaths.process}>
                   <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
                 </Link>
@@ -207,10 +168,7 @@ export default function RunbookPageShell({
                   placement="bottomRight"
                   menu={{
                     items: menuItems,
-                    onClick: ({ key }) => {
-                      if (key === 'delete') onDelete?.()
-                      if (key === 'copy') onCopy?.()
-                    },
+                    onClick: ({ key }) => onMenuClick?.(key),
                   }}
                 >
                   <Button
@@ -232,7 +190,6 @@ export default function RunbookPageShell({
               <Link
                 key={tab.key}
                 to={tabPaths[tab.key]}
-                replace={tab.key === 'overview' && location.pathname.includes('/runbooks/')}
                 aria-current={active ? 'page' : undefined}
                 className={[
                   'relative flex h-11 flex-shrink-0 items-center px-3 text-sm font-medium transition-colors sm:px-4 sm:text-[15px]',
@@ -248,9 +205,9 @@ export default function RunbookPageShell({
         </nav>
       </header>
 
-      <div className={`grid min-h-0 flex-1 auto-rows-min overflow-y-auto lg:auto-rows-auto lg:overflow-hidden ${(activeTab === 'process' || activeTab === 'runs') || aside ? 'lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]' : ''}`}>
+      <div className={`grid min-h-0 flex-1 auto-rows-min overflow-y-auto lg:auto-rows-auto lg:overflow-hidden ${forceAside || activeTab === 'process' || aside ? 'lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]' : ''}`}>
         <main className={`min-h-0 min-w-0 overflow-y-auto ${contentClassName}`}>{children}</main>
-        {(activeTab === 'process' || activeTab === 'runs') || aside ? <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-slate-50/60 px-5 py-6 lg:border-l lg:border-t-0">
+        {forceAside || activeTab === 'process' || aside ? <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-slate-50/60 px-5 py-5 lg:border-l lg:border-t-0">
           {aside ?? <RunbookAside runbook={runbook} activeTab={activeTab} />}
         </aside> : null}
       </div>

@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, Modal, Spin } from 'antd'
-import { Outlet, useLocation, useParams } from 'react-router-dom'
+import { Alert, Button, Input, Modal, Spin, Tooltip, message } from 'antd'
+import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
 import { usePermissions } from 'contexts/PermissionContext'
 import { copyRunbook, deleteRunbook, getRunbook, getRunbookApiErrorDetails, type RunbookDto } from 'pages/apis/runbook'
 import { useNavigate } from 'react-router-dom'
-import RunbookPageShell, { PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
-import { buildRunbookPath, buildRunbooksPath, parsePositiveId, upsertProjectLookupCache } from './shared'
+import RunbookPageShell, { OUTLINE_BLUE_CLASS, PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
+import { buildRunbookPath, buildRunbookProcessPath, buildRunbooksPath, parsePositiveId, upsertProjectLookupCache } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
+import { useRunbookProcessState, type RunbookProcessState } from './useRunbookProcessState'
 
 export type RunbookDetailOutletContext = {
   runbook: RunbookDto
   setRunbook: (runbook: RunbookDto) => void
   reloadRunbook: () => Promise<void>
   canEdit: boolean
+  processState: RunbookProcessState
   registerSettingsActions: (actions: RunbookSettingsActions | null) => void
 }
 
@@ -55,6 +57,14 @@ export default function RunbookDetailLayout() {
   const [copying, setCopying] = useState(false)
   const [settingsActions, setSettingsActions] = useState<RunbookSettingsActions | null>(null)
   const canEdit = !permissionsLoading && hasPermission('RunbookEdit')
+  const processState = useRunbookProcessState(project?.id ?? null, runbook)
+
+  useEffect(() => {
+    if (!runbook || !(location.state as { openCopy?: boolean } | null)?.openCopy) return
+    setCopyName(`${runbook.name} copy`)
+    setCopyOpen(true)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate, runbook])
 
   const load = useCallback(async () => {
     if (!project || !runbookId) {
@@ -131,8 +141,8 @@ export default function RunbookDetailLayout() {
   }
 
   const outletContext = useMemo<RunbookDetailOutletContext | null>(() => (
-    runbook ? { runbook, setRunbook, reloadRunbook: load, canEdit, registerSettingsActions } : null
-  ), [canEdit, load, registerSettingsActions, runbook, setRunbook])
+    runbook ? { runbook, setRunbook, reloadRunbook: load, canEdit, processState, registerSettingsActions } : null
+  ), [canEdit, load, processState, registerSettingsActions, runbook, setRunbook])
 
   if (projectLoading || loading) {
     return <PageContainer><div className="flex min-h-[420px] items-center justify-center"><Spin /></div></PageContainer>
@@ -161,6 +171,61 @@ export default function RunbookDetailLayout() {
   }
 
   const activeTab = resolveTab(location.pathname)
+  const processPath = buildRunbookProcessPath(spaceId, projectName ?? '', runbook.id)
+  const hasProcess = processState.hasProcess
+  const processStateReady = !processState.loading
+  const primaryActions = activeTab === 'settings' && canEdit ? (
+    <Button
+      className={PRIMARY_GREEN_CLASS}
+      loading={settingsActions?.saving}
+      disabled={!settingsActions?.dirty || settingsActions.saving}
+      onClick={() => void settingsActions?.save()}
+    >
+      Save
+    </Button>
+  ) : activeTab === 'overview' ? (
+    !processStateReady ? (
+      <div className="h-8 w-36" aria-hidden="true" />
+    ) : !hasProcess ? (
+      <Link to={processPath}>
+        <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
+      </Link>
+    ) : (
+      <>
+        <Tooltip title="Publishing is not available in this version">
+          <Button className={OUTLINE_BLUE_CLASS} onClick={() => message.info('Publishing is not available in this version.')}>
+            Publish...
+          </Button>
+        </Tooltip>
+        <Tooltip title="Runbook execution is not available in this version">
+          <Button className={PRIMARY_GREEN_CLASS} onClick={() => message.info('Runbook execution is not available in this version.')}>
+            Run...
+          </Button>
+        </Tooltip>
+      </>
+    )
+  ) : activeTab === 'runs' ? (
+    !processStateReady ? (
+      <div className="h-8 w-28" aria-hidden="true" />
+    ) : hasProcess ? (
+      <>
+        <Tooltip title="Publishing is not available in this version">
+          <Button className={OUTLINE_BLUE_CLASS} onClick={() => message.info('Publishing is not available in this version.')}>
+            Publish...
+          </Button>
+        </Tooltip>
+        <Tooltip title="Runbook execution is not available in this version">
+          <Button className={PRIMARY_GREEN_CLASS} onClick={() => message.info('Runbook execution is not available in this version.')}>
+            Run...
+          </Button>
+        </Tooltip>
+      </>
+    ) : (
+      <Link to={processPath}>
+        <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
+      </Link>
+    )
+  ) : undefined
 
   return (
     <PageContainer className="!flex !h-full !min-h-0 !max-w-[1680px] !flex-col !py-4">
@@ -171,24 +236,31 @@ export default function RunbookDetailLayout() {
           projectName={projectName ?? ''}
           activeTab={activeTab}
           renderShell={false}
-          actions={activeTab === 'settings' && canEdit ? (
-            <Button
-              className={PRIMARY_GREEN_CLASS}
-              loading={settingsActions?.saving}
-              disabled={!settingsActions?.dirty || settingsActions.saving}
-              onClick={() => void settingsActions?.save()}
-            >
-              Save
-            </Button>
-          ) : undefined}
-          onCopy={canEdit ? () => {
-            setCopyName(`${runbook.name} copy`)
-            setCopyOpen(true)
-          } : undefined}
-          onDelete={canEdit ? () => {
-            setDeleteConfirmation('')
-            setDeleteOpen(true)
-          } : undefined}
+          forceAside={activeTab === 'overview'}
+          actions={primaryActions}
+          menuItems={canEdit ? [
+            { key: 'clone', label: 'Clone' },
+            { key: 'audit', label: 'Audit Trail' },
+            { type: 'divider' },
+            { key: 'delete', label: 'Delete Runbook', danger: true },
+          ] : [
+            { key: 'audit', label: 'Audit Trail' },
+          ]}
+          onMenuClick={(key) => {
+            if (key === 'clone') {
+              setCopyName(`${runbook.name} copy`)
+              setCopyOpen(true)
+              return
+            }
+            if (key === 'audit') {
+              message.info('Audit Trail is not available yet.')
+              return
+            }
+            if (key === 'delete') {
+              setDeleteConfirmation('')
+              setDeleteOpen(true)
+            }
+          }}
         >
           <Outlet context={outletContext} />
         </RunbookPageShell>
