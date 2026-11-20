@@ -6,6 +6,7 @@ import { getExternalFeeds, type ExternalFeedDto } from 'pages/apis/externalFeed'
 import { CollapsibleSection } from '../shared/CollapsibleSection'
 import { StepConditionsSection } from '../shared/StepConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 import {
   ACTION_TYPE,
   DEFAULT_STEP_NAME,
@@ -36,6 +37,7 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
   { step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange },
   ref,
 ) {
+  const runbookContext = useRunbookProcessContext()
   const initial = useMemo(() => normalizeDeployPackageForm(step), [step])
   const [stepName, setStepName] = useState(initial.stepName)
   const [feedId, setFeedId] = useState<number | null>(initial.feedId)
@@ -178,8 +180,8 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
 
     try {
       const saved = step
-        ? await updateDeploymentStep({ id: step.id, step: nextStep })
-        : await createDeploymentStep({ processId, step: nextStep })
+        ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+        : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
       message.success(step ? 'Step updated' : 'Step created')
       onSave(saved)
     } catch {
@@ -217,6 +219,8 @@ export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>
     rollbackOnFailure,
     enabledFeatures,
     processId,
+    projectId,
+    runbookContext?.runbookId,
     step,
     onSave,
   ])

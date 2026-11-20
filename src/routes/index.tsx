@@ -40,6 +40,13 @@ import LegacyProjectDetailRedirect from "pages/project-detail/LegacyProjectDetai
 import ProjectSettings from "pages/project-detail/ProjectSettings";
 import DeploymentSettings from "pages/project-detail/DeploymentSettings";
 import ProjectVersionControl from "pages/project-detail/ProjectVersionControl";
+import RunbooksListPage from "pages/runbooks/RunbooksListPage";
+import RunbookCreatePage from "pages/runbooks/RunbookCreatePage";
+import RunbookDetailLayout from "pages/runbooks/RunbookDetailLayout";
+import RunbookOverviewPage from "pages/runbooks/RunbookOverviewPage";
+import RunbookProcessPage from "pages/runbooks/RunbookProcessPage";
+import RunbookRunsPage from "pages/runbooks/RunbookRunsPage";
+import RunbookSettingsPage from "pages/runbooks/RunbookSettingsPage";
 import SettingsPage from 'pages/settings'
 import PersonalSettingsPage from 'pages/account/PersonalSettingsPage'
 
@@ -312,6 +319,48 @@ const routes = [
                 path: "tasks",
                 component: ProjectTasks,
                 name: "ProjectTasks",
+              },
+              {
+                path: "operations/runbooks",
+                component: RunbooksListPage,
+                name: "Runbooks",
+              },
+              {
+                path: "operations/runbooks/create",
+                component: RunbookCreatePage,
+                name: "RunbookCreate",
+              },
+              {
+                path: "operations/runbooks/:runbookId",
+                component: RunbookDetailLayout,
+                name: "RunbookDetail",
+                children: [
+                  {
+                    path: "",
+                    component: RunbookOverviewPage,
+                    name: "RunbookOverview",
+                  },
+                  {
+                    path: "runs",
+                    component: RunbookRunsPage,
+                    name: "RunbookRuns",
+                  },
+                  {
+                    path: "settings",
+                    component: RunbookSettingsPage,
+                    name: "RunbookSettings",
+                  },
+                  {
+                    path: "process",
+                    component: RunbookProcessPage,
+                    name: "RunbookProcess",
+                  },
+                  {
+                    path: "process/*",
+                    component: RunbookProcessPage,
+                    name: "RunbookProcessSteps",
+                  },
+                ],
               },
             ],
           },

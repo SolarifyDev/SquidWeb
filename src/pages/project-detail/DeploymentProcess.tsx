@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useBeforeUnload, useLocation, useNavigate } from 'react-router-dom'
 import { Dropdown, Modal, Select, Spin, message, type MenuProps } from 'antd'
 import { FilterOutlined, MoreOutlined } from '@ant-design/icons'
-import { getProjects, updateProject, type ProjectDto } from 'pages/apis/project'
+import { updateProject, type ProjectDto } from 'pages/apis/project'
+import { resolveProjectByRouteName } from 'pages/runbooks/shared'
 import { getLifecycles, LifecycleDto } from 'pages/apis/lifecycle'
 import { getProjectProgression } from 'pages/apis/projectProgression'
 import {
@@ -36,6 +37,7 @@ import {
   OpenClawFetchResultEditor,
 } from './step-editors/openclaw/OpenClawActionEditor'
 import type { StepEditorHandle, StepEditorProps } from './step-editors/shared/StepEditorTypes'
+import type { RunbookProcessContextValue } from './step-editors/shared/RunbookProcessContext'
 
 // ── Step editor registry ───────────────────────────────────────────────────────
 
@@ -1086,6 +1088,9 @@ function ProcessOverview({
   spaceId,
   lifecycle,
   lifecycleOptions,
+  isRunbook,
+  runbookName,
+  embedded,
   envMap,
   onAddStep,
   onCreateRelease,
@@ -1097,6 +1102,9 @@ function ProcessOverview({
   spaceId: string
   lifecycle: LifecycleDto | null
   lifecycleOptions: LifecycleDto[]
+  isRunbook: boolean
+  runbookName?: string
+  embedded?: boolean
   envMap: Record<number, string>
   onAddStep: () => void
   onCreateRelease: () => void
@@ -1139,19 +1147,28 @@ function ProcessOverview({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
+    <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden bg-white' : 'rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden'}>
       {/* Header */}
-      <div className="relative flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
-        <h1 className="text-xl font-semibold text-slate-800 m-0">Process</h1>
+      <div className={`relative flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0 ${embedded ? 'hidden' : ''}`}>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold text-slate-800 m-0">
+            {isRunbook ? 'Draft Process' : 'Process'}
+          </h1>
+          {isRunbook && runbookName ? (
+            <div className="mt-1 truncate text-sm text-slate-500">{runbookName}</div>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            title="Create Release"
-            className={LINK_BTN}
-            onClick={onCreateRelease}
-          >
-            Create Release
-          </button>
+          {!isRunbook ? (
+            <button
+              type="button"
+              title="Create Release"
+              className={LINK_BTN}
+              onClick={onCreateRelease}
+            >
+              Create Release
+            </button>
+          ) : null}
           <a
             href="#"
             title="Add Step"
@@ -1171,7 +1188,7 @@ function ProcessOverview({
 
       {/* Filter bar */}
       <div className="relative flex items-center gap-3 px-6 py-2.5 flex-shrink-0">
-        <div className="pointer-events-none absolute right-[280px] top-0 bottom-0 w-px bg-slate-200" />
+        {!embedded ? <div className="pointer-events-none absolute right-[280px] top-0 bottom-0 w-px bg-slate-200" /> : null}
         <div className="flex items-center gap-2 border-b border-slate-300 pb-1.5" style={{ maxWidth: 320 }}>
           <svg className="text-slate-400 flex-shrink-0" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
             <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
@@ -1229,11 +1246,19 @@ function ProcessOverview({
         </div>
 
         {/* Right sidebar */}
-        <div className="flex-shrink-0 border-l border-slate-200 overflow-y-auto pt-0 pb-5 pr-5 pl-3" style={{ width: 280 }}>
+        <div className={embedded ? 'hidden' : 'flex-shrink-0 border-l border-slate-200 overflow-y-auto pt-0 pb-5 pr-5 pl-3'} style={{ width: embedded ? 0 : 280 }}>
           {/* Lifecycle */}
-          <div className="mb-0">
-            <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Lifecycle</div>
-            {lifecycle ? (
+          {isRunbook ? (
+            <div className="mb-0">
+              <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Draft</div>
+              <p className="text-sm text-slate-600 m-0">
+                Changes here only affect this Runbook. Deployment, release, and run controls are not available in this foundation.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-0">
+              <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Lifecycle</div>
+              {lifecycle ? (
               <div>
                 <div className="flex items-center justify-between mb-2.5">
                   <a
@@ -1263,15 +1288,16 @@ function ProcessOverview({
                   </a>
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-slate-400 m-0">Not configured</p>
-            )}
-          </div>
+              ) : (
+                <p className="text-xs text-slate-400 m-0">Not configured</p>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
 
-      <Modal open={changeLifecycleOpen} onCancel={closeChangeLifecycleDialog} footer={null} width={560} centered destroyOnClose maskClosable={!changeLifecycleSaving}>
+      <Modal open={changeLifecycleOpen} onCancel={closeChangeLifecycleDialog} footer={null} width={560} centered destroyOnHidden maskClosable={!changeLifecycleSaving}>
         <div className="flex h-full w-full flex-col">
           <div className="px-6 py-4">
             <h2 className="m-0 text-lg font-semibold text-slate-800">Change lifecycle</h2>
@@ -1413,7 +1439,33 @@ function ProcessOverview({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const Process: React.FC = () => {
+export interface ProcessEditorProps {
+  runbookContext?: RunbookProcessContextValue | null
+  embedded?: boolean
+}
+
+export function resolveProcessSelection(
+  project: Pick<ProjectDto, 'deploymentProcessId'>,
+  runbookContext: RunbookProcessContextValue | null,
+) {
+  if (runbookContext) {
+    return {
+      processId: runbookContext.processId,
+      projectId: runbookContext.projectId,
+      runbookId: runbookContext.runbookId,
+      isRunbook: true,
+    }
+  }
+
+  return {
+    processId: project.deploymentProcessId,
+    projectId: null,
+    runbookId: null,
+    isRunbook: false,
+  }
+}
+
+const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded = false }) => {
   const location = useLocation()
   const navigate = useNavigate()
   const { projectName, spaceId = 'Spaces-1' } = useParams<{ projectName: string; spaceId: string }>()
@@ -1448,10 +1500,16 @@ const Process: React.FC = () => {
   const skipRouteGuardOnceRef = useRef(false)
   const skipBeforeUnloadOnceRef = useRef(false)
   const encodedProjectName = encodeURIComponent(projectName ?? '')
-  const processBasePath = `/${spaceId}/projects/${encodedProjectName}/deployments/process`
+  const runbookId = runbookContext?.runbookId
+  const isRunbookContext = Boolean(runbookContext)
+  const processBasePath = isRunbookContext
+    ? `/${spaceId}/projects/${encodedProjectName}/operations/runbooks/${runbookContext?.runbookId}/process`
+    : `/${spaceId}/projects/${encodedProjectName}/deployments/process`
   const processStepsPath = `${processBasePath}/steps`
   const releaseCreatePath = `/${spaceId}/projects/${encodedProjectName}/releases/create`
-  const openCreateRelease = () => navigate(releaseCreatePath)
+  const openCreateRelease = () => {
+    if (!isRunbookContext) navigate(releaseCreatePath)
+  }
 
   useEffect(() => {
     if (!projectName) return
@@ -1459,45 +1517,50 @@ const Process: React.FC = () => {
 
     ;(async () => {
       try {
-        const findProject = (items: ProjectDto[]) => items.find((p) => p.slug === projectName || p.name === projectName)
-        const projRes = await getProjects({ pageSize: 500 })
-        let project = findProject(projRes.projects)
-        if (!project) {
-          const fallbackRes = await getProjects({ pageSize: 100, keyword: projectName }).catch(() => null)
-          project = fallbackRes ? findProject(fallbackRes.projects) : undefined
-        }
+        const project = await resolveProjectByRouteName(projectName)
         if (!project) return
         setProjectDetail(project)
         setProjectId(project.id)
-        setProcessId(project.deploymentProcessId)
+        const selection = resolveProcessSelection(project, runbookContext)
+        setProcessId(selection.processId)
 
-        const [stepsRes, lifecyclesRes, progressionRes] = await Promise.all([
-          getDeploymentSteps({ processId: project.deploymentProcessId, pageSize: 500 }),
-          getLifecycles({ pageSize: 1000 }),
-          getProjectProgression(project.id),
-        ])
-
+        const stepsRes = await getDeploymentSteps({
+          processId: selection.processId,
+          projectId: selection.projectId ?? undefined,
+          ...(selection.runbookId ? { runbookId: selection.runbookId } : {}),
+          pageSize: 500,
+        })
         setSteps(normalizeSteps([...stepsRes.steps]))
-        setLifecycleOptions(lifecyclesRes.lifecycles)
 
-        const lc = lifecyclesRes.lifecycles.find((l) => l.id === project.lifecycleId)
-        setLifecycle(lc ?? null)
+        if (isRunbookContext) {
+          setLifecycle(null)
+          setLifecycleOptions([])
+          setEnvMap({})
+        } else {
+          const [lifecyclesRes, progressionRes] = await Promise.all([
+            getLifecycles({ pageSize: 1000 }),
+            getProjectProgression(project.id),
+          ])
+          setLifecycleOptions(lifecyclesRes.lifecycles)
+          const lc = lifecyclesRes.lifecycles.find((l) => l.id === project.lifecycleId)
+          setLifecycle(lc ?? null)
 
-        const map: Record<number, string> = {}
-        for (const env of progressionRes.environments) {
-          map[env.id] = env.name
+          const map: Record<number, string> = {}
+          for (const env of progressionRes.environments) {
+            map[env.id] = env.name
+          }
+          setEnvMap(map)
         }
-        setEnvMap(map)
       } catch {
         // silently handle
       } finally {
         setLoading(false)
       }
     })()
-  }, [projectName])
+  }, [isRunbookContext, projectName, runbookContext?.processId, runbookId])
 
   const handleLifecycleChange = async (nextLifecycleId: number) => {
-    if (!projectDetail) return
+    if (!projectDetail || isRunbookContext) return
     if (projectDetail.lifecycleId === nextLifecycleId) return
 
     const payload: ProjectDto = { ...projectDetail, lifecycleId: nextLifecycleId }
@@ -1765,7 +1828,12 @@ const Process: React.FC = () => {
     closeStepOverflowMenu()
 
     try {
-      const saved = normalizeStepDisabled(await updateDeploymentStep({ id: stepToUpdate.id, step: nextStep }))
+      const saved = normalizeStepDisabled(await updateDeploymentStep({
+        id: stepToUpdate.id,
+        projectId,
+        runbookId,
+        step: nextStep,
+      }))
       setSteps((prev) => normalizeSteps(prev.map((s) => (s.id === saved.id ? saved : s))))
       if (selectedStepId === saved.id) {
         setEditingTemplate((prev) => (
@@ -1791,7 +1859,10 @@ const Process: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          const res = await deleteDeploymentSteps([stepToDelete.id])
+          const res = await deleteDeploymentSteps([stepToDelete.id], {
+            projectId,
+            runbookId,
+          })
           if (res.failIds?.length) {
             message.error('Failed to delete step')
             return
@@ -1900,6 +1971,8 @@ const Process: React.FC = () => {
     try {
       const result = await reorderDeploymentSteps({
         processId,
+        projectId,
+        runbookId,
         stepOrders: reorderedAll.map((step) => ({
           stepId: step.id,
           stepOrder: step.stepOrder,
@@ -1908,7 +1981,7 @@ const Process: React.FC = () => {
 
       const fullList = result && result.length === reorderedAll.length
         ? result
-        : (await getDeploymentSteps({ processId, pageSize: 500 })).steps
+        : (await getDeploymentSteps({ processId, projectId: projectId ?? undefined, ...(runbookId ? { runbookId } : {}), pageSize: 500 })).steps
 
       const nextSteps = normalizeSteps((fullList && fullList.length > 0 ? fullList : reorderedAll)
         .map((step) => ({
@@ -1957,6 +2030,9 @@ const Process: React.FC = () => {
         spaceId={spaceId}
         lifecycle={lifecycle}
         lifecycleOptions={lifecycleOptions}
+        isRunbook={isRunbookContext}
+        runbookName={runbookContext?.runbookName}
+        embedded={embedded}
         envMap={envMap}
         onAddStep={() => requestEditorNavigation({ type: 'showAddPanel' })}
         onCreateRelease={openCreateRelease}
@@ -1976,9 +2052,9 @@ const Process: React.FC = () => {
   const isDraftEditorActive = Boolean(editingTemplate && !editingTemplate.step)
 
   return (
-    <div className="rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden">
+    <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden bg-white' : 'rounded-xl border border-slate-200 h-full flex flex-col bg-white overflow-hidden'}>
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-slate-200">
+      <div className={`flex-shrink-0 border-b border-slate-200 ${embedded ? 'hidden' : ''}`}>
         {/* Breadcrumb row */}
         <div className="px-6 pt-3 pb-0">
           <nav aria-label="Breadcrumb">
@@ -1988,7 +2064,7 @@ const Process: React.FC = () => {
                   onClick={() => requestEditorNavigation({ type: 'toOverview' })}
                   className="text-sm text-squid-blue hover:underline font-medium"
                 >
-                  Process
+                  {isRunbookContext ? 'Draft Process' : 'Process'}
                 </button>
               </li>
             </ol>
@@ -1996,16 +2072,20 @@ const Process: React.FC = () => {
         </div>
         {/* Title + actions row */}
         <div className="flex items-center justify-between px-6 py-3">
-          <h1 className="text-xl font-semibold text-slate-800 m-0">Process Editor</h1>
+          <h1 className="text-xl font-semibold text-slate-800 m-0">
+            {isRunbookContext ? 'Runbook Process Editor' : 'Process Editor'}
+          </h1>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              title="Create Release"
-              className={LINK_BTN}
-              onClick={openCreateRelease}
-            >
-              Create Release
-            </button>
+            {!isRunbookContext ? (
+              <button
+                type="button"
+                title="Create Release"
+                className={LINK_BTN}
+                onClick={openCreateRelease}
+              >
+                Create Release
+              </button>
+            ) : null}
             <button
               title="Add Step"
               onClick={() => requestEditorNavigation({ type: 'showAddPanel' })}

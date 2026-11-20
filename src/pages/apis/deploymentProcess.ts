@@ -111,6 +111,8 @@ export function getTargetRoles(step: DeploymentStepDto): string[] {
 
 export interface GetDeploymentStepsRequest {
   processId: number
+  projectId?: number
+  runbookId?: number
   pageIndex?: number
   pageSize?: number
   keyword?: string
@@ -123,11 +125,15 @@ export interface GetDeploymentStepsResponseData {
 
 export interface CreateDeploymentStepCommand {
   processId: number
+  projectId?: number | null
+  runbookId?: number | null
   step: DeploymentStepDto
 }
 
 export interface UpdateDeploymentStepCommand {
   id: number
+  projectId?: number | null
+  runbookId?: number | null
   step: DeploymentStepDto
 }
 
@@ -142,6 +148,8 @@ export interface StepOrderItem {
 
 export interface ReorderDeploymentStepsCommand {
   processId: number
+  projectId?: number | null
+  runbookId?: number | null
   stepOrders: StepOrderItem[]
 }
 
@@ -171,8 +179,17 @@ export function reorderDeploymentSteps(command: ReorderDeploymentStepsCommand) {
   return post<DeploymentStepDto[]>('/deployment-steps/reorder', command)
 }
 
-export function deleteDeploymentSteps(ids: number[]) {
-  return post<DeleteDeploymentStepResponseData>('/deployment-steps/delete', { ids })
+export interface DeleteDeploymentStepsOptions {
+  projectId?: number | null
+  runbookId?: number | null
+}
+
+export function deleteDeploymentSteps(ids: number[], options?: DeleteDeploymentStepsOptions) {
+  return post<DeleteDeploymentStepResponseData>('/deployment-steps/delete', {
+    ids,
+    projectId: options?.projectId,
+    runbookId: options?.runbookId,
+  })
 }
 
 // --- Package References ---

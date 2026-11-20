@@ -689,7 +689,7 @@ const ProjectGroupDetail: React.FC = () => {
           setUrlValue('http://')
           setPendingLinkText('')
         }}
-        destroyOnClose
+        destroyOnHidden
       >
         <label className="mb-2 block text-sm text-slate-700">
           Please enter a url for the {urlModalMode === 'link' ? 'link' : 'image'}:

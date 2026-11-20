@@ -288,7 +288,7 @@ const SpaceSwitcherDropdown: React.FC<SpaceSwitcherDropdownProps> = ({
       maskClosable={false}
       keyboard={false}
       closable={false}
-      destroyOnClose
+      destroyOnHidden
       width={640}
       getContainer={() => dropdownRef.current ?? document.body}
     >

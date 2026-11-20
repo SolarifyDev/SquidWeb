@@ -15,6 +15,7 @@ import { KeyValueListEditor, type KeyValueItem } from '../shared/KeyValueListEdi
 import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMode } from '../shared/StepConditionsSection'
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 const ACTION_TYPE = 'Squid.HelmChartUpgrade'
@@ -468,6 +469,7 @@ function buildStepProperties(
 
 export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorProps>(
   function HelmChartUpgradeEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const action = step?.actions[0]
     const initialTemplateValueSources = parseTemplateValueSources(
       getActionProperty(action, HelmProperties.valueSources),
@@ -726,8 +728,8 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
 
       try {
         const saved = step
-          ? await updateDeploymentStep({ id: step.id, step: nextStep })
-          : await createDeploymentStep({ processId, step: nextStep })
+          ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+          : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
         message.success(step ? 'Step updated' : 'Step created')
         onSave(saved)
       } catch {
@@ -761,6 +763,8 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
       conditions,
       step,
       processId,
+      projectId,
+      runbookContext?.runbookId,
     ])
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
@@ -1329,7 +1333,7 @@ export const HelmChartUpgradeEditor = forwardRef<StepEditorHandle, StepEditorPro
           onClose={closeTemplateValueDrawer}
           width={640}
           title={editingTemplateValueSourceIndex != null ? 'Edit Template Values' : 'Add Template Values'}
-          destroyOnClose={false}
+          destroyOnHidden={false}
           extra={(
             <div className="flex items-center gap-2">
               <Button onClick={closeTemplateValueDrawer}>Cancel</Button>

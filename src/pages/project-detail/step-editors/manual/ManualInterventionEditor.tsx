@@ -11,6 +11,7 @@ import {
 import { CollapsibleSection } from '../shared/CollapsibleSection'
 import { StepConditionsSection, type StepEnvironmentMode } from '../shared/StepConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 import { getTeams, type TeamDto } from 'pages/apis/team'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
@@ -141,6 +142,7 @@ function buildStepProperties(
 
 export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorProps>(
   function ManualInterventionEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const action = step?.actions[0]
     const includeEnvironments = action?.environments ?? []
     const excludeEnvironments = action?.excludedEnvironments ?? []
@@ -264,8 +266,8 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
 
       try {
         const saved = step
-          ? await updateDeploymentStep({ id: step.id, step: nextStep })
-          : await createDeploymentStep({ processId, step: nextStep })
+          ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+          : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
         message.success(step ? 'Step updated' : 'Step created')
         onSave(saved)
       } catch {
@@ -288,6 +290,8 @@ export const ManualInterventionEditor = forwardRef<StepEditorHandle, StepEditorP
       isDisabled,
       step,
       processId,
+      projectId,
+      runbookContext?.runbookId,
     ])
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`

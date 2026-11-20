@@ -3,6 +3,7 @@ import { message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
 import type { DeploymentStepDto } from 'pages/apis/deploymentProcess'
 import { createDeploymentStep, updateDeploymentStep } from 'pages/apis/deploymentProcess'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 import { useContainersEditorState, serializeToStep } from './useContainersEditorState'
 import { StepNameSection } from './sections/StepNameSection'
 import { TargetTagsSection } from './sections/TargetTagsSection'
@@ -31,6 +32,7 @@ interface KubernetesContainersEditorProps {
 
 export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorHandle, KubernetesContainersEditorProps>(
   function KubernetesContainersEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const { state, updateField } = useContainersEditorState(step)
     const [saving, setSaving] = useState(false)
 
@@ -50,9 +52,9 @@ export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorH
 
         let saved: DeploymentStepDto
         if (step) {
-          saved = await updateDeploymentStep({ id: step.id, step: stepDto })
+          saved = await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: stepDto })
         } else {
-          saved = await createDeploymentStep({ processId, step: stepDto })
+          saved = await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: stepDto })
         }
 
         message.success(step ? 'Step updated' : 'Step created')
@@ -64,7 +66,7 @@ export const KubernetesContainersEditor = forwardRef<KubernetesContainersEditorH
       }
     }
 
-    useImperativeHandle(ref, () => ({ save: handleSave }), [state, processId, step])
+    useImperativeHandle(ref, () => ({ save: handleSave }), [state, processId, projectId, runbookContext?.runbookId, step])
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/Squid.KubernetesDeployContainers/logo`
     const displayName = state.stepName || 'Configure and apply Kubernetes resources'

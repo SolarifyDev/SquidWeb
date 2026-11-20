@@ -305,7 +305,7 @@ const VariableValueCell: React.FC<VariableValueCellProps> = ({
       <Modal
         open={editorOpen}
         onCancel={closeEditor}
-        destroyOnClose
+        destroyOnHidden
         maskClosable={false}
         width={editorFullscreen ? 'calc(100vw - 24px)' : 1160}
         style={{ top: editorFullscreen ? 12 : 36, maxWidth: 'calc(100vw - 24px)' }}

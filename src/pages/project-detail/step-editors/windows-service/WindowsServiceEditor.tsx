@@ -43,6 +43,7 @@ import type {
   StepEditorHandle,
   StepEditorProps,
 } from "../shared/StepEditorTypes";
+import { useRunbookProcessContext } from "../shared/RunbookProcessContext";
 import "./WindowsServiceEditor.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
@@ -657,6 +658,7 @@ export const WindowsServiceEditor = forwardRef<
   { step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange },
   ref
 ) {
+  const runbookContext = useRunbookProcessContext();
   const action = step?.actions[0];
   const includeEnvironments = action?.environments ?? [];
   const excludeEnvironments = action?.excludedEnvironments ?? [];
@@ -1116,8 +1118,8 @@ export const WindowsServiceEditor = forwardRef<
 
     try {
       const saved = step
-        ? await updateDeploymentStep({ id: step.id, step: nextStep })
-        : await createDeploymentStep({ processId, step: nextStep });
+        ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+        : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep });
       message.success(step ? "Step updated" : "Step created");
       onSave(saved);
     } catch {
@@ -1164,6 +1166,8 @@ export const WindowsServiceEditor = forwardRef<
     customScriptsPostDeploy,
     powerShellEdition,
     processId,
+    projectId,
+    runbookContext?.runbookId,
     step,
   ]);
 

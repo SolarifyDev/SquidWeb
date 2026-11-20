@@ -16,6 +16,7 @@ import { CollapsibleSection } from '../shared/CollapsibleSection'
 import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMode } from '../shared/StepConditionsSection'
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string
 
@@ -341,6 +342,7 @@ function buildActionProperties(
 
 const OpenClawActionEditorInternal = forwardRef<StepEditorHandle, OpenClawActionEditorProps>(
   function OpenClawActionEditorInternal({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange, actionType }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const action = step?.actions[0]
     const actionDefinition = OpenClawActionDefinitions[actionType]
     const includeEnvironments = action?.environments ?? []
@@ -628,8 +630,8 @@ const OpenClawActionEditorInternal = forwardRef<StepEditorHandle, OpenClawAction
 
       try {
         const saved = step
-          ? await updateDeploymentStep({ id: step.id, step: nextStep })
-          : await createDeploymentStep({ processId, step: nextStep })
+          ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+          : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
         message.success(step ? 'Step updated' : 'Step created')
         onSave(saved)
       } catch {
@@ -671,6 +673,8 @@ const OpenClawActionEditorInternal = forwardRef<StepEditorHandle, OpenClawAction
       fieldMappings,
       step,
       processId,
+      projectId,
+      runbookContext?.runbookId,
       actionType,
     ])
 
