@@ -3,9 +3,10 @@ import { Alert, Button, Input, Modal, Spin, Tooltip, message } from 'antd'
 import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
 import { usePermissions } from 'contexts/PermissionContext'
-import { copyRunbook, deleteRunbook, getRunbook, getRunbookApiErrorDetails, type RunbookDto } from 'pages/apis/runbook'
+import { copyRunbook, deleteRunbook, getRunbook, getRunbookApiErrorDetails, type RunbookDto, type RunbookPublishedSnapshotDto } from 'pages/apis/runbook'
 import { useNavigate } from 'react-router-dom'
-import RunbookPageShell, { OUTLINE_BLUE_CLASS, PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
+import RunbookPageShell, { PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
+import RunbookPublishAction from './RunbookPublishAction'
 import { buildRunbookPath, buildRunbookProcessPath, buildRunbooksPath, parsePositiveId, upsertProjectLookupCache } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 import { useRunbookProcessState, type RunbookProcessState } from './useRunbookProcessState'
@@ -57,6 +58,7 @@ export default function RunbookDetailLayout() {
   const [copying, setCopying] = useState(false)
   const [settingsActions, setSettingsActions] = useState<RunbookSettingsActions | null>(null)
   const canEdit = !permissionsLoading && hasPermission('RunbookEdit')
+  const canPublish = !permissionsLoading && hasPermission('RunbookPublish')
   const processState = useRunbookProcessState(project?.id ?? null, runbook)
 
   useEffect(() => {
@@ -94,8 +96,17 @@ export default function RunbookDetailLayout() {
   }, [project])
 
   const setRunbook = useCallback((next: RunbookDto) => {
-    setRunbookState(next)
+    // Metadata updates do not return the published snapshot details.
+    setRunbookState((current) => current?.id === next.id
+      ? { ...next, publishedSnapshotId: current.publishedSnapshotId, publishedSnapshot: current.publishedSnapshot }
+      : current)
     setError(null)
+  }, [])
+
+  const recordPublication = useCallback((snapshot: RunbookPublishedSnapshotDto) => {
+    setRunbookState((current) => current?.id === snapshot.runbookId
+      ? { ...current, publishedSnapshotId: snapshot.id, publishedSnapshot: snapshot }
+      : current)
   }, [])
 
   const registerSettingsActions = useCallback((actions: RunbookSettingsActions | null) => {
@@ -174,6 +185,9 @@ export default function RunbookDetailLayout() {
   const processPath = buildRunbookProcessPath(spaceId, projectName ?? '', runbook.id)
   const hasProcess = processState.hasProcess
   const processStateReady = !processState.loading
+  const publishAction = canPublish
+    ? <RunbookPublishAction key={runbook.id} runbook={runbook} onPublished={recordPublication} />
+    : null
   const primaryActions = activeTab === 'settings' && canEdit ? (
     <Button
       className={PRIMARY_GREEN_CLASS}
@@ -183,49 +197,24 @@ export default function RunbookDetailLayout() {
     >
       Save
     </Button>
-  ) : activeTab === 'overview' ? (
-    !processStateReady ? (
-      <div className="h-8 w-36" aria-hidden="true" />
-    ) : !hasProcess ? (
-      <Link to={processPath}>
-        <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
-      </Link>
-    ) : (
-      <>
-        <Tooltip title="Publishing is not available in this version">
-          <Button className={OUTLINE_BLUE_CLASS} onClick={() => message.info('Publishing is not available in this version.')}>
-            Publish...
-          </Button>
-        </Tooltip>
+  ) : activeTab === 'overview' || activeTab === 'runs' ? (
+    <>
+      {publishAction}
+      {!processStateReady ? (
+        <div className="h-8 w-28" aria-hidden="true" />
+      ) : hasProcess ? (
         <Tooltip title="Runbook execution is not available in this version">
           <Button className={PRIMARY_GREEN_CLASS} onClick={() => message.info('Runbook execution is not available in this version.')}>
             Run...
           </Button>
         </Tooltip>
-      </>
-    )
-  ) : activeTab === 'runs' ? (
-    !processStateReady ? (
-      <div className="h-8 w-28" aria-hidden="true" />
-    ) : hasProcess ? (
-      <>
-        <Tooltip title="Publishing is not available in this version">
-          <Button className={OUTLINE_BLUE_CLASS} onClick={() => message.info('Publishing is not available in this version.')}>
-            Publish...
-          </Button>
-        </Tooltip>
-        <Tooltip title="Runbook execution is not available in this version">
-          <Button className={PRIMARY_GREEN_CLASS} onClick={() => message.info('Runbook execution is not available in this version.')}>
-            Run...
-          </Button>
-        </Tooltip>
-      </>
-    ) : (
-      <Link to={processPath}>
-        <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
-      </Link>
-    )
-  ) : undefined
+      ) : (
+        <Link to={processPath}>
+          <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
+        </Link>
+      )}
+    </>
+  ) : activeTab === 'process' ? publishAction : undefined
 
   return (
     <PageContainer className="!flex !h-full !min-h-0 !max-w-[1680px] !flex-col !py-4">

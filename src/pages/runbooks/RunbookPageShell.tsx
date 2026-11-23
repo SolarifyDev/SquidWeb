@@ -144,6 +144,9 @@ export default function RunbookPageShell({
               <h1 className="m-0 break-words text-[24px] font-semibold leading-8 text-slate-900">
                 {runbook.name}
               </h1>
+              <p className="mb-0 mt-1 text-sm text-slate-600" aria-live="polite">
+                {runbook.publishedSnapshot ? `Published version ${runbook.publishedSnapshot.version}` : 'Unpublished'}
+              </p>
               {(runbook.tags ?? []).length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {runbook.tags.map((tag) => (
