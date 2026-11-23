@@ -45,8 +45,11 @@ import RunbookCreatePage from "pages/runbooks/RunbookCreatePage";
 import RunbookDetailLayout from "pages/runbooks/RunbookDetailLayout";
 import RunbookOverviewPage from "pages/runbooks/RunbookOverviewPage";
 import RunbookProcessPage from "pages/runbooks/RunbookProcessPage";
+import { RunbookPublishPage, RunbookRunPage } from "pages/runbooks/RunbookWorkflowPage";
+import { RunbookAuditPage, RunbookRunDetailPage } from "pages/runbooks/RunbookHistoryPages";
 import RunbookRunsPage from "pages/runbooks/RunbookRunsPage";
 import RunbookSettingsPage from "pages/runbooks/RunbookSettingsPage";
+import RunbookTriggersPage from "pages/runbooks/RunbookTriggersPage";
 import SettingsPage from 'pages/settings'
 import PersonalSettingsPage from 'pages/account/PersonalSettingsPage'
 
@@ -321,6 +324,15 @@ const routes = [
                 name: "ProjectTasks",
               },
               {
+                path: "operations",
+                redirect: "runbooks",
+              },
+              {
+                path: "operations/triggers",
+                component: RunbookTriggersPage,
+                name: "RunbookTriggers",
+              },
+              {
                 path: "operations/runbooks",
                 component: RunbooksListPage,
                 name: "Runbooks",
@@ -344,6 +356,31 @@ const routes = [
                     path: "runs",
                     component: RunbookRunsPage,
                     name: "RunbookRuns",
+                  },
+                  {
+                    path: "runs/preview/:previewId",
+                    component: RunbookRunDetailPage,
+                    name: "RunbookRunPreview",
+                  },
+                  {
+                    path: "runs/:taskId",
+                    component: RunbookRunDetailPage,
+                    name: "RunbookRunDetail",
+                  },
+                  {
+                    path: "run",
+                    component: RunbookRunPage,
+                    name: "RunbookRun",
+                  },
+                  {
+                    path: "publish",
+                    component: RunbookPublishPage,
+                    name: "RunbookPublish",
+                  },
+                  {
+                    path: "audit",
+                    component: RunbookAuditPage,
+                    name: "RunbookAudit",
                   },
                   {
                     path: "settings",

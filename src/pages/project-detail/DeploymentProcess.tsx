@@ -1877,6 +1877,7 @@ const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded
             return
           }
           setSteps((prev) => prev.filter((s) => s.id !== stepToDelete.id))
+          if (isRunbookContext) runbookDetailContext?.processState.reload()
           if (selectedStepId === stepToDelete.id) {
             setSelectedStepId(null)
             setEditingTemplate(null)
@@ -2000,6 +2001,7 @@ const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded
         })))
 
       setSteps(nextSteps)
+      if (isRunbookContext) runbookDetailContext?.processState.reload()
       setEditingTemplate((prev) => {
         if (!prev?.step) return prev
         const latest = nextSteps.find((step) => step.id === prev.step!.id)
@@ -2218,6 +2220,7 @@ const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded
                     setEditingTemplate({ actionType: normalizedSavedStep.actions[0]?.actionType ?? draftTemplateActionType, step: normalizedSavedStep })
                     setSelectedStepId(normalizedSavedStep.id)
                     setUnsavedChanges(false)
+                    if (isRunbookContext) runbookDetailContext?.processState.reload()
                     updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(normalizedSavedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {
@@ -2269,6 +2272,7 @@ const Process: React.FC<ProcessEditorProps> = ({ runbookContext = null, embedded
                     ))
                     setSelectedStepId(normalizedSavedStep.id)
                     setUnsavedChanges(false)
+                    if (isRunbookContext) runbookDetailContext?.processState.reload()
                     updateEditorDeepLink({ editor: true, actionId: getPrimaryActionId(normalizedSavedStep) })
 
                     if (pendingSaveRouteLeaveRef.current) {

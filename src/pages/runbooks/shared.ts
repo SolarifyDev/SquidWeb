@@ -29,7 +29,10 @@ export function classifyRunbookTask(task: Pick<ServerTaskListItemDto, 'state' | 
   if (RUNNING_TASK_STATES.has(state)) return { category: 'running', label: 'Running', tone: 'info' }
   if (WAITING_TASK_STATES.has(state)) return { category: 'waiting', label: 'Waiting', tone: 'neutral' }
   if (state === 'success') return { category: 'completed', label: 'Success', tone: 'success' }
-  if (FAILED_TASK_STATES.has(state)) return { category: 'failed', label: task.state || 'Failed', tone: 'danger' }
+  if (FAILED_TASK_STATES.has(state)) {
+    const label = state === 'timedout' ? 'Timed out' : state === 'failed' ? 'Failed' : 'Cancelled'
+    return { category: 'failed', label, tone: 'danger' }
+  }
   if (task.isCompleted) return { category: 'completed', label: task.state || 'Completed', tone: 'success' }
   return { category: 'waiting', label: task.state || 'Waiting', tone: 'neutral' }
 }
@@ -108,6 +111,10 @@ export function buildRunbookProcessPath(spaceId: string, projectName: string, ru
 
 export function buildRunbookRunsPath(spaceId: string, projectName: string, runbookId: number) {
   return `${buildRunbookPath(spaceId, projectName, runbookId)}/runs`
+}
+
+export function buildRunbookTriggersPath(spaceId: string, projectName: string) {
+  return `${buildProjectBasePath(spaceId, projectName)}/operations/triggers`
 }
 
 export function buildRunbookSettingsPath(spaceId: string, projectName: string, runbookId: number) {

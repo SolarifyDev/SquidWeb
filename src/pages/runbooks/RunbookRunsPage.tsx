@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Alert, Spin } from 'antd'
+import { Alert, Input, Spin, Tag } from 'antd'
 import { CheckCircleFilled, DownOutlined, FilterOutlined } from '@ant-design/icons'
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import type { RunbookDetailOutletContext } from './RunbookDetailLayout'
 import {
   classifyRunbookTask,
@@ -12,22 +12,32 @@ import {
 type RunTab = 'all' | 'running' | 'waiting' | 'needsApproval' | 'completed'
 
 export default function RunbookRunsPage() {
-  const { processState } = useOutletContext<RunbookDetailOutletContext>()
+  const { processState, preview } = useOutletContext<RunbookDetailOutletContext>()
   const [activeTab, setActiveTab] = useState<RunTab>('all')
   const [taskState, setTaskState] = useState('all')
   const [advancedFilters, setAdvancedFilters] = useState(false)
+  const [query, setQuery] = useState('')
+  const [environment, setEnvironment] = useState('all')
 
-  const classifiedTasks = useMemo(() => processState.tasks.map((task) => ({
-    task,
-    status: classifyRunbookTask(task),
-  })), [processState.tasks])
+  const classifiedTasks = useMemo(() => [
+    ...preview.runs.map((run) => ({
+      id: `preview-${run.id}`, path: `preview/${run.id}`, title: run.snapshot, description: run.environment,
+      environment: run.environment, start: run.scheduledAt ?? run.createdAt, end: null, duration: null,
+      status: { category: 'preview', label: 'Preview', tone: 'info' },
+    })),
+    ...processState.tasks.map((task) => ({
+      id: String(task.id), path: String(task.id), title: task.name || `Task #${task.id}`, description: task.description,
+      environment: task.environmentId ? `Environment #${task.environmentId}` : '', start: task.startTime ?? task.queueTime,
+      end: task.completedTime, duration: task.durationSeconds, status: classifyRunbookTask(task),
+    })),
+  ], [preview.runs, processState.tasks])
+  const environments = [...new Set(classifiedTasks.map((task) => task.environment).filter(Boolean))].sort()
 
   const tabCounts = useMemo(() => ({
     all: classifiedTasks.length,
     running: classifiedTasks.filter((item) => item.status.category === 'running').length,
     waiting: classifiedTasks.filter((item) => item.status.category === 'waiting').length,
     needsApproval: classifiedTasks.filter((item) => item.status.category === 'needsApproval').length,
-    completed: classifiedTasks.filter((item) => item.status.category === 'completed').length,
   }), [classifiedTasks])
 
   const visibleTasks = useMemo(() => {
@@ -35,12 +45,15 @@ export default function RunbookRunsPage() {
     if (activeTab === 'running') list = list.filter((item) => item.status.category === 'running')
     if (activeTab === 'waiting') list = list.filter((item) => item.status.category === 'waiting')
     if (activeTab === 'needsApproval') list = list.filter((item) => item.status.category === 'needsApproval')
-    if (activeTab === 'completed') list = list.filter((item) => item.status.category === 'completed')
+    if (activeTab === 'completed') list = list.filter((item) => item.status.category === 'completed' || item.status.category === 'failed')
     if (taskState !== 'all') list = list.filter((item) => item.status.label.toLowerCase() === taskState.toLowerCase())
+    if (environment !== 'all') list = list.filter((item) => item.environment === environment)
+    const text = query.trim().toLowerCase()
+    if (text) list = list.filter((item) => `${item.title} ${item.description}`.toLowerCase().includes(text))
     return list
-  }, [activeTab, classifiedTasks, taskState])
+  }, [activeTab, classifiedTasks, environment, query, taskState])
 
-  if (processState.loading) {
+  if (processState.tasksLoading && preview.runs.length === 0) {
     return <div className="flex min-h-[280px] items-center justify-center"><Spin /></div>
   }
 
@@ -89,9 +102,12 @@ export default function RunbookRunsPage() {
               <option value="all">All task states</option>
               <option value="success">Success</option>
               <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="timed out">Timed out</option>
               <option value="running">Running</option>
               <option value="waiting">Waiting</option>
               <option value="needs approval">Needs approval</option>
+              <option value="preview">Preview</option>
             </select>
             <DownOutlined className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-500" />
           </div>
@@ -99,12 +115,35 @@ export default function RunbookRunsPage() {
         <button
           type="button"
           className="inline-flex h-9 items-center gap-1.5 text-sm text-squid-blue hover:underline"
+          aria-expanded={advancedFilters}
           onClick={() => setAdvancedFilters((open) => !open)}
         >
-          <FilterOutlined />
+          <FilterOutlined aria-hidden="true" />
           {advancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
         </button>
       </div>
+
+      {advancedFilters ? (
+        <div className="flex flex-wrap items-end gap-4 border-b border-slate-200 px-6 py-4 sm:px-8">
+          <label className="flex min-w-[200px] flex-col gap-1 text-xs text-slate-500">
+            Environment
+            <select className="octo-native-select text-sm" value={environment} onChange={(event) => setEnvironment(event.target.value)}>
+              <option value="all">All environments</option>
+              {environments.map((option) => <option key={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="flex min-w-[200px] flex-col gap-1 text-xs text-slate-500">
+            Task or snapshot
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} allowClear />
+          </label>
+          <button type="button" className="pb-1 text-sm text-squid-blue hover:underline" onClick={() => {
+            setQuery('')
+            setEnvironment('all')
+            setTaskState('all')
+            setActiveTab('all')
+          }}>Clear filters</button>
+        </div>
+      ) : null}
 
       {processState.tasksUnavailable ? (
         <div className="border-b border-slate-200 px-6 py-3 sm:px-8">
@@ -127,27 +166,31 @@ export default function RunbookRunsPage() {
             {visibleTasks.length === 0 ? (
               <tr>
                 <td className="px-6 py-16 text-center text-sm text-slate-500 sm:px-8" colSpan={5}>
-                  {processState.tasks.length === 0 ? 'There are no runs for this Runbook yet. Run Now' : 'No runs match these filters.'}
+                  {classifiedTasks.length === 0 ? (
+                    processState.tasksUnavailable ? 'No preview runs in this tab.' : (
+                      <>There are no runs for this Runbook yet. {processState.hasProcess || preview.snapshot ? <Link to="../run" className="text-squid-blue hover:underline">Run now</Link> : null}</>
+                    )
+                  ) : 'No runs match these filters.'}
                 </td>
               </tr>
-            ) : visibleTasks.map(({ task, status }) => (
+            ) : visibleTasks.map((task) => (
               <tr key={task.id} className="border-b border-slate-200 last:border-0 hover:bg-slate-50/70">
                 <td className="px-6 py-3 align-top sm:px-8">
                   <span className={[
                     'inline-flex items-center gap-1.5 text-xs font-medium',
-                    status.tone === 'success' ? 'text-emerald-700' : status.tone === 'danger' ? 'text-rose-700' : status.tone === 'warning' ? 'text-amber-700' : 'text-slate-600',
+                    task.status.tone === 'success' ? 'text-emerald-700' : task.status.tone === 'danger' ? 'text-rose-700' : task.status.tone === 'warning' ? 'text-amber-700' : 'text-slate-600',
                   ].join(' ')}>
-                    {status.tone === 'success' ? <CheckCircleFilled className="text-emerald-600" /> : null}
-                    {status.label}
+                    {task.status.tone === 'success' ? <CheckCircleFilled className="text-emerald-600" /> : null}
+                    {task.status.category === 'preview' ? <Tag color="blue">Preview</Tag> : task.status.label}
                   </span>
                 </td>
                 <td className="px-4 py-3 align-top">
-                  <div className="font-semibold text-slate-900">{formatRunbookTaskDateTime(task.startTime ?? task.queueTime)}</div>
-                  <div className="mt-0.5 text-xs text-slate-500">Snapshot {task.name || `Task #${task.id}`}</div>
+                  <Link to={task.path} className="font-semibold text-squid-blue hover:underline">{task.title}</Link>
+                  {task.description ? <div className="mt-0.5 text-xs text-slate-500">{task.description}</div> : null}
                 </td>
-                <td className="px-4 py-3 align-top text-slate-600">{formatRunbookTaskDateTime(task.startTime ?? task.queueTime)}</td>
-                <td className="px-4 py-3 align-top text-slate-600">{formatRunbookTaskDateTime(task.completedTime)}</td>
-                <td className="px-4 py-3 align-top text-slate-600">{formatRunbookTaskDuration(task.durationSeconds)}</td>
+                <td className="px-4 py-3 align-top text-slate-600">{formatRunbookTaskDateTime(task.start)}</td>
+                <td className="px-4 py-3 align-top text-slate-600">{formatRunbookTaskDateTime(task.end)}</td>
+                <td className="px-4 py-3 align-top text-slate-600">{task.duration === null ? '—' : formatRunbookTaskDuration(task.duration)}</td>
               </tr>
             ))}
           </tbody>

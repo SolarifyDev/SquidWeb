@@ -10,10 +10,20 @@ export interface RunbookDto {
   tags: string[]
   processId: number
   variableSetId: number
+  publishedSnapshotId?: number | null
+  publishedSnapshot?: RunbookPublishedSnapshotDto | null
   createdDate: string
   createdBy: number
   lastModifiedDate: string
   lastModifiedBy: number
+}
+
+export interface RunbookPublishedSnapshotDto {
+  id: number
+  runbookId: number
+  version: number
+  publishedAt: string
+  publishedBy: number
 }
 
 export interface GetRunbooksRequest {
@@ -62,6 +72,12 @@ export interface DeleteRunbookCommand {
   id: number
   projectId: number
   spaceId?: number
+}
+
+export interface PublishRunbookCommand {
+  id: number
+  projectId: number
+  spaceId: number
 }
 
 export interface RunbookApiErrorDetails {
@@ -130,6 +146,10 @@ export function deleteRunbook(command: DeleteRunbookCommand) {
     ProjectId: command.projectId,
     SpaceId: command.spaceId,
   })
+}
+
+export function publishRunbook(command: PublishRunbookCommand) {
+  return post<RunbookPublishedSnapshotDto>('/runbooks/publish', command)
 }
 
 export function getRunbookOwnedProcess(

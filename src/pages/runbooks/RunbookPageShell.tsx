@@ -15,6 +15,7 @@ import {
   buildRunbookProcessPath,
   buildRunbookRunsPath,
   buildRunbookSettingsPath,
+  buildRunbookTriggersPath,
   buildRunbooksPath,
 } from './shared'
 
@@ -47,9 +48,10 @@ interface RunbookPageShellProps {
   children: ReactNode
   contentClassName?: string
   forceAside?: boolean
+  hideProcessAside?: boolean
 }
 
-function ScheduledTriggerAside() {
+function ScheduledTriggerAside({ path }: { path: string }) {
   return (
     <div className="flex min-h-full flex-col">
       <div className="flex items-center justify-between gap-2">
@@ -57,20 +59,13 @@ function ScheduledTriggerAside() {
           <ClockCircleOutlined className="text-slate-500" />
           Scheduled Triggers
         </div>
-        <Button
-          type="text"
-          size="small"
-          icon={<MoreOutlined />}
-          className="!h-7 !w-7 !p-0 !text-slate-500"
-          aria-label="Scheduled Trigger options"
-        />
       </div>
       <p className="mb-0 mt-4 text-sm leading-6 text-slate-600">
-        No triggers are currently setup for this runbook.
+        Manage the schedules that run this Runbook automatically.
       </p>
-      <div className="mt-6 flex min-h-[120px] flex-1 items-end justify-center text-slate-300">
-        <ScheduleOutlined className="mb-2 text-5xl" />
-      </div>
+      <Link to={path} className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-squid-blue hover:underline">
+        <ScheduleOutlined /> View Runbook Triggers
+      </Link>
     </div>
   )
 }
@@ -92,17 +87,6 @@ function ProcessAside() {
   )
 }
 
-function RunbookAside({
-  runbook,
-  activeTab,
-}: {
-  runbook: RunbookDto
-  activeTab: RunbookTab
-}) {
-  if (activeTab === 'process') return <ProcessAside />
-  return <ScheduledTriggerAside />
-}
-
 export default function RunbookPageShell({
   runbook,
   spaceId,
@@ -117,9 +101,11 @@ export default function RunbookPageShell({
   children,
   contentClassName = '',
   forceAside = false,
+  hideProcessAside = false,
 }: RunbookPageShellProps) {
   const basePath = buildRunbookPath(spaceId, projectName, runbook.id)
   const listPath = buildRunbooksPath(spaceId, projectName)
+  const showAside = forceAside || Boolean(aside) || (activeTab === 'process' && !hideProcessAside)
   const tabPaths = useMemo<Record<RunbookTab, string>>(() => ({
     overview: basePath,
     runs: buildRunbookRunsPath(spaceId, projectName, runbook.id),
@@ -144,6 +130,9 @@ export default function RunbookPageShell({
               <h1 className="m-0 break-words text-[24px] font-semibold leading-8 text-slate-900">
                 {runbook.name}
               </h1>
+              <p className="mb-0 mt-1 text-sm text-slate-600" aria-live="polite">
+                {runbook.publishedSnapshot ? `Published version ${runbook.publishedSnapshot.version}` : 'Unpublished'}
+              </p>
               {(runbook.tags ?? []).length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {runbook.tags.map((tag) => (
@@ -205,10 +194,12 @@ export default function RunbookPageShell({
         </nav>
       </header>
 
-      <div className={`grid min-h-0 flex-1 auto-rows-min overflow-y-auto lg:auto-rows-auto lg:overflow-hidden ${forceAside || activeTab === 'process' || aside ? 'lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]' : ''}`}>
+      <div className={`grid min-h-0 flex-1 auto-rows-min overflow-y-auto lg:auto-rows-auto lg:overflow-hidden ${showAside ? 'lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]' : ''}`}>
         <main className={`min-h-0 min-w-0 overflow-y-auto ${contentClassName}`}>{children}</main>
-        {forceAside || activeTab === 'process' || aside ? <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-slate-50/60 px-5 py-5 lg:border-l lg:border-t-0">
-          {aside ?? <RunbookAside runbook={runbook} activeTab={activeTab} />}
+        {showAside ? <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-slate-50/60 px-5 py-5 lg:border-l lg:border-t-0">
+          {aside ?? (activeTab === 'process' ? <ProcessAside /> : (
+            <ScheduledTriggerAside path={`${buildRunbookTriggersPath(spaceId, projectName)}?runbook=${runbook.id}`} />
+          ))}
         </aside> : null}
       </div>
     </>
