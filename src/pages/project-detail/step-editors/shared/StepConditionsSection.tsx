@@ -3,6 +3,7 @@ import { Checkbox, Input, Radio, Select, Spin } from 'antd'
 import { getChannels, type ChannelDto } from 'pages/apis/channel'
 import { getEnvironments, type EnvironmentDto } from 'pages/apis/environment'
 import { CollapsibleSection } from './CollapsibleSection'
+import { useRunbookProcessContext } from './RunbookProcessContext'
 
 export type StepEnvironmentMode = 'all' | 'include' | 'exclude'
 
@@ -93,6 +94,8 @@ export function StepConditionsSection({
   hidePackageRequirement = false,
   hideDisabled = false,
 }: StepConditionsSectionProps) {
+  const runbookContext = useRunbookProcessContext()
+  const isRunbook = Boolean(runbookContext)
   const [loading, setLoading] = useState(false)
   const [environments, setEnvironments] = useState<EnvironmentDto[]>([])
   const [channels, setChannels] = useState<ChannelDto[]>([])
@@ -104,7 +107,7 @@ export function StepConditionsSection({
       try {
         const [envRes, channelRes] = await Promise.all([
           getEnvironments({ pageSize: 1000 }).catch(() => null),
-          !hideChannels && typeof projectId === 'number'
+          !hideChannels && !isRunbook && typeof projectId === 'number'
             ? getChannels({ projectId, pageSize: 1000 }).catch(() => null)
             : Promise.resolve(null),
         ])
@@ -120,7 +123,7 @@ export function StepConditionsSection({
     return () => {
       cancelled = true
     }
-  }, [hideChannels, projectId])
+  }, [hideChannels, isRunbook, projectId])
 
   const environmentOptions = useMemo(
     () => environments.map((env) => ({ label: env.name, value: env.id })),
@@ -136,7 +139,11 @@ export function StepConditionsSection({
 
   const body = (
     <>
-      <CollapsibleSection title='Environments' subtitle='Choose which environments this step applies to.' defaultOpen>
+    <CollapsibleSection
+      title='Environments'
+      subtitle={isRunbook ? 'Choose which environments this Runbook step applies to.' : 'Choose which environments this step applies to.'}
+      defaultOpen
+    >
         {loading ? (
           <div className='flex items-center gap-2 text-xs text-slate-500'>
             <Spin size='small' />
@@ -213,7 +220,7 @@ export function StepConditionsSection({
 
       {afterEnvironments}
 
-      {!hideChannels ? (
+      {!hideChannels && !isRunbook ? (
         <CollapsibleSection title='Channels' subtitle='Choose which channels this step applies to.' defaultOpen>
           {loading ? (
             <div className='flex items-center gap-2 text-xs text-slate-500'>

@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, Modal, Spin, Tooltip, message } from 'antd'
-import { Link, Outlet, useLocation, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Alert, Button, Input, Modal, Spin, Tag } from 'antd'
+import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
 import { usePermissions } from 'contexts/PermissionContext'
 import { copyRunbook, deleteRunbook, getRunbook, getRunbookApiErrorDetails, type RunbookDto, type RunbookPublishedSnapshotDto } from 'pages/apis/runbook'
-import { useNavigate } from 'react-router-dom'
-import RunbookPageShell, { PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
+import RunbookPageShell, { OUTLINE_BLUE_CLASS, PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
 import RunbookPublishAction from './RunbookPublishAction'
 import { buildRunbookPath, buildRunbookProcessPath, buildRunbooksPath, parsePositiveId, upsertProjectLookupCache } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 import { useRunbookProcessState, type RunbookProcessState } from './useRunbookProcessState'
+import { useRunbookPreview } from './runbookPreview'
 
 export type RunbookDetailOutletContext = {
   runbook: RunbookDto
@@ -17,6 +17,8 @@ export type RunbookDetailOutletContext = {
   reloadRunbook: () => Promise<void>
   canEdit: boolean
   processState: RunbookProcessState
+  preview: ReturnType<typeof useRunbookPreview>[0]
+  setPreview: ReturnType<typeof useRunbookPreview>[1]
   registerSettingsActions: (actions: RunbookSettingsActions | null) => void
 }
 
@@ -33,10 +35,10 @@ const TAB_PATHS: Record<RunbookTab, string> = {
   settings: 'settings',
 }
 
-function resolveTab(pathname: string): RunbookTab {
-  if (/\/runs(?:\/|$)/.test(pathname)) return 'runs'
-  if (/\/process(?:\/|$)/.test(pathname)) return 'process'
-  if (/\/settings(?:\/|$)/.test(pathname)) return 'settings'
+function resolveTab(section: string | undefined): RunbookTab {
+  if (section === 'run' || section === 'runs') return 'runs'
+  if (section === 'process' || section === 'publish') return 'process'
+  if (section === 'settings') return 'settings'
   return 'overview'
 }
 
@@ -60,13 +62,17 @@ export default function RunbookDetailLayout() {
   const canEdit = !permissionsLoading && hasPermission('RunbookEdit')
   const canPublish = !permissionsLoading && hasPermission('RunbookPublish')
   const processState = useRunbookProcessState(project?.id ?? null, runbook)
+  const [preview, setPreview] = useRunbookPreview(runbook)
+  const [, section, subPage] = location.pathname.match(/\/operations\/runbooks\/\d+(?:\/([^/]+))?(?:\/([^/]+))?/) ?? []
+  const activeTab = resolveTab(section)
+  const isWorkflowPage = section === 'run' || section === 'publish' || section === 'audit' || (section === 'runs' && Boolean(subPage))
 
   useEffect(() => {
-    if (!runbook || !(location.state as { openCopy?: boolean } | null)?.openCopy) return
+    if (!canEdit || !runbook || !(location.state as { openCopy?: boolean } | null)?.openCopy) return
     setCopyName(`${runbook.name} copy`)
     setCopyOpen(true)
     navigate(location.pathname, { replace: true, state: null })
-  }, [location.pathname, location.state, navigate, runbook])
+  }, [canEdit, location.pathname, location.state, navigate, runbook])
 
   const load = useCallback(async () => {
     if (!project || !runbookId) {
@@ -114,11 +120,11 @@ export default function RunbookDetailLayout() {
   }, [])
 
   useEffect(() => {
-    if (resolveTab(location.pathname) !== 'settings') setSettingsActions(null)
-  }, [location.pathname])
+    if (activeTab !== 'settings') setSettingsActions(null)
+  }, [activeTab])
 
   const confirmDelete = async () => {
-    if (!project || !runbook || deleteConfirmation !== runbook.name) return
+    if (!canEdit || !project || !runbook || deleteConfirmation !== runbook.name) return
     setDeleting(true)
     try {
       await deleteRunbook({ id: runbook.id, projectId: project.id, spaceId: project.spaceId })
@@ -132,7 +138,7 @@ export default function RunbookDetailLayout() {
   }
 
   const confirmCopy = async () => {
-    if (!project || !runbook || !copyName.trim()) return
+    if (!canEdit || !project || !runbook || !copyName.trim()) return
     setCopying(true)
     try {
       const copied = await copyRunbook({
@@ -151,9 +157,9 @@ export default function RunbookDetailLayout() {
     }
   }
 
-  const outletContext = useMemo<RunbookDetailOutletContext | null>(() => (
-    runbook ? { runbook, setRunbook, reloadRunbook: load, canEdit, processState, registerSettingsActions } : null
-  ), [canEdit, load, processState, registerSettingsActions, runbook, setRunbook])
+  const outletContext: RunbookDetailOutletContext | null = runbook
+    ? { runbook, setRunbook, reloadRunbook: load, canEdit, processState, preview, setPreview, registerSettingsActions }
+    : null
 
   if (projectLoading || loading) {
     return <PageContainer><div className="flex min-h-[420px] items-center justify-center"><Spin /></div></PageContainer>
@@ -181,11 +187,10 @@ export default function RunbookDetailLayout() {
     )
   }
 
-  const activeTab = resolveTab(location.pathname)
+  const basePath = buildRunbookPath(spaceId, projectName ?? '', runbook.id)
   const processPath = buildRunbookProcessPath(spaceId, projectName ?? '', runbook.id)
-  const hasProcess = processState.hasProcess
-  const processStateReady = !processState.loading
-  const publishAction = canPublish
+  const showWorkflowActions = !isWorkflowPage && !subPage && activeTab !== 'settings'
+  const publishAction = showWorkflowActions && canPublish
     ? <RunbookPublishAction key={runbook.id} runbook={runbook} onPublished={recordPublication} />
     : null
   const primaryActions = activeTab === 'settings' && canEdit ? (
@@ -197,24 +202,14 @@ export default function RunbookDetailLayout() {
     >
       Save
     </Button>
-  ) : activeTab === 'overview' || activeTab === 'runs' ? (
+  ) : showWorkflowActions && (processState.hasProcess || preview.snapshot) ? (
     <>
-      {publishAction}
-      {!processStateReady ? (
-        <div className="h-8 w-28" aria-hidden="true" />
-      ) : hasProcess ? (
-        <Tooltip title="Runbook execution is not available in this version">
-          <Button className={PRIMARY_GREEN_CLASS} onClick={() => message.info('Runbook execution is not available in this version.')}>
-            Run...
-          </Button>
-        </Tooltip>
-      ) : (
-        <Link to={processPath}>
-          <Button className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Button>
-        </Link>
-      )}
+      {canEdit && processState.hasProcess ? <Link className={OUTLINE_BLUE_CLASS} to={`${basePath}/publish`}>Publish...</Link> : null}
+      <Link to={`${basePath}/run`} className={PRIMARY_GREEN_CLASS}>Run...</Link>
     </>
-  ) : activeTab === 'process' ? publishAction : undefined
+  ) : showWorkflowActions && activeTab !== 'process' && canEdit && !processState.processLoading && !processState.processUnavailable ? (
+    <Link to={processPath} className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Link>
+  ) : undefined
 
   return (
     <PageContainer className="!flex !h-full !min-h-0 !max-w-[1680px] !flex-col !py-4">
@@ -224,9 +219,11 @@ export default function RunbookDetailLayout() {
           spaceId={spaceId}
           projectName={projectName ?? ''}
           activeTab={activeTab}
+          defaultAction={null}
           renderShell={false}
-          forceAside={activeTab === 'overview'}
-          actions={primaryActions}
+          forceAside={!isWorkflowPage && activeTab === 'overview'}
+          hideProcessAside={isWorkflowPage}
+          actions={<>{publishAction}{primaryActions}</>}
           menuItems={canEdit ? [
             { key: 'clone', label: 'Clone' },
             { key: 'audit', label: 'Audit Trail' },
@@ -242,7 +239,7 @@ export default function RunbookDetailLayout() {
               return
             }
             if (key === 'audit') {
-              message.info('Audit Trail is not available yet.')
+              navigate(`${basePath}/audit`)
               return
             }
             if (key === 'delete') {
@@ -251,7 +248,12 @@ export default function RunbookDetailLayout() {
             }
           }}
         >
-          <Outlet context={outletContext} />
+          {!isWorkflowPage && activeTab === 'process' && !subPage && preview.snapshot ? (
+            <div className="border-b border-slate-200 px-5 py-3 text-sm text-slate-700">
+              <Tag color="blue">Preview snapshot</Tag> {preview.snapshot.name}
+            </div>
+          ) : null}
+          <Outlet key={runbook.id} context={outletContext} />
         </RunbookPageShell>
       </div>
 

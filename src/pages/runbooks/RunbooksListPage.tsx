@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Dropdown, Spin, message } from 'antd'
+import { Alert, Button, Dropdown, Select, Spin } from 'antd'
 import { MoreOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
@@ -22,6 +22,7 @@ export default function RunbooksListPage() {
   const [runbooks, setRunbooks] = useState<RunbookDto[]>([])
   const [count, setCount] = useState(0)
   const [keyword, setKeyword] = useState('')
+  const [tags, setTags] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const basePath = buildRunbooksPath(spaceId, projectName ?? '')
@@ -59,12 +60,14 @@ export default function RunbooksListPage() {
   }, [access, project])
 
   const filter = keyword.trim().toLowerCase()
-  const visibleRunbooks = filter
-    ? runbooks.filter((runbook) =>
-      runbook.name.toLocaleLowerCase().includes(filter)
-      || runbook.description.toLocaleLowerCase().includes(filter)
-      || runbook.tags.some((tag) => tag.toLocaleLowerCase().includes(filter)))
-    : runbooks
+  const tagOptions = [...new Set(runbooks.flatMap((runbook) => runbook.tags ?? []))]
+    .sort((a, b) => a.localeCompare(b)).map((tag) => ({ label: tag, value: tag }))
+  const visibleRunbooks = runbooks.filter((runbook) =>
+    (!filter || runbook.name.toLowerCase().includes(filter)
+      || runbook.description?.toLowerCase().includes(filter)
+      || runbook.tags?.some((tag) => tag.toLowerCase().includes(filter)))
+    && tags.every((tag) => runbook.tags?.includes(tag)),
+  )
 
   if (projectLoading) {
     return <PageContainer><div className="flex min-h-[320px] items-center justify-center"><Spin /></div></PageContainer>
@@ -165,11 +168,23 @@ export default function RunbooksListPage() {
                   type="search"
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  placeholder="Filter by name..."
+                  placeholder="Search runbooks..."
                   className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
-                  aria-label="Filter Runbooks by name"
+                  aria-label="Search Runbooks"
                 />
               </div>
+              {tagOptions.length ? (
+                <Select
+                  mode="multiple"
+                  allowClear
+                  aria-label="Filter Runbooks by tags"
+                  placeholder="Filter by tags..."
+                  value={tags}
+                  onChange={setTags}
+                  options={tagOptions}
+                  className="w-full sm:max-w-[320px]"
+                />
+              ) : null}
             </div>
 
             {visibleRunbooks.length === 0 ? (
@@ -202,15 +217,15 @@ export default function RunbooksListPage() {
                         ) : null}
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2 pt-0.5 sm:ml-auto">
-                        <Button className={RUN_BUTTON_CLASS} disabled title="Runbook execution is not available in this version">
+                        <Link className={RUN_BUTTON_CLASS} to={`${buildRunbookPath(spaceId, projectName ?? '', runbook.id)}/run`}>
                           Run...
-                        </Button>
+                        </Link>
                         <Dropdown
                           trigger={['click']}
                           placement="bottomRight"
                           menu={{
                             items: [
-                              { key: 'clone', label: 'Clone' },
+                              { key: 'clone', label: 'Clone', disabled: !access.canEdit },
                               { key: 'audit', label: 'Audit Trail' },
                             ],
                             onClick: ({ key }) => {
@@ -219,7 +234,7 @@ export default function RunbooksListPage() {
                                 return
                               }
                               if (key === 'audit') {
-                                message.info('Audit Trail is not available yet.')
+                                navigate(`${buildRunbookPath(spaceId, projectName ?? '', runbook.id)}/audit`)
                               }
                             },
                           }}

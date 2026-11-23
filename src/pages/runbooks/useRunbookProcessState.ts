@@ -11,18 +11,22 @@ export function taskBelongsToRunbook(
 ) {
   const haystack = `${task.name} ${task.description}`.toLowerCase()
   const runbookName = runbook.name.trim().toLowerCase()
-  return haystack.includes(`runbook:${runbook.id}`)
-    || haystack.includes(`runbook ${runbook.id}`)
-    || haystack.includes(`runbook-${runbook.id}`)
-    || (runbookName.length > 0 && haystack.includes(`${runbookName} snapshot`))
+  const idMatch = [...haystack.matchAll(/\brunbook[: -](\d+)\b/g)].map((match) => Number(match[1]))
+  return idMatch.length > 0
+    ? idMatch.includes(runbook.id)
+    : runbookName.length > 0 && haystack.includes(`${runbookName} snapshot`)
 }
 
 export type RunbookProcessState = {
   stepCount: number | null
+  steps: string[]
   processId: number | null
   hasProcess: boolean
   tasks: ServerTaskListItemDto[]
   loading: boolean
+  processLoading: boolean
+  processUnavailable: boolean
+  tasksLoading: boolean
   tasksUnavailable: boolean
   reload: () => void
 }
@@ -32,6 +36,9 @@ export function useRunbookProcessState(
   runbook: RunbookDto | null,
 ): RunbookProcessState {
   const [stepCount, setStepCount] = useState<number | null>(null)
+  const [steps, setSteps] = useState<string[]>([])
+  const [processLoading, setProcessLoading] = useState(true)
+  const [processUnavailable, setProcessUnavailable] = useState(false)
   const [tasks, setTasks] = useState<ServerTaskListItemDto[] | null>(null)
   const [tasksUnavailable, setTasksUnavailable] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -42,21 +49,31 @@ export function useRunbookProcessState(
   useEffect(() => {
     if (!projectId || !runbookId || !processId) {
       setStepCount(0)
+      setSteps([])
+      setProcessLoading(false)
+      setProcessUnavailable(false)
       return
     }
 
     let active = true
+    setProcessLoading(true)
+    setProcessUnavailable(false)
     setStepCount(null)
+    setSteps([])
     void getDeploymentSteps({
       processId,
       projectId,
       runbookId,
       pageIndex: 1,
-      pageSize: 1,
+      pageSize: 500,
     }).then((response) => {
-      if (active) setStepCount(response.count ?? response.steps?.length ?? 0)
+      if (!active) return
+      setStepCount(response.count ?? response.steps?.length ?? 0)
+      setSteps([...(response.steps ?? [])].sort((a, b) => a.stepOrder - b.stepOrder).map((step) => step.name))
     }).catch(() => {
-      if (active) setStepCount(null)
+      if (active) setProcessUnavailable(true)
+    }).finally(() => {
+      if (active) setProcessLoading(false)
     })
 
     return () => {
@@ -76,9 +93,9 @@ export function useRunbookProcessState(
     void getServerTaskList({ projectId, pageIndex: 1, pageSize: 50 })
       .then((response) => {
         if (!active) return
-        setTasks((response.items ?? []).filter((task) => (
-          taskBelongsToRunbook(task, { id: runbookId, name: runbookName })
-        )))
+        setTasks((response.items ?? [])
+          .filter((task) => taskBelongsToRunbook(task, { id: runbookId, name: runbookName }))
+          .sort((a, b) => b.queueTime.localeCompare(a.queueTime)))
       })
       .catch(() => {
         if (!active) return
@@ -97,10 +114,14 @@ export function useRunbookProcessState(
 
   return {
     stepCount,
+    steps,
     processId,
     hasProcess: stepCount != null && stepCount > 0,
     tasks: tasks ?? EMPTY_TASKS,
-    loading: stepCount == null || tasks == null,
+    loading: processLoading || tasks == null,
+    processLoading,
+    processUnavailable,
+    tasksLoading: tasks == null,
     tasksUnavailable,
     reload,
   }
