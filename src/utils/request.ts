@@ -6,9 +6,9 @@ import axios, {
 } from 'axios'
 import type { LoadingStats } from './loadingProgress'
 import { getAuthToken, handleUnauthorizedSession, isAuthenticated } from 'utils/auth'
+import { resolveApiBaseUrl } from 'utils/apiBase'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
-if (!API_BASE_URL) throw new Error('VITE_API_BASE_URL is required')
+const API_BASE_URL = resolveApiBaseUrl()
 const CURRENT_SPACE_ID_KEY = 'CURRENT_SPACE_ID'
 const SPACE_ID_HEADER = 'X-Space-Id'
 const SPACE_ROUTE_PATTERN = /^\/Spaces-(\d+)(?:\/|$)/i

@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
@@ -17,7 +18,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'
 const TARGET_ROLE_PROPERTY_NAMES = ['Squid.Action.TargetRoles', 'TargetRoles'] as const

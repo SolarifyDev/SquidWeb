@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -13,7 +14,7 @@ import { ConfigMapSection } from './sections/ConfigMapSection'
 import { SecretSection } from './sections/SecretSection'
 import { ConditionsSection } from './sections/ConditionsSection'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 
 export interface KubernetesContainersEditorHandle {
   save: () => Promise<void>

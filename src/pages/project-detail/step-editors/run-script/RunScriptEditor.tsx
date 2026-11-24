@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { AutoComplete, Button, Checkbox, Input, Radio, Select, message } from 'antd'
 import { CopyOutlined, MoreOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons'
@@ -17,7 +18,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.Script'
 const DEFAULT_STEP_NAME = 'Run a Script'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'

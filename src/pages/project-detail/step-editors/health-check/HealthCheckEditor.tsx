@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { Button, Input, Radio, message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -15,7 +16,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.HealthCheck'
 const DEFAULT_STEP_NAME = 'Health Check'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'

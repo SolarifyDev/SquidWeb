@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { Button, Checkbox, Input, Radio, Select, message } from 'antd'
 import { MoreOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -16,7 +17,7 @@ import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMo
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.KubernetesKustomize'
 const DEFAULT_STEP_NAME = 'Deploy with Kustomize'
 const DEFAULT_BRANCH = 'main'
