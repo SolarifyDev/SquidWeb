@@ -3,9 +3,10 @@ import { Alert, Button, Dropdown, Select, Spin } from 'antd'
 import { MoreOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
+import { usePermissions } from 'contexts/PermissionContext'
 import { getRunbookApiErrorDetails, getRunbooks, type RunbookDto } from 'pages/apis/runbook'
 import RunbookEmptyIllustration from './RunbookEmptyIllustration'
-import { buildRunbookPath, buildRunbooksPath } from './shared'
+import { buildRunbookPath, buildRunbooksPath, hasPublishedRunbookVersion } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 import { useRunbookAccess } from './useRunbookAccess'
 
@@ -19,6 +20,8 @@ export default function RunbooksListPage() {
   const navigate = useNavigate()
   const { spaceId, projectName, project, loading: projectLoading, error: projectError } = useProjectRunbookContext()
   const access = useRunbookAccess(project?.id ?? null, project?.spaceId ?? null)
+  const { hasPermission } = usePermissions()
+  const canRun = access.permissionsKnown && hasPermission('RunbookRun')
   const [runbooks, setRunbooks] = useState<RunbookDto[]>([])
   const [count, setCount] = useState(0)
   const [keyword, setKeyword] = useState('')
@@ -217,9 +220,11 @@ export default function RunbooksListPage() {
                         ) : null}
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2 pt-0.5 sm:ml-auto">
-                        <Link className={RUN_BUTTON_CLASS} to={`${buildRunbookPath(spaceId, projectName ?? '', runbook.id)}/run`}>
-                          Run...
-                        </Link>
+                        {canRun && hasPublishedRunbookVersion(runbook) ? (
+                          <Link className={RUN_BUTTON_CLASS} to={`${buildRunbookPath(spaceId, projectName ?? '', runbook.id)}/run`}>
+                            Run Now
+                          </Link>
+                        ) : null}
                         <Dropdown
                           trigger={['click']}
                           placement="bottomRight"

@@ -7,12 +7,13 @@ import {
   classifyRunbookTask,
   formatRunbookTaskDateTime,
   formatRunbookTaskDuration,
+  hasPublishedRunbookVersion,
 } from './shared'
 
 type RunTab = 'all' | 'running' | 'waiting' | 'needsApproval' | 'completed'
 
 export default function RunbookRunsPage() {
-  const { processState, preview } = useOutletContext<RunbookDetailOutletContext>()
+  const { runbook, canRun, processState, preview } = useOutletContext<RunbookDetailOutletContext>()
   const [activeTab, setActiveTab] = useState<RunTab>('all')
   const [taskState, setTaskState] = useState('all')
   const [advancedFilters, setAdvancedFilters] = useState(false)
@@ -168,7 +169,7 @@ export default function RunbookRunsPage() {
                 <td className="px-6 py-16 text-center text-sm text-slate-500 sm:px-8" colSpan={5}>
                   {classifiedTasks.length === 0 ? (
                     processState.tasksUnavailable ? 'No preview runs in this tab.' : (
-                      <>There are no runs for this Runbook yet. {processState.hasProcess || preview.snapshot ? <Link to="../run" className="text-squid-blue hover:underline">Run now</Link> : null}</>
+                      <>There are no runs for this Runbook yet. {canRun && hasPublishedRunbookVersion(runbook) ? <Link to="../run" className="text-squid-blue hover:underline">Run now</Link> : null}</>
                     )
                   ) : 'No runs match these filters.'}
                 </td>

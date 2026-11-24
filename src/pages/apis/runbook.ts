@@ -1,5 +1,6 @@
 import { ApiError, get, post } from 'utils/request'
 import type { DeploymentProcessDto } from 'pages/apis/deploymentProcess'
+import type { EnvironmentDto } from 'pages/apis/environment'
 
 export interface RunbookDto {
   id: number
@@ -24,6 +25,24 @@ export interface RunbookPublishedSnapshotDto {
   version: number
   publishedAt: string
   publishedBy: number
+}
+
+export interface RunbookRunDto {
+  id: number
+  runbookId: number
+  snapshotId: number
+  snapshotVersion: number
+  taskId: number
+  projectId: number
+  spaceId: number
+  environmentId: number
+  initiatedBy: number
+  state: string
+  createdDate: string
+}
+
+export interface RunbookEligibleEnvironmentsResponseData {
+  environments: EnvironmentDto[]
 }
 
 export interface GetRunbooksRequest {
@@ -78,6 +97,13 @@ export interface PublishRunbookCommand {
   id: number
   projectId: number
   spaceId: number
+}
+
+export interface RunRunbookCommand {
+  id: number
+  projectId: number
+  spaceId: number
+  environmentId: number
 }
 
 export interface RunbookApiErrorDetails {
@@ -150,6 +176,16 @@ export function deleteRunbook(command: DeleteRunbookCommand) {
 
 export function publishRunbook(command: PublishRunbookCommand) {
   return post<RunbookPublishedSnapshotDto>('/runbooks/publish', command)
+}
+
+export function getRunbookEligibleEnvironments(id: number, projectId: number, spaceId: number) {
+  return get<RunbookEligibleEnvironmentsResponseData>(`/runbooks/eligible-environments/${id}`, {
+    params: { projectId, spaceId },
+  })
+}
+
+export function runRunbook(command: RunRunbookCommand) {
+  return post<RunbookRunDto>('/runbooks/run', command)
 }
 
 export function getRunbookOwnedProcess(

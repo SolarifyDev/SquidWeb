@@ -6,7 +6,7 @@ import { usePermissions } from 'contexts/PermissionContext'
 import { copyRunbook, deleteRunbook, getRunbook, getRunbookApiErrorDetails, type RunbookDto, type RunbookPublishedSnapshotDto } from 'pages/apis/runbook'
 import RunbookPageShell, { OUTLINE_BLUE_CLASS, PRIMARY_GREEN_CLASS, type RunbookTab } from './RunbookPageShell'
 import RunbookPublishAction from './RunbookPublishAction'
-import { buildRunbookPath, buildRunbookProcessPath, buildRunbooksPath, parsePositiveId, upsertProjectLookupCache } from './shared'
+import { buildRunbookPath, buildRunbookProcessPath, buildRunbooksPath, hasPublishedRunbookVersion, parsePositiveId, upsertProjectLookupCache } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 import { useRunbookProcessState, type RunbookProcessState } from './useRunbookProcessState'
 import { useRunbookPreview } from './runbookPreview'
@@ -16,6 +16,7 @@ export type RunbookDetailOutletContext = {
   setRunbook: (runbook: RunbookDto) => void
   reloadRunbook: () => Promise<void>
   canEdit: boolean
+  canRun: boolean
   processState: RunbookProcessState
   preview: ReturnType<typeof useRunbookPreview>[0]
   setPreview: ReturnType<typeof useRunbookPreview>[1]
@@ -61,6 +62,7 @@ export default function RunbookDetailLayout() {
   const [settingsActions, setSettingsActions] = useState<RunbookSettingsActions | null>(null)
   const canEdit = !permissionsLoading && hasPermission('RunbookEdit')
   const canPublish = !permissionsLoading && hasPermission('RunbookPublish')
+  const canRun = !permissionsLoading && hasPermission('RunbookRun')
   const processState = useRunbookProcessState(project?.id ?? null, runbook)
   const [preview, setPreview] = useRunbookPreview(runbook)
   const [, section, subPage] = location.pathname.match(/\/operations\/runbooks\/\d+(?:\/([^/]+))?(?:\/([^/]+))?/) ?? []
@@ -158,7 +160,7 @@ export default function RunbookDetailLayout() {
   }
 
   const outletContext: RunbookDetailOutletContext | null = runbook
-    ? { runbook, setRunbook, reloadRunbook: load, canEdit, processState, preview, setPreview, registerSettingsActions }
+    ? { runbook, setRunbook, reloadRunbook: load, canEdit, canRun, processState, preview, setPreview, registerSettingsActions }
     : null
 
   if (projectLoading || loading) {
@@ -193,6 +195,9 @@ export default function RunbookDetailLayout() {
   const publishAction = showWorkflowActions && canPublish
     ? <RunbookPublishAction key={runbook.id} runbook={runbook} onPublished={recordPublication} />
     : null
+  const runAction = showWorkflowActions && canRun && hasPublishedRunbookVersion(runbook)
+    ? <Link to={`${basePath}/run`} className={PRIMARY_GREEN_CLASS}>Run Now</Link>
+    : null
   const primaryActions = activeTab === 'settings' && canEdit ? (
     <Button
       className={PRIMARY_GREEN_CLASS}
@@ -202,12 +207,9 @@ export default function RunbookDetailLayout() {
     >
       Save
     </Button>
-  ) : showWorkflowActions && (processState.hasProcess || preview.snapshot) ? (
-    <>
-      {canEdit && processState.hasProcess ? <Link className={OUTLINE_BLUE_CLASS} to={`${basePath}/publish`}>Publish...</Link> : null}
-      <Link to={`${basePath}/run`} className={PRIMARY_GREEN_CLASS}>Run...</Link>
-    </>
-  ) : showWorkflowActions && activeTab !== 'process' && canEdit && !processState.processLoading && !processState.processUnavailable ? (
+  ) : showWorkflowActions && canEdit && processState.hasProcess ? (
+    <Link className={OUTLINE_BLUE_CLASS} to={`${basePath}/publish`}>Preview publication</Link>
+  ) : showWorkflowActions && activeTab !== 'process' && canEdit && !runAction && !processState.processLoading && !processState.processUnavailable ? (
     <Link to={processPath} className={PRIMARY_GREEN_CLASS}>Define your Runbook Process</Link>
   ) : undefined
 
@@ -223,7 +225,7 @@ export default function RunbookDetailLayout() {
           renderShell={false}
           forceAside={!isWorkflowPage && activeTab === 'overview'}
           hideProcessAside={isWorkflowPage}
-          actions={<>{publishAction}{primaryActions}</>}
+          actions={<>{publishAction}{primaryActions}{runAction}</>}
           menuItems={canEdit ? [
             { key: 'clone', label: 'Clone' },
             { key: 'audit', label: 'Audit Trail' },

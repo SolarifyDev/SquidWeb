@@ -1,4 +1,5 @@
 import type { ServerTaskListItemDto } from 'pages/apis/serverTask'
+import type { RunbookDto } from 'pages/apis/runbook'
 import { getProjects, type ProjectDto } from 'pages/apis/project'
 
 const PROJECT_LOOKUP_TTL_MS = 30_000
@@ -8,6 +9,10 @@ export const RUNBOOK_NAME_MAX_LENGTH = 200
 export const RUNBOOK_DESCRIPTION_MAX_LENGTH = 4000
 export const RUNBOOK_TAG_MAX_LENGTH = 100
 export const RUNBOOK_TAGS_MAX_COUNT = 50
+
+export function hasPublishedRunbookVersion(runbook: RunbookDto) {
+  return Boolean(runbook.publishedSnapshotId ?? runbook.publishedSnapshot?.id)
+}
 
 export type RunbookTaskCategory = 'running' | 'waiting' | 'needsApproval' | 'completed'
 

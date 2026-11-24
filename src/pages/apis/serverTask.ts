@@ -176,16 +176,16 @@ export function getServerTaskList(params: GetServerTaskListParams) {
   return get<GetServerTaskListResponseData>('/tasks', { params: query })
 }
 
-export function getServerTask(taskId: number) {
-  return get<ServerTaskSummaryDto>(`/tasks/${taskId}`)
+export function getServerTask(taskId: number, config?: RequestConfig) {
+  return get<ServerTaskSummaryDto | null>(`/tasks/${taskId}`, config)
 }
 
 export function getServerTaskDetails(taskId: number, params?: GetServerTaskDetailsParams, config?: RequestConfig) {
   return get<ServerTaskDetailsDto>(`/tasks/${taskId}/details`, { params, ...config })
 }
 
-export function getServerTaskLogs(taskId: number, params?: GetServerTaskLogsParams) {
-  return get<ServerTaskLogPageDto>(`/tasks/${taskId}/logs`, { params })
+export function getServerTaskLogs(taskId: number, params?: GetServerTaskLogsParams, config?: RequestConfig) {
+  return get<ServerTaskLogPageDto>(`/tasks/${taskId}/logs`, { params, ...config })
 }
 
 export function getServerTaskNodeLogs(taskId: number, nodeId: number, params?: GetServerTaskLogsParams) {

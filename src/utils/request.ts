@@ -222,7 +222,7 @@ export class ApiError extends Error {
   }
 }
 
-const SUCCESS_CODES = new Set([0, 200])
+const SUCCESS_CODES = new Set([0, 200, 202])
 
 export interface RequestConfig<T = any> extends AxiosRequestConfig<T> {
   // When true, this request is excluded from the global in-flight counter

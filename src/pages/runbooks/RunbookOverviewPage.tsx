@@ -12,11 +12,12 @@ import {
   buildRunbookRunsPath,
   classifyRunbookTask,
   formatRunbookTaskDateTime,
+  hasPublishedRunbookVersion,
 } from './shared'
 import { useProjectRunbookContext } from './useProjectRunbookContext'
 
 export default function RunbookOverviewPage() {
-  const { runbook, canEdit, processState, preview } = useOutletContext<RunbookDetailOutletContext>()
+  const { runbook, canEdit, canRun, processState, preview } = useOutletContext<RunbookDetailOutletContext>()
   const { spaceId, projectName } = useProjectRunbookContext()
   const latestTask = processState.tasks[0] ?? null
   const latestPreview = preview.runs[0]
@@ -109,7 +110,7 @@ export default function RunbookOverviewPage() {
       ) : !latestPreview && !processState.tasksUnavailable && (processState.hasProcess || preview.snapshot) ? (
         <section className="flex flex-1 flex-col items-center justify-start pt-5 text-center">
           <p className="m-0 text-sm font-semibold text-slate-800">
-            There are no runs for this Runbook yet. <Link to="run" className="text-squid-blue hover:underline">Run now</Link>
+            There are no runs for this Runbook yet. {canRun && hasPublishedRunbookVersion(runbook) ? <Link to="run" className="text-squid-blue hover:underline">Run now</Link> : null}
           </p>
           <div className="mt-7 flex items-end justify-center text-slate-300" aria-hidden="true">
             <div className="mr-1 h-8 w-2 rounded-t-full bg-slate-300" />
