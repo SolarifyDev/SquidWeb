@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import 'tailwindcss/tailwind.css'
 import 'assets/octo-dropdown.css'
 import App from 'components/App'
+import SetupGate from 'pages/setup/SetupGate'
 import { BrowserRouter as Router } from 'react-router-dom'
 import { ConfigProvider, type ThemeConfig } from 'antd'
 
@@ -27,7 +28,9 @@ const root = createRoot(container)
 root.render(
   <Router>
     <ConfigProvider theme={squidTheme}>
-      <App />
+      <SetupGate>
+        <App />
+      </SetupGate>
     </ConfigProvider>
   </Router>
 )

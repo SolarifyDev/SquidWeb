@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -9,7 +10,7 @@ import { IngressSection } from '../kubernetes-containers/sections/IngressSection
 import { ConditionsSection } from '../kubernetes-containers/sections/ConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.KubernetesDeployIngress'
 
 export const KubernetesIngressEditor = forwardRef<StepEditorHandle, StepEditorProps>(

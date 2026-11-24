@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useBeforeUnload, useLocation, useNavigate } from 'react-router-dom'
 import { Dropdown, Modal, Select, Spin, message, type MenuProps } from 'antd'
@@ -71,7 +72,7 @@ const STEP_EDITOR_MAP: Record<string, StepEditorComponent> = {
 
 // ── API base for image URLs ────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 
 function stepLogoUrl(spaceId: string, actionType: string) {
   return `${API_BASE}/${spaceId}/actiontemplates/${actionType}/logo`

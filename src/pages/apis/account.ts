@@ -1,6 +1,7 @@
 import axios, { AxiosError, type Method } from 'axios'
 import { getAuthToken, handleUnauthorizedSession } from 'utils/auth'
 import { ApiError, type ApiResponse } from 'utils/request'
+import { resolveAuthBaseUrl } from 'utils/apiBase'
 
 export interface LoginRequestDto {
   userName: string
@@ -57,8 +58,7 @@ export interface CreateApiKeyResult {
   plainTextKey: string | null
 }
 
-const AUTH_BASE_URL = (import.meta.env.VITE_AUTH_BASE_URL as string | undefined)?.trim()
-if (!AUTH_BASE_URL) throw new Error('VITE_AUTH_BASE_URL is required')
+const AUTH_BASE_URL = resolveAuthBaseUrl()
 
 const AUTH_SUCCESS_CODE = 200
 

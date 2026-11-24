@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from "utils/apiBase";
 import React, {
   forwardRef,
   useCallback,
@@ -45,7 +46,7 @@ import type {
 } from "../shared/StepEditorTypes";
 import "./WindowsServiceEditor.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string;
+const API_BASE = resolveApiBaseUrl();
 const ACTION_TYPE = "Squid.DeployWindowsService";
 const DEFAULT_STEP_NAME = "Deploy a Windows Service";
 const FEATURES_PROPERTY = "Squid.Action.EnabledFeatures";

@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { Input, Radio, Select, message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -13,7 +14,7 @@ import { StepConditionsSection, type StepEnvironmentMode } from '../shared/StepC
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
 import { getTeams, type TeamDto } from 'pages/apis/team'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.Manual'
 const EVERYONE_VALUE = '__EVERYONE__'
 const STEP_CONDITION_EXPRESSION_PROPERTY = 'Squid.Step.ConditionExpression'

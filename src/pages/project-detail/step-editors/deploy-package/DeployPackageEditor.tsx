@@ -1,3 +1,4 @@
+import { resolveApiBaseUrl } from 'utils/apiBase'
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { Checkbox, Input, Modal, message } from 'antd'
 import { MoreOutlined } from '@ant-design/icons'
@@ -30,7 +31,7 @@ import {
   TargetTagsSection,
 } from './sections/execution-controls-section'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL as string
+const API_BASE = resolveApiBaseUrl()
 
 export const DeployPackageEditor = forwardRef<StepEditorHandle, StepEditorProps>(function DeployPackageEditor(
   { step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange },
