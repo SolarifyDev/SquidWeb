@@ -82,14 +82,18 @@ describe('PackageStorageSettings', () => {
     expect(screen.getByTestId('package-stores-scroll')).toContainElement(location)
   })
 
-  it('cannot delete or re-default the default store', async () => {
+  it('offers Set as default and Delete only through the menu, and not for the default store', async () => {
     render(<PackageStorageSettings />)
     await screen.findByText('Primary')
 
     const primary = within(rowOf('Primary'))
-    expect(primary.queryByRole('button', { name: 'Delete' })).toBeNull()
-    expect(primary.queryByRole('button', { name: 'Set as default' })).toBeNull()
-    expect(within(rowOf('Archive')).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    expect(primary.queryByRole('button', { name: 'More actions' })).toBeNull()
+    expect(primary.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(primary.getByRole('button', { name: 'Test' })).toBeInTheDocument()
+
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'More actions' }))
+    expect(await screen.findByText('Set as default')).toBeInTheDocument()
+    expect(screen.getByText('Delete')).toBeInTheDocument()
   })
 
   it('sets a store as default through the API and refreshes the list', async () => {
@@ -97,7 +101,8 @@ describe('PackageStorageSettings', () => {
     render(<PackageStorageSettings />)
     await screen.findByText('Archive')
 
-    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Set as default' }))
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByText('Set as default'))
 
     await waitFor(() => expect(mocked.setDefaultPackageStore).toHaveBeenCalledWith(2))
     await waitFor(() => expect(mocked.getPackageStores).toHaveBeenCalledTimes(2))
@@ -108,7 +113,8 @@ describe('PackageStorageSettings', () => {
     render(<PackageStorageSettings />)
     await screen.findByText('Archive')
 
-    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'More actions' }))
+    fireEvent.click(await screen.findByText('Delete'))
     const confirm = await screen.findByRole('dialog')
     expect(within(confirm).getByText(/A store that still holds packages can't be deleted/)).toBeInTheDocument()
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Modal, Spin, Tag } from 'antd'
-import { PlusOutlined, WarningOutlined } from '@ant-design/icons'
+import { Alert, Button, Dropdown, Modal, Spin, Tag, type MenuProps } from 'antd'
+import { EllipsisOutlined, PlusOutlined, WarningOutlined } from '@ant-design/icons'
 import {
   deletePackageStore,
   getPackageStoreProviders,
@@ -29,7 +29,7 @@ function LastCheck({ store }: { store: PackageStoreDto }) {
         {store.lastTestSucceeded ? 'Passed' : 'Failed'}
       </Tag>
       {store.lastTestedDate ? <div className="text-xs text-slate-500">{new Date(store.lastTestedDate).toLocaleString()}</div> : null}
-      {!store.lastTestSucceeded && store.lastTestMessage ? <div className="text-xs text-red-600">{store.lastTestMessage}</div> : null}
+      {!store.lastTestSucceeded && store.lastTestMessage ? <div className="break-words text-xs text-red-600">{store.lastTestMessage}</div> : null}
     </div>
   )
 }
@@ -90,6 +90,13 @@ export function PackageStorageSettings() {
       onOk: () => runAction(() => deletePackageStore(store.id), `${store.name} deleted.`, 'Failed to delete the package store.'),
     })
 
+  const moreMenu = (store: PackageStoreDto): MenuProps => ({
+    items: [
+      { key: 'default', label: 'Set as default', onClick: () => void makeDefault(store) },
+      { key: 'delete', label: 'Delete', danger: true, onClick: () => confirmDelete(store) },
+    ],
+  })
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-4 flex items-start justify-between gap-4">
@@ -112,10 +119,10 @@ export function PackageStorageSettings() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="min-w-[10rem] py-2 pr-4">Name</th>
-              <th className="min-w-[7rem] whitespace-nowrap py-2 pr-4">Type</th>
-              <th className="min-w-[10rem] py-2 pr-4">Location</th>
-              <th className="py-2 pr-4">Last check</th>
+              <th className="min-w-[8rem] py-2 pr-3">Name</th>
+              <th className="min-w-[6rem] whitespace-nowrap py-2 pr-3">Type</th>
+              <th className="py-2 pr-3">Location</th>
+              <th className="min-w-[6rem] py-2 pr-3">Last check</th>
               <th className="py-2 text-right">Actions</th>
             </tr>
           </thead>
@@ -123,18 +130,21 @@ export function PackageStorageSettings() {
             {stores.map((store) => (
               <Fragment key={store.id}>
               <tr className={`align-top ${store.warnings.length > 0 ? '' : 'border-b border-slate-100'}`}>
-                <td className="min-w-[10rem] py-3 pr-4">
+                <td className="py-3 pr-3">
                   <span className="font-medium text-slate-900">{store.name}</span>
                   {store.isDefault ? <Tag className="ml-2" color="blue">Default</Tag> : null}
                 </td>
-                <td className="whitespace-nowrap py-3 pr-4">{providerDisplayName(store, providers)}</td>
-                <td className="break-all py-3 pr-4 font-mono text-xs">{describeLocation(store, providers.find((provider) => provider.kind === store.kind))}</td>
-                <td className="py-3 pr-4"><LastCheck store={store} /></td>
+                <td className="whitespace-nowrap py-3 pr-3">{providerDisplayName(store, providers)}</td>
+                <td className="break-all py-3 pr-3 font-mono text-xs">{describeLocation(store, providers.find((provider) => provider.kind === store.kind))}</td>
+                <td className="py-3 pr-3"><LastCheck store={store} /></td>
                 <td className="py-3 text-right whitespace-nowrap">
                   <Button type="link" size="small" onClick={() => setDialog({ mode: 'edit', store })}>Edit</Button>
-                  {!store.isDefault ? <Button type="link" size="small" onClick={() => makeDefault(store)}>Set as default</Button> : null}
                   <Button type="link" size="small" onClick={() => runStoreTest(store)}>Test</Button>
-                  {!store.isDefault ? <Button type="link" size="small" danger onClick={() => confirmDelete(store)}>Delete</Button> : null}
+                  {!store.isDefault ? (
+                    <Dropdown trigger={['click']} placement="bottomRight" menu={moreMenu(store)}>
+                      <Button type="text" size="small" aria-label="More actions" icon={<EllipsisOutlined />} />
+                    </Dropdown>
+                  ) : null}
                 </td>
               </tr>
               {store.warnings.length > 0 ? (
@@ -143,7 +153,7 @@ export function PackageStorageSettings() {
                     {store.warnings.map((warning) => (
                       <div key={warning} className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         <WarningOutlined className="mt-0.5" />
-                        <span>{warning}</span>
+                        <span className="min-w-0 break-all">{warning}</span>
                       </div>
                     ))}
                   </td>
