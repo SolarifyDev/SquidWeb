@@ -1,4 +1,5 @@
 import type { PushBuiltInPackageData } from 'pages/apis/builtInPackages'
+import { ApiError } from 'utils/request'
 
 export function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes < 0) return '—'
@@ -72,11 +73,22 @@ const FAILURE_TITLES: Record<number, string> = {
   413: 'Package too large',
 }
 
-/** Turns a failed push into a title (by HTTP status) and the server's own message, which says exactly what to fix. */
+/**
+ * The status a failure stands for. The Squid backend answers business errors with HTTP 200 and the real status in the
+ * envelope `code`, which the request helper raises as an ApiError, so that comes first; a transport-level HTTP status
+ * (for example a proxy's 413) is the fallback.
+ */
+export function failureStatus(error: unknown): number | undefined {
+  if (error instanceof ApiError) return error.code
+
+  return (error as { response?: { status?: number } } | null)?.response?.status
+}
+
+/** Turns a failed push into a title (by status) and the server's own message, which says exactly what to fix. */
 export function describePushFailure(error: unknown): UploadFailure {
-  const failure = error as { response?: { status?: number; data?: { msg?: string | null } }; status?: number; message?: string } | null
-  const status = failure?.response?.status ?? failure?.status
+  const failure = error as { response?: { status?: number; data?: { msg?: string | null } }; message?: string } | null
   const serverMessage = failure?.response?.data?.msg
+  const status = failureStatus(error)
 
   return {
     title: (status != null && FAILURE_TITLES[status]) || 'Upload failed',

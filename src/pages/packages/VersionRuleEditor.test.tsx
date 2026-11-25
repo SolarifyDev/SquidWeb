@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from 'utils/request'
 import { VersionRuleEditor } from './VersionRuleEditor'
 
 const getRule = vi.fn()
@@ -44,7 +45,7 @@ describe('VersionRuleEditor', () => {
   })
 
   it('validationErrorFromTheApi_IsShownInline_AndClearedOnEdit', async () => {
-    setRule.mockRejectedValue({ response: { status: 400, data: { msg: "Unknown version token '{nope}'" } } })
+    setRule.mockRejectedValue(new ApiError("Unknown version token '{nope}'", 400, 200))
     render(<VersionRuleEditor feedId={7} packageId="Acme" canEdit />)
     const input = await screen.findByLabelText('Version template')
 

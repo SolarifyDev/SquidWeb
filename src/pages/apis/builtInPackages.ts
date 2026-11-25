@@ -74,12 +74,16 @@ export interface PushBuiltInPackageOptions {
   version?: string
   replace?: boolean
   onProgress?: (sentBytes: number, totalBytes: number) => void
+  signal?: AbortSignal
 }
 
 const BASE = '/builtin-feed'
 
+/** How many packages one list call asks for. The response carries no total, so a full page means there may be more. */
+export const PACKAGE_PAGE_SIZE = 200
+
 export function listBuiltInPackages(filter?: string) {
-  return get<ListBuiltInPackagesData>(`${BASE}/packages`, { params: { take: 200, ...(filter ? { filter } : {}) } })
+  return get<ListBuiltInPackagesData>(`${BASE}/packages`, { params: { take: PACKAGE_PAGE_SIZE, ...(filter ? { filter } : {}) } })
 }
 
 export function listBuiltInPackageVersions(packageId: string) {
@@ -109,7 +113,8 @@ export function buildPushParams(options: PushBuiltInPackageOptions) {
     source: 'Upload',
     ...(packageId ? { packageId } : {}),
     ...(version ? { version } : {}),
-    ...(options.replace ? { replace: true } : {}),
+    // Replacing only means something for a version the caller named.
+    ...(options.replace && version ? { replace: true } : {}),
   }
 }
 
@@ -122,6 +127,9 @@ export function pushBuiltInPackage(body: Blob, options: PushBuiltInPackageOption
     params: buildPushParams(options),
     headers: { 'Content-Type': 'application/octet-stream' },
     timeout: 0,
+    signal: options.signal,
+    // An upload can run for minutes: it must not hold the global top progress bar.
+    silentLoading: true,
     skipSpaceIdInjection: true,
     onUploadProgress: (event) => options.onProgress?.(event.loaded, event.total ?? body.size),
   })

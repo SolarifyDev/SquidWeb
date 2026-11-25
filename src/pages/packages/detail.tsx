@@ -53,7 +53,7 @@ export function VersionDetail({ packageId, version }: { packageId: string; versi
 
 const SquidPackageDetail = () => {
   const { packageId: encoded = '' } = useParams()
-  const packageId = decodeURIComponent(encoded)
+  const packageId = encoded
   const { space } = useSpace()
   const { hasPermission } = usePermissions()
   const navigate = useNavigate()
@@ -87,7 +87,7 @@ const SquidPackageDetail = () => {
         </section>
       )}
       <div className="mb-4">
-        <UploadPanel canEdit={canEdit} feedId={feedId} spaceId={space.id} onUploaded={load} />
+        <UploadPanel canEdit={canEdit} feedId={feedId} fixedPackageId={packageId} spaceId={space.id} onUploaded={load} />
       </div>
       <Table<BuiltInPackageVersionDto>
         rowKey="id"

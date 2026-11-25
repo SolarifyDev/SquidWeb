@@ -21,6 +21,8 @@ interface UploadPanelProps {
   canEdit: boolean
   feedId: number | null
   spaceId: number
+  /** On a package's own page: uploads always go to this package, and the id field is read-only. */
+  fixedPackageId?: string
   /** Called after a push that stored (or deduplicated) a version, so the lists can refresh. */
   onUploaded: () => void
 }
@@ -36,9 +38,9 @@ type Phase = 'idle' | 'packing' | 'uploading'
 
 const directoryInputProps = { webkitdirectory: '', directory: '' } as Record<string, string>
 
-export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPanelProps) {
+export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUploaded }: UploadPanelProps) {
   const [chosen, setChosen] = useState<Chosen | null>(null)
-  const [packageId, setPackageId] = useState('')
+  const [packageId, setPackageId] = useState(fixedPackageId ?? '')
   const [version, setVersion] = useState('')
   const [replace, setReplace] = useState(false)
   const [rule, setRule] = useState<string | null>(null)
@@ -47,10 +49,23 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
   const [outcome, setOutcome] = useState<UploadOutcome | null>(null)
   const [failure, setFailure] = useState<UploadFailure | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [scanned, setScanned] = useState<number | null>(null)
+  const alive = useRef(true)
+  const abortRef = useRef<AbortController | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
 
   const trimmedId = packageId.trim()
+
+  // A page that goes away mid-upload must not be updated afterwards, and its upload should stop.
+  useEffect(() => {
+    alive.current = true
+
+    return () => {
+      alive.current = false
+      abortRef.current?.abort()
+    }
+  }, [])
 
   useEffect(() => {
     setRule(null)
@@ -82,7 +97,8 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
     }
 
     setChosen(next)
-    setPackageId(suggestPackageId(next.kind === 'archive' ? next.file.name : next.name))
+    setReplace(false)
+    if (!fixedPackageId) setPackageId(suggestPackageId(next.kind === 'archive' ? next.file.name : next.name))
   }
 
   const chooseDropped = (content: DroppedContent) => choose(content)
@@ -91,22 +107,34 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
     event.preventDefault()
     setDragging(false)
 
+    setScanned(0)
+
     try {
-      chooseDropped(await readDrop(event.dataTransfer.items))
+      const dropped = await readDrop(event.dataTransfer.items, (found) => alive.current && setScanned(found))
+
+      if (alive.current) chooseDropped(dropped)
     } catch (error) {
-      setFailure({ title: 'Cannot use what was dropped', detail: error instanceof Error ? error.message : 'Drop a .zip, .tar.gz or a folder.' })
+      if (alive.current) setFailure({ title: 'Cannot use what was dropped', detail: error instanceof Error ? error.message : 'Drop a .zip, .tar.gz or a folder.' })
+    } finally {
+      if (alive.current) setScanned(null)
     }
   }
 
   const upload = async () => {
     if (!chosen) return
 
+    const controller = new AbortController()
+    const sendReplace = replace && version.trim() !== ''
+
+    abortRef.current = controller
     setOutcome(null)
     setFailure(null)
     setPercent(0)
 
     try {
-      const { body, fileName } = await prepareBody(chosen)
+      const { body, fileName } = await prepareBody(chosen, controller.signal)
+
+      if (!alive.current) return
 
       setPhase('uploading')
       setPercent(0)
@@ -116,9 +144,12 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
         fileName,
         packageId,
         version,
-        replace,
-        onProgress: (sent, total) => setPercent(total > 0 ? Math.round((sent / total) * 100) : 0),
+        replace: sendReplace,
+        signal: controller.signal,
+        onProgress: (sent, total) => alive.current && setPercent(total > 0 ? Math.round((sent / total) * 100) : 0),
       })
+
+      if (!alive.current) return
 
       setOutcome(describePushResult(result))
       setChosen(null)
@@ -126,20 +157,33 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
       setReplace(false)
       onUploaded()
     } catch (error) {
-      setFailure(describePushFailure(error))
+      if (!alive.current) return
+
+      if (controller.signal.aborted) setOutcome({ tone: 'info', title: 'Cancelled', detail: 'Nothing was uploaded.' })
+      else setFailure(describePushFailure(error))
     } finally {
-      setPhase('idle')
+      if (abortRef.current === controller) abortRef.current = null
+      if (alive.current) setPhase('idle')
     }
   }
 
-  const prepareBody = async (content: Chosen): Promise<{ body: Blob; fileName: string }> => {
+  const prepareBody = async (content: Chosen, signal: AbortSignal): Promise<{ body: Blob; fileName: string }> => {
     if (content.kind === 'archive') return { body: content.file, fileName: content.file.name }
 
     setPhase('packing')
 
-    const packed = await packFolder(content.files, ({ doneBytes, totalBytes }) => setPercent(totalBytes > 0 ? Math.round((doneBytes / totalBytes) * 100) : 100))
+    const packed = await packFolder(
+      content.files,
+      ({ doneBytes, totalBytes }) => alive.current && setPercent(totalBytes > 0 ? Math.round((doneBytes / totalBytes) * 100) : 100),
+      signal,
+    )
 
     return { body: packed.blob, fileName: packed.fileName }
+  }
+
+  const changeVersion = (value: string) => {
+    setVersion(value)
+    if (!value.trim()) setReplace(false)
   }
 
   const busy = phase !== 'idle'
@@ -196,17 +240,23 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
         />
       </div>
 
+      {scanned != null && (
+        <div data-testid="scan-progress" className="mb-3 text-sm text-gray-600">
+          Reading folder... {scanned} {scanned === 1 ? 'file' : 'files'} found
+        </div>
+      )}
+
       {chosen && (
         <div className="space-y-3">
           <div className="text-sm text-gray-700">{summary}</div>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block text-gray-600">Package id</span>
-              <Input aria-label="Package id" value={packageId} disabled={busy} onChange={(event) => setPackageId(event.target.value)} />
+              <Input aria-label="Package id" value={packageId} disabled={busy} readOnly={!!fixedPackageId} onChange={(event) => setPackageId(event.target.value)} />
             </label>
             <label className="block text-sm">
               <span className="mb-1 block text-gray-600">Version (optional)</span>
-              <Input aria-label="Version" value={version} disabled={busy} placeholder="Leave empty to use the version rule" onChange={(event) => setVersion(event.target.value)} />
+              <Input aria-label="Version" value={version} disabled={busy} placeholder="Leave empty to use the version rule" onChange={(event) => changeVersion(event.target.value)} />
               {!version.trim() && rule && (
                 <span data-testid="effective-rule" className="mt-1 block text-xs text-gray-500">
                   Version rule: <code>{rule}</code>
@@ -225,9 +275,12 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
               <Progress percent={percent} size="small" />
             </div>
           )}
-          <Button type="primary" disabled={busy} onClick={() => void upload()}>
-            Upload
-          </Button>
+          <div className="flex gap-2">
+            <Button type="primary" disabled={busy} onClick={() => void upload()}>
+              Upload
+            </Button>
+            {busy && <Button onClick={() => abortRef.current?.abort()}>Cancel</Button>}
+          </div>
         </div>
       )}
 

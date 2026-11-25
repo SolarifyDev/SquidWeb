@@ -21,7 +21,16 @@ describe('pushBuiltInPackage', () => {
     expect(config.params).toEqual({ spaceId: 3, fileName: 'a.zip', source: 'Upload' })
     expect(config.skipSpaceIdInjection).toBe(true)
     expect(config.timeout).toBe(0)
+    expect(config.silentLoading).toBe(true)
     expect(config.headers['Content-Type']).toBe('application/octet-stream')
+  })
+
+  it('passesTheAbortSignalToTheRequest', async () => {
+    const controller = new AbortController()
+
+    await pushBuiltInPackage(new Blob(['a']), { spaceId: 3, fileName: 'a.zip', signal: controller.signal })
+
+    expect(post.mock.calls[0][2].signal).toBe(controller.signal)
   })
 
   it('forwardsUploadProgress', async () => {

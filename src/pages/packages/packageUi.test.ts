@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildPushParams } from 'pages/apis/builtInPackages'
-import { describePushFailure, describePushResult, formatBytes, suggestPackageId } from './packageUi'
+import { ApiError } from 'utils/request'
+import { apiErrorMessage, describePushFailure, describePushResult, formatBytes, suggestPackageId } from './packageUi'
 
 const pkg = { id: 1, feedId: 1, packageId: 'Acme.Web', version: '1.0.7', fileExtension: '.zip', sizeBytes: 1, sha256: 'ab', publishedDate: '', publishedBy: 1, source: 'upload' }
 
@@ -41,8 +42,34 @@ describe('results', () => {
     [400, 'Package rejected'],
     [403, 'Not allowed'],
     [500, 'Upload failed'],
-  ])('failureStatus%i_TitledAndKeepsTheServerMessage', (status, title) => {
-    expect(describePushFailure({ response: { status, data: { msg: 'server says so' } } })).toEqual({ title, detail: 'server says so' })
+  ])('backendCode%i_TitlesTheFailure_AsTheRealBackendSendsIt', (code, title) => {
+    // The backend answers HTTP 200 and puts the status in the envelope code, which the request helper raises as an ApiError.
+    expect(describePushFailure(new ApiError('server says so', code, 200))).toEqual({ title, detail: 'server says so' })
+  })
+
+  it('transportLevelStatus_IsTheFallback_ForProxyErrorsLikeNginx413', () => {
+    expect(describePushFailure({ response: { status: 413, data: '<html>Request Entity Too Large</html>' }, message: 'Request failed with status code 413' })).toEqual({
+      title: 'Package too large',
+      detail: 'Request failed with status code 413',
+    })
+  })
+
+  it('theEnvelopeCodeWinsOverTheTransportStatus', () => {
+    expect(describePushFailure(Object.assign(new ApiError('conflict', 409, 200), { response: { status: 500 } })).title).toBe('Version conflict')
+  })
+
+  it('unknownCode_FallsBackToTheGenericTitle', () => {
+    expect(describePushFailure(new ApiError('boom', 500, 200)).title).toBe('Upload failed')
+  })
+
+  it('replaceIsOnlySentWithAVersion', () => {
+    expect(buildPushParams({ spaceId: 1, fileName: 'a.zip', version: '', replace: true })).not.toHaveProperty('replace')
+    expect(buildPushParams({ spaceId: 1, fileName: 'a.zip', version: '1.0.0', replace: true })).toHaveProperty('replace', true)
+  })
+
+  it('apiErrorMessage_ReadsAnApiErrorsMessage', () => {
+    expect(apiErrorMessage(new ApiError('template rejected', 400, 200), 'fallback')).toBe('template rejected')
+    expect(apiErrorMessage({}, 'fallback')).toBe('fallback')
   })
 
   it('failureWithoutResponse_FallsBackToTheErrorMessage', () => {

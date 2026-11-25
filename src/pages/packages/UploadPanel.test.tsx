@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from 'utils/request'
 import { UploadPanel } from './UploadPanel'
 
 const push = vi.fn()
@@ -92,7 +93,7 @@ describe('UploadPanel', () => {
     [400, 'The archive holds an unsafe entry: ../evil', 'Package rejected'],
   ])('refusal%i_ShowsTheServersMessage: %s', async (status, msg, title) => {
     const onUploaded = vi.fn()
-    push.mockRejectedValue({ response: { status, data: { msg, code: status } } })
+    push.mockRejectedValue(new ApiError(msg, status, 200))
     renderPanel({ onUploaded })
     pick('file-input', [zip()])
 
@@ -158,5 +159,129 @@ describe('UploadPanel', () => {
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.3' } })
 
     await waitFor(() => expect(screen.getByText(/Replace this version/)).toBeInTheDocument())
+  })
+
+  it('replace_IsNotSentOnceTheVersionIsCleared', async () => {
+    push.mockResolvedValue({ package: stored('1.0.4'), deduplicated: false, replaced: false })
+    renderPanel()
+    pick('file-input', [zip()])
+
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.3' } })
+    fireEvent.click(await screen.findByLabelText(/Replace this version/))
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '' } })
+
+    expect(screen.queryByLabelText(/Replace this version/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await screen.findByText('Published version 1.0.4')
+
+    expect(push.mock.calls[0][1]).toMatchObject({ version: '', replace: false })
+  })
+
+  it('replace_IsSentWithATypedVersion_AndResetWhenAnotherFileIsChosen', async () => {
+    push.mockResolvedValue({ package: stored('1.0.3'), deduplicated: false, replaced: true })
+    renderPanel()
+    pick('file-input', [zip()])
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.3' } })
+    fireEvent.click(await screen.findByLabelText(/Replace this version/))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await screen.findByText('Replaced version 1.0.3')
+
+    expect(push.mock.calls[0][1]).toMatchObject({ version: '1.0.3', replace: true })
+
+    pick('file-input', [zip()])
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.5' } })
+
+    expect(await screen.findByLabelText(/Replace this version/)).not.toBeChecked()
+  })
+
+  it('choosingAnotherFile_ClearsATickedReplace', async () => {
+    renderPanel()
+    pick('file-input', [zip()])
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.3' } })
+    fireEvent.click(await screen.findByLabelText(/Replace this version/))
+
+    pick('file-input', [new File(['PK'], 'Other.1.0.0.zip')])
+
+    expect(screen.getByLabelText(/Replace this version/)).not.toBeChecked()
+  })
+
+  it('fixedPackageId_IsPrefilledReadOnly_AndNeverReplacedByTheFileName', async () => {
+    push.mockResolvedValue({ package: stored('1.0.4'), deduplicated: false, replaced: false })
+    renderPanel({ fixedPackageId: 'Acme.Web' })
+
+    pick('file-input', [new File(['PK'], 'something-else.zip')])
+
+    expect(screen.getByLabelText('Package id')).toHaveValue('Acme.Web')
+    expect(screen.getByLabelText('Package id')).toHaveAttribute('readonly')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await screen.findByText('Published version 1.0.4')
+
+    expect(push.mock.calls[0][1]).toMatchObject({ packageId: 'Acme.Web', fileName: 'something-else.zip' })
+  })
+
+  it('cancel_AbortsTheUpload_AndShowsItWasCancelled', async () => {
+    const onUploaded = vi.fn()
+    push.mockImplementation((_body, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new Error('canceled')))))
+    renderPanel({ onUploaded })
+    pick('file-input', [zip()])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument()
+    expect(push.mock.calls[0][1].signal.aborted).toBe(true)
+    expect(onUploaded).not.toHaveBeenCalled()
+    expect(document.querySelector('.ant-alert-error')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+  })
+
+  it('unmountedMidUpload_AbortsAndNeverCallsBack', async () => {
+    const onUploaded = vi.fn()
+    let finish: (value: unknown) => void = () => undefined
+    push.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const { unmount } = renderPanel({ onUploaded })
+    pick('file-input', [zip()])
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await waitFor(() => expect(push).toHaveBeenCalled())
+
+    unmount()
+    await act(async () => finish({ package: stored('1.0.4'), deduplicated: false, replaced: false }))
+
+    expect(push.mock.calls[0][1].signal.aborted).toBe(true)
+    expect(onUploaded).not.toHaveBeenCalled()
+  })
+
+  it('aFolderOverTheServerLimit_IsRefusedBeforePacking', async () => {
+    renderPanel()
+    const big = Object.defineProperty(new File(['x'], 'big.bin'), 'size', { value: 3 * 1024 ** 3 })
+
+    pick('folder-input', [Object.defineProperty(big, 'webkitRelativePath', { value: 'site/big.bin' })])
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    expect(await screen.findByText(/over the 2 GiB package limit/)).toBeInTheDocument()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('droppingAFolder_ShowsHowManyFilesWereFoundWhileItIsWalked', async () => {
+    renderPanel()
+    let release: () => void = () => undefined
+    const quick = { isFile: true, isDirectory: false, name: 'a.txt', fullPath: '/site/a.txt', file: (ok: (f: File) => void) => ok(new File(['x'], 'a.txt')) }
+    const slow = { isFile: true, isDirectory: false, name: 'b.txt', fullPath: '/site/b.txt', file: (ok: (f: File) => void) => { release = () => ok(new File(['x'], 'b.txt')) } }
+    let handed = false
+    const root = {
+      isFile: false, isDirectory: true, name: 'site', fullPath: '/site',
+      createReader: () => ({ readEntries: (ok: (batch: unknown[]) => void) => { ok(handed ? [] : [quick, slow]); handed = true } }),
+    }
+
+    fireEvent.drop(screen.getByTestId('drop-zone'), { dataTransfer: { items: [{ kind: 'file', webkitGetAsEntry: () => root, getAsFile: () => null }] } })
+
+    expect(await screen.findByTestId('scan-progress')).toHaveTextContent('1 file found')
+
+    await act(async () => release())
+
+    expect(await screen.findByText(/Folder site \(2 files/)).toBeInTheDocument()
+    expect(screen.queryByTestId('scan-progress')).toBeNull()
   })
 })

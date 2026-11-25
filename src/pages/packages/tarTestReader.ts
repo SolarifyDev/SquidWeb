@@ -26,8 +26,31 @@ export function headerChecksumOk(block: Uint8Array) {
   return stored === sum
 }
 
+/** Parses PAX records (`<len> <key>=<value>\n`) on their own, without the writer's helpers. */
+export function parsePax(data: Uint8Array): Record<string, string> {
+  const out: Record<string, string> = {}
+  let at = 0
+
+  while (at < data.length) {
+    const space = data.indexOf(0x20, at)
+    const length = parseInt(decoder.decode(data.subarray(at, space)), 10)
+
+    if (space === -1 || !(length > 0)) throw new Error('bad pax record')
+    if (data[at + length - 1] !== 0x0a) throw new Error('pax record does not end with a newline')
+
+    const body = decoder.decode(data.subarray(space + 1, at + length - 1))
+    const eq = body.indexOf('=')
+
+    out[body.slice(0, eq)] = body.slice(eq + 1)
+    at += length
+  }
+
+  return out
+}
+
 export function readTar(bytes: Uint8Array): ReadEntry[] {
   const entries: ReadEntry[] = []
+  let pax: Record<string, string> = {}
   let offset = 0
 
   for (;;) {
@@ -44,11 +67,19 @@ export function readTar(bytes: Uint8Array): ReadEntry[] {
 
     const prefix = field(block, 345, 155)
     const name = field(block, 0, 100)
-    const size = parseInt(field(block, 124, 12), 8)
+    const headerSize = parseInt(field(block, 124, 12), 8)
     const dataStart = offset + 512
 
+    if (field(block, 156, 1) === 'x') {
+      pax = parsePax(bytes.subarray(dataStart, dataStart + headerSize))
+      offset = dataStart + Math.ceil(headerSize / 512) * 512
+      continue
+    }
+
+    const size = pax.size ? parseInt(pax.size, 10) : headerSize
+
     entries.push({
-      path: prefix ? `${prefix}/${name}` : name,
+      path: pax.path ?? (prefix ? `${prefix}/${name}` : name),
       size,
       mode: parseInt(field(block, 100, 8), 8),
       mtime: parseInt(field(block, 136, 12), 8),
@@ -56,6 +87,7 @@ export function readTar(bytes: Uint8Array): ReadEntry[] {
       content: bytes.slice(dataStart, dataStart + size),
     })
 
+    pax = {}
     offset = dataStart + Math.ceil(size / 512) * 512
   }
 }
