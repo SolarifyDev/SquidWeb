@@ -13,6 +13,8 @@ import {
   UpdateExternalFeedCommand,
 } from 'pages/apis/externalFeed';
 import { useSpace } from 'contexts/SpaceContext';
+import { useNavigate } from 'react-router-dom';
+import { isBuiltInFeedType } from 'pages/apis/builtInPackages';
 
 const { Password } = Input;
 
@@ -36,6 +38,7 @@ const feedTypeMeta: Record<string, { label: string; abbrev: string; color: strin
   'NuGet Feed': { label: 'NuGet Feed', abbrev: 'Nu', color: '#6366f1' },
   'Maven': { label: 'Maven Feed', abbrev: 'Mv', color: '#ea580c' },
   'Maven Feed': { label: 'Maven Feed', abbrev: 'Mv', color: '#ea580c' },
+  'BuiltIn': { label: 'Squid packages', abbrev: 'Sq', color: '#0f766e' },
   'Artifactory Generic Feed': { label: 'Artifactory Generic Feed', abbrev: 'Ar', color: '#9333ea' },
   'AWS S3 Bucket Feed': { label: 'AWS S3 Bucket Feed', abbrev: 'S3', color: '#ca8a04' },
 };
@@ -1098,6 +1101,8 @@ function FeedForm({ spaceId, feed, onBack, onSaved }: FeedFormProps) {
 
 const ExternalFeeds: React.FC = () => {
   const { space } = useSpace();
+  const navigate = useNavigate();
+  const openBuiltInFeed = () => navigate(`/${space.slug}/library/packages`);
   const [searchText, setSearchText] = useState('');
   const [editFeed, setEditFeed] = useState<ExternalFeedDto | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -1217,6 +1222,8 @@ const ExternalFeeds: React.FC = () => {
 
                 {filtered.map((feed, idx) => {
                   const meta = getFeedMeta(feed.feedType);
+                  const builtIn = isBuiltInFeedType(feed.feedType);
+                  const openFeed = () => (builtIn ? openBuiltInFeed() : setEditFeed(feed));
                   return (
                     <div
                       key={feed.id}
@@ -1227,11 +1234,11 @@ const ExternalFeeds: React.FC = () => {
                       style={{ gridTemplateColumns: '1fr 1fr 40px' }}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setEditFeed(feed)}
+                      onClick={openFeed}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          setEditFeed(feed);
+                          openFeed();
                         }
                       }}
                     >
@@ -1242,9 +1249,13 @@ const ExternalFeeds: React.FC = () => {
                           <div
                             className="font-semibold text-sm text-squid-blue hover:underline cursor-pointer truncate"
                           >
-                            {feed.name}
+                            {builtIn ? 'Squid packages' : feed.name}
                           </div>
-                          <div className="text-xs text-gray-500 mt-0.5">{meta.label}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {builtIn ? (
+                              <span className="rounded bg-teal-50 px-1.5 py-0.5 font-medium text-teal-700" data-testid="builtin-badge">Built-in</span>
+                            ) : meta.label}
+                          </div>
                         </div>
                       </div>
 
@@ -1271,7 +1282,7 @@ const ExternalFeeds: React.FC = () => {
 
                       {/* Overflow menu */}
                       <div className="flex justify-end">
-                        <Dropdown
+                        {!builtIn && <Dropdown
                           trigger={['click']}
                           menu={{
                             items: [
@@ -1295,7 +1306,7 @@ const ExternalFeeds: React.FC = () => {
                             className="text-gray-400 hover:text-gray-700"
                             onClick={(e) => e.stopPropagation()}
                           />
-                        </Dropdown>
+                        </Dropdown>}
                       </div>
                     </div>
                   );
