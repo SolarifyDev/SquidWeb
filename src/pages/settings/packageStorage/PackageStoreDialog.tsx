@@ -4,7 +4,7 @@ import ProviderForm from 'components/providerForm/ProviderForm'
 import { buildInitialValue, buildSubmission, validateProviderForm, type ProviderFormErrors, type ProviderFormValue } from 'components/providerForm/providerFormValues'
 import {
   createPackageStore,
-  testPackageStore,
+  testPackageStoreSettings,
   updatePackageStore,
   type PackageStoreDto,
   type PackageStoreProviderDescriptor,
@@ -16,7 +16,7 @@ interface PackageStoreDialogProps {
   /** The store being edited; leave out to add a new one. */
   store?: PackageStoreDto
   onClose: () => void
-  /** Called after the server accepted a change (a save, or a test that recorded its outcome) so the list can reload. */
+  /** Called after the server accepted a save so the list can reload. */
   onChanged: () => void
 }
 
@@ -76,13 +76,14 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
   }
 
   const runTest = async () => {
-    if (!store) return
     setServerError(null)
     setTestResult(null)
+    if (!provider || !validate()) return
+
+    const { properties, secrets } = buildSubmission(fields, value)
     setBusy(true)
     try {
-      setTestResult(await testPackageStore(store.id))
-      onChanged()
+      setTestResult(await testPackageStoreSettings({ kind: provider.kind, properties, secrets, storeId: store?.id }))
     } catch (error) {
       setServerError(errorMessage(error, 'Failed to test the package store.'))
     } finally {
@@ -98,7 +99,7 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
       maskClosable={false}
       destroyOnClose
       footer={[
-        <Button key="test" onClick={runTest} disabled={!isEdit || busy} title={isEdit ? 'Tests the saved settings' : 'Save the store first, then test it'}>
+        <Button key="test" onClick={runTest} disabled={busy} title="Tests the values in this form without saving">
           Test
         </Button>,
         <Button key="cancel" onClick={onClose} disabled={busy}>
@@ -132,7 +133,6 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
 
       <ProviderForm fields={fields} value={value} onChange={setValue} secretHasValue={secretHasValue} errors={errors} disabled={busy} />
 
-      {isEdit ? <div className="mb-2 text-xs text-slate-500">Test checks the saved settings, not unsaved edits.</div> : null}
       {testResult ? <Alert className="mb-2" type={testResult.success ? 'success' : 'error'} showIcon message={testResult.message} /> : null}
       {serverError ? <Alert className="mb-2" type="error" showIcon message={serverError} /> : null}
     </Modal>

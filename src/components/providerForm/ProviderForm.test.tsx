@@ -31,6 +31,22 @@ function renderForm(props: { initial?: Record<string, string>; secretHasValue?: 
   return { submission: () => buildSubmission(FIELDS, latest) }
 }
 
+describe('ProviderForm unsupported field kinds', () => {
+  const FUTURE: ProviderFieldDescriptor[] = [
+    { key: 'Region', label: 'Region', kind: 'Text', required: true, options: [] },
+    { key: 'Lifecycle', label: 'Lifecycle rules', kind: 'KeyValueList', required: true, options: [] },
+  ]
+
+  it('shows a note instead of an editor, and neither validates nor submits the field', () => {
+    render(<ProviderForm fields={FUTURE} value={{ properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} }} onChange={() => {}} />)
+
+    expect(screen.getByRole('note')).toHaveTextContent('Unsupported field type "KeyValueList"')
+    expect(screen.getAllByRole('textbox')).toHaveLength(1)
+    expect(validateProviderForm(FUTURE, { properties: { Region: 'eu' }, secrets: {} })).toEqual({})
+    expect(buildSubmission(FUTURE, { properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} }).properties).toEqual({ Region: 'eu' })
+  })
+})
+
 describe('ProviderForm', () => {
   it('renders label, required marker, placeholder and help text from the descriptor', () => {
     renderForm()

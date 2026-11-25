@@ -1,14 +1,18 @@
 import { get, post } from 'utils/request'
 
-export type ProviderFieldKind = 'Text' | 'Secret' | 'Select' | 'Path' | 'Toggle'
+export const SUPPORTED_FIELD_KINDS = ['Text', 'Secret', 'Select', 'Path', 'Toggle'] as const
 
-// The server serializes the enum as its number; accept the name too so a converter change cannot break the form.
-const FIELD_KINDS_BY_NUMBER: ProviderFieldKind[] = ['Text', 'Secret', 'Select', 'Path', 'Toggle']
+export type ProviderFieldKind = (typeof SUPPORTED_FIELD_KINDS)[number]
+
+export function isSupportedFieldKind(kind: string): kind is ProviderFieldKind {
+  return (SUPPORTED_FIELD_KINDS as readonly string[]).includes(kind)
+}
 
 export interface ProviderFieldDescriptor {
   key: string
   label: string
-  kind: ProviderFieldKind
+  /** Sent by name. A name this client does not know is kept as is, so the form can say it is unsupported. */
+  kind: ProviderFieldKind | (string & {})
   required: boolean
   default?: string | null
   placeholder?: string | null
@@ -47,6 +51,14 @@ export interface SavePackageStoreCommand {
   secrets: Record<string, string>
 }
 
+export interface TestPackageStoreSettingsCommand {
+  kind: string
+  properties: Record<string, string>
+  secrets: Record<string, string>
+  /** A saved store of the same kind whose stored secrets fill any secret left out. */
+  storeId?: number
+}
+
 export interface CreatePackageStoreCommand extends SavePackageStoreCommand {
   kind: string
 }
@@ -55,15 +67,10 @@ export interface UpdatePackageStoreCommand extends SavePackageStoreCommand {
   id: number
 }
 
-function normalizeFieldKind(raw: unknown): ProviderFieldKind {
-  if (typeof raw === 'number') return FIELD_KINDS_BY_NUMBER[raw] ?? 'Text'
-  return FIELD_KINDS_BY_NUMBER.find((kind) => kind === raw) ?? 'Text'
-}
-
 function normalizeDescriptor(raw: PackageStoreProviderDescriptor): PackageStoreProviderDescriptor {
   return {
     ...raw,
-    fields: (raw.fields ?? []).map((field) => ({ ...field, kind: normalizeFieldKind(field.kind), options: field.options ?? [] })),
+    fields: (raw.fields ?? []).map((field) => ({ ...field, options: field.options ?? [] })),
   }
 }
 
@@ -97,4 +104,8 @@ export function setDefaultPackageStore(id: number) {
 
 export function testPackageStore(id: number) {
   return post<PackageStoreTestResult, { id: number }>('/package-stores/test', { id })
+}
+
+export function testPackageStoreSettings(command: TestPackageStoreSettingsCommand) {
+  return post<PackageStoreTestResult, TestPackageStoreSettingsCommand>('/package-stores/test-settings', command)
 }

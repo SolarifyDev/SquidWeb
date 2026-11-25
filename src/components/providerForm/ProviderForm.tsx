@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Input, Select, Switch } from 'antd'
-import type { ProviderFieldDescriptor } from 'pages/apis/packageStore'
+import { isSupportedFieldKind, type ProviderFieldDescriptor } from 'pages/apis/packageStore'
 import type { ProviderFormErrors, ProviderFormValue } from './providerFormValues'
 
 interface ProviderFormProps {
@@ -67,9 +67,16 @@ export default function ProviderForm({ fields, value, onChange, secretHasValue =
     )
   }
 
+  const renderUnsupported = (field: ProviderFieldDescriptor) => (
+    <div className="mb-4">
+      <div className="mb-1 text-sm font-medium text-slate-700">{field.label}</div>
+      <div role="note" className="text-xs text-amber-700">Unsupported field type "{field.kind}": this version cannot edit it.</div>
+    </div>
+  )
+
   return (
     <div>
-      {fields.map((field) => (
+      {fields.map((field) => !isSupportedFieldKind(field.kind) ? <div key={field.key}>{renderUnsupported(field)}</div> : (
         <FieldRow key={field.key} field={field} error={errors[field.key]}>
           {renderControl(field)}
         </FieldRow>

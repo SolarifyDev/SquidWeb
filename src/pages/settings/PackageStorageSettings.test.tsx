@@ -15,6 +15,7 @@ vi.mock('pages/apis/packageStore', async (importOriginal) => {
     deletePackageStore: vi.fn(),
     setDefaultPackageStore: vi.fn(),
     testPackageStore: vi.fn(),
+    testPackageStoreSettings: vi.fn(),
   }
 })
 
@@ -140,5 +141,61 @@ describe('PackageStorageSettings', () => {
 
     expect(await within(dialog).findByText(/already exists/)).toBeInTheDocument()
     expect(mocked.updatePackageStore).toHaveBeenCalledWith({ id: 2, name: 'Archive', properties: { Root: '/mnt/archive' }, secrets: {} })
+  })
+
+  it('tests the typed values of a new store without saving it', async () => {
+    mocked.testPackageStoreSettings.mockResolvedValue({ success: true, message: 'Probe file written' })
+    render(<PackageStorageSettings />)
+    await screen.findByText('Primary')
+
+    fireEvent.click(screen.getByRole('button', { name: /Add store/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'Scratch' } })
+    fireEvent.change(within(dialog).getByLabelText('Root folder'), { target: { value: '/tmp/scratch' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+
+    expect(await within(dialog).findByText('Probe file written')).toBeInTheDocument()
+    expect(mocked.testPackageStoreSettings).toHaveBeenCalledWith({ kind: 'FileSystem', properties: { Root: '/tmp/scratch' }, secrets: {}, storeId: undefined })
+    expect(mocked.createPackageStore).not.toHaveBeenCalled()
+  })
+
+  it('tests an edit with the store id and leaves untouched secrets out', async () => {
+    const withSecret: api.PackageStoreProviderDescriptor = {
+      ...FILE_SYSTEM,
+      fields: [...FILE_SYSTEM.fields, { key: 'Token', label: 'Token', kind: 'Secret', required: true, options: [] }],
+    }
+    mocked.getPackageStoreProviders.mockResolvedValue([withSecret])
+    mocked.getPackageStores.mockResolvedValue([store({ id: 2, name: 'Archive', properties: { Root: '/mnt/archive' }, secretHasValue: { Token: true } })])
+    mocked.testPackageStoreSettings.mockResolvedValue({ success: true, message: 'ok' })
+    render(<PackageStorageSettings />)
+    await screen.findByText('Archive')
+
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+
+    await waitFor(() => expect(mocked.testPackageStoreSettings).toHaveBeenCalledWith({ kind: 'FileSystem', properties: { Root: '/mnt/archive' }, secrets: {}, storeId: 2 }))
+
+    fireEvent.change(within(dialog).getByLabelText(/Token/), { target: { value: 'fresh' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+
+    await waitFor(() => expect(mocked.testPackageStoreSettings).toHaveBeenLastCalledWith({ kind: 'FileSystem', properties: { Root: '/mnt/archive' }, secrets: { Token: 'fresh' }, storeId: 2 }))
+  })
+
+  it('shows a failure message from the test in the dialog', async () => {
+    mocked.testPackageStoreSettings.mockRejectedValue(new ApiError('The settings for package store kind "FileSystem" are invalid: "Root" is bad', 400))
+    render(<PackageStorageSettings />)
+    await screen.findByText('Archive')
+
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+
+    expect(await within(dialog).findByText(/"Root" is bad/)).toBeInTheDocument()
+
+    mocked.testPackageStoreSettings.mockResolvedValue({ success: false, message: 'Folder is not writable' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+
+    expect(await within(dialog).findByText('Folder is not writable')).toBeInTheDocument()
   })
 })

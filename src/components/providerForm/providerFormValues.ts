@@ -1,4 +1,4 @@
-import type { ProviderFieldDescriptor } from 'pages/apis/packageStore'
+import { isSupportedFieldKind, type ProviderFieldDescriptor } from 'pages/apis/packageStore'
 
 /** What the user has entered. `secrets` holds only values typed in this session: a stored secret is never loaded. */
 export interface ProviderFormValue {
@@ -26,6 +26,7 @@ function hasValue(field: ProviderFieldDescriptor, value: ProviderFormValue, secr
 export function validateProviderForm(fields: ProviderFieldDescriptor[], value: ProviderFormValue, secretHasValue: Record<string, boolean> = {}): ProviderFormErrors {
   const errors: ProviderFormErrors = {}
   for (const field of fields) {
+    if (!isSupportedFieldKind(field.kind)) continue
     if (field.required && !hasValue(field, value, secretHasValue)) errors[field.key] = `${field.label} is required`
   }
   return errors
@@ -37,6 +38,7 @@ export function buildSubmission(fields: ProviderFieldDescriptor[], value: Provid
   const secrets: Record<string, string> = {}
 
   for (const field of fields) {
+    if (!isSupportedFieldKind(field.kind)) continue
     if (field.kind === 'Secret') {
       const typed = value.secrets[field.key]
       if (typed) secrets[field.key] = typed
