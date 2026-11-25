@@ -66,6 +66,18 @@ describe('PackageStorageSettings', () => {
     expect(archive.getByText('Folder is not writable')).toBeInTheDocument()
   })
 
+  it('keeps the table in its own scroll container so a long path cannot widen the page', async () => {
+    const longPath = `/private/tmp/${'very-long-segment/'.repeat(12)}store`
+    mocked.getPackageStores.mockResolvedValue([store({ id: 5, name: 'Long', properties: { Root: longPath } })])
+    render(<PackageStorageSettings />)
+
+    const location = await screen.findByText(longPath)
+
+    expect(location).toHaveClass('break-all')
+    expect(screen.getByTestId('package-stores-scroll')).toHaveClass('overflow-x-auto')
+    expect(screen.getByTestId('package-stores-scroll')).toContainElement(location)
+  })
+
   it('cannot delete or re-default the default store', async () => {
     render(<PackageStorageSettings />)
     await screen.findByText('Primary')
@@ -94,6 +106,7 @@ describe('PackageStorageSettings', () => {
 
     fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Delete' }))
     const confirm = await screen.findByRole('dialog')
+    expect(within(confirm).getByText(/A store that still holds packages can't be deleted/)).toBeInTheDocument()
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))
 
     expect(await screen.findByText(/is the default store and cannot be deleted/)).toBeInTheDocument()

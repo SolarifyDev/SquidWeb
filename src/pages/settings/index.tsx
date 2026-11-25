@@ -95,7 +95,7 @@ export default function SettingsPage() {
           </nav>
         </aside>
 
-        <main className="flex-1 p-6">
+        <main className="min-w-0 flex-1 p-6">
           {loadingPermissions ? (
             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="text-sm text-slate-600">Loading permissions...</div>

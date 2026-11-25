@@ -84,7 +84,7 @@ export function PackageStorageSettings() {
   const confirmDelete = (store: PackageStoreDto) =>
     Modal.confirm({
       title: `Delete ${store.name}?`,
-      content: 'Packages already uploaded to this store are not moved.',
+      content: "This removes the store from Squid. A store that still holds packages can't be deleted.",
       okText: 'Delete',
       okButtonProps: { danger: true },
       onOk: () => runAction(() => deletePackageStore(store.id), `${store.name} deleted.`, 'Failed to delete the package store.'),
@@ -108,12 +108,13 @@ export function PackageStorageSettings() {
       {loading ? (
         <Spin />
       ) : (
+        <div data-testid="package-stores-scroll" className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 pr-4">Name</th>
-              <th className="py-2 pr-4">Type</th>
-              <th className="py-2 pr-4">Location</th>
+              <th className="min-w-[10rem] py-2 pr-4">Name</th>
+              <th className="min-w-[7rem] whitespace-nowrap py-2 pr-4">Type</th>
+              <th className="min-w-[10rem] py-2 pr-4">Location</th>
               <th className="py-2 pr-4">Last check</th>
               <th className="py-2 text-right">Actions</th>
             </tr>
@@ -121,15 +122,15 @@ export function PackageStorageSettings() {
           <tbody>
             {stores.map((store) => (
               <tr key={store.id} className="border-b border-slate-100 align-top">
-                <td className="py-3 pr-4">
+                <td className="min-w-[10rem] py-3 pr-4">
                   <span className="font-medium text-slate-900">{store.name}</span>
                   {store.isDefault ? <Tag className="ml-2" color="blue">Default</Tag> : null}
                   {store.warnings.map((warning) => (
                     <div key={warning} className="mt-1 text-xs text-amber-700">{warning}</div>
                   ))}
                 </td>
-                <td className="py-3 pr-4">{providerDisplayName(store, providers)}</td>
-                <td className="py-3 pr-4 font-mono text-xs">{describeLocation(store, providers.find((provider) => provider.kind === store.kind))}</td>
+                <td className="whitespace-nowrap py-3 pr-4">{providerDisplayName(store, providers)}</td>
+                <td className="break-all py-3 pr-4 font-mono text-xs">{describeLocation(store, providers.find((provider) => provider.kind === store.kind))}</td>
                 <td className="py-3 pr-4"><LastCheck store={store} /></td>
                 <td className="py-3 text-right whitespace-nowrap">
                   <Button type="link" size="small" onClick={() => setDialog({ mode: 'edit', store })}>Edit</Button>
@@ -144,6 +145,7 @@ export function PackageStorageSettings() {
             ) : null}
           </tbody>
         </table>
+        </div>
       )}
 
       {dialog.mode !== 'closed' ? (
