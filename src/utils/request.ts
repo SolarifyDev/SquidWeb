@@ -119,7 +119,7 @@ function isSystemScopedApiPath(path: string) {
   if (path.startsWith('/users')) return true
   if (path.startsWith('/userroles') || path.startsWith('/user-roles')) return true
   if (path.startsWith('/teams')) return true
-  if (path.startsWith('/package-stores')) return true
+  if (path === '/package-stores' || path.startsWith('/package-stores/')) return true
   if (path.startsWith('/permissions')) return true
   if (path.startsWith('/auth')) return true
   if (/^\/tasks(?:\/)?$/.test(path)) return true

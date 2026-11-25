@@ -25,7 +25,7 @@ const FILE_SYSTEM: api.PackageStoreProviderDescriptor = {
   kind: 'FileSystem',
   displayName: 'Local disk',
   description: 'Keeps packages as files in a folder on the server.',
-  fields: [{ key: 'Root', label: 'Root folder', kind: 'Path', required: false, placeholder: 'Leave empty to use the data directory', options: [] }],
+  fields: [{ key: 'Root', label: 'Root folder', kind: 'Path', required: false, isLocation: true, placeholder: 'Leave empty to use the data directory', options: [] }],
 }
 
 function store(overrides: Partial<api.PackageStoreDto>): api.PackageStoreDto {
@@ -109,7 +109,7 @@ describe('PackageStorageSettings', () => {
   })
 
   it('shows the message of a refused delete', async () => {
-    mocked.deletePackageStore.mockRejectedValue(new ApiError('Package store 2 is the default store and cannot be deleted; make another store the default first', 409))
+    mocked.deletePackageStore.mockRejectedValue(new ApiError('Package store 2 still holds 14 packages and cannot be deleted', 409))
     render(<PackageStorageSettings />)
     await screen.findByText('Archive')
 
@@ -119,7 +119,7 @@ describe('PackageStorageSettings', () => {
     expect(within(confirm).getByText(/A store that still holds packages can't be deleted/)).toBeInTheDocument()
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))
 
-    expect(await screen.findByText(/is the default store and cannot be deleted/)).toBeInTheDocument()
+    expect(await screen.findByText(/still holds 14 packages and cannot be deleted/)).toBeInTheDocument()
     expect(mocked.deletePackageStore).toHaveBeenCalledWith(2)
   })
 
@@ -220,5 +220,175 @@ describe('PackageStorageSettings', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
 
     expect(await within(dialog).findByText('Folder is not writable')).toBeInTheDocument()
+  })
+
+  it('shows no location column when the provider declares no location field', async () => {
+    mocked.getPackageStoreProviders.mockResolvedValue([{ ...FILE_SYSTEM, fields: FILE_SYSTEM.fields.map((field) => ({ ...field, isLocation: undefined })) }])
+    render(<PackageStorageSettings />)
+    await screen.findByText('Primary')
+
+    expect(screen.queryByText('Location')).toBeNull()
+    expect(screen.queryByText('/data/packages')).toBeNull()
+  })
+
+  it('runs a double-clicked Test once and shows progress while it is in flight', async () => {
+    let finish!: (result: api.PackageStoreTestResult) => void
+    mocked.testPackageStore.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    render(<PackageStorageSettings />)
+    await screen.findByText('Archive')
+
+    const test = within(rowOf('Archive')).getByRole('button', { name: 'Test' })
+    fireEvent.click(test)
+    fireEvent.click(test)
+
+    expect(mocked.testPackageStore).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(within(rowOf('Archive')).getByRole('button', { name: /Test/ })).toBeDisabled())
+    expect(within(rowOf('Archive')).getByRole('button', { name: 'More actions' })).toBeDisabled()
+    expect(within(rowOf('Archive')).getByRole('button', { name: /Edit/ })).toBeEnabled()
+    expect(within(rowOf('Primary')).getByRole('button', { name: 'Test' })).toBeEnabled()
+
+    finish({ success: true, message: 'ok' })
+    await waitFor(() => expect(within(rowOf('Archive')).getByRole('button', { name: /Test/ })).toBeEnabled())
+  })
+
+  it('shows warnings that come with a row test result', async () => {
+    mocked.testPackageStore.mockResolvedValue({ success: true, message: 'Probe passed', warnings: ['Folder is not on a persistent volume'] })
+    render(<PackageStorageSettings />)
+    await screen.findByText('Archive')
+
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Test' }))
+
+    expect(await screen.findByText('Probe passed')).toBeInTheDocument()
+    expect(screen.getByText('Folder is not on a persistent volume')).toBeInTheDocument()
+  })
+
+  it('keeps the newest list when an older reload finishes last', async () => {
+    const reloaded = [store({ id: 1, name: 'Primary', isDefault: true }), store({ id: 2, name: 'Archive-fresh' })]
+    let finishStale!: (stores: api.PackageStoreDto[]) => void
+    mocked.testPackageStore.mockResolvedValue({ success: true, message: 'ok' })
+    mocked.setDefaultPackageStore.mockResolvedValue(ARCHIVE)
+    render(<PackageStorageSettings />)
+    await screen.findByText('Primary')
+
+    mocked.getPackageStores.mockReturnValueOnce(new Promise((resolve) => { finishStale = resolve }))
+    fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Test' }))
+    await waitFor(() => expect(mocked.getPackageStores).toHaveBeenCalledTimes(2))
+
+    mocked.getPackageStores.mockResolvedValueOnce(reloaded)
+    fireEvent.click(within(rowOf('Primary')).getByRole('button', { name: 'Test' }))
+    await screen.findByText('Archive-fresh')
+
+    finishStale([PRIMARY, ARCHIVE])
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(screen.getByText('Archive-fresh')).toBeInTheDocument()
+    expect(screen.queryByText('Archive')).toBeNull()
+  })
+
+  it('does not fall back to another provider for a store whose type is unknown', async () => {
+    mocked.getPackageStores.mockResolvedValue([store({ id: 7, name: 'Cloud', kind: 'S3', properties: { Bucket: 'b' } })])
+    render(<PackageStorageSettings />)
+    await screen.findByText('Cloud')
+
+    fireEvent.click(within(rowOf('Cloud')).getByRole('button', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+
+    expect(within(dialog).getByText("This storage type isn't available in this version")).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('Root folder')).toBeNull()
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(within(dialog).getByRole('button', { name: 'Test' })).toBeDisabled()
+    expect(within(dialog).getByLabelText(/Name/)).toBeDisabled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(within(rowOf('Cloud')).getByRole('button', { name: 'More actions' }))
+    expect(await screen.findByText('Delete')).toBeInTheDocument()
+  })
+
+  describe('dialog', () => {
+    const FULL: api.PackageStoreProviderDescriptor = {
+      kind: 'FileSystem',
+      displayName: 'Local disk',
+      fields: [
+        { key: 'Endpoint', label: 'Endpoint', kind: 'Text', required: true, options: [] },
+        { key: 'Token', label: 'Token', kind: 'Secret', required: true, boundTo: ['Endpoint'], options: [] },
+        { key: 'Compress', label: 'Compress', kind: 'Toggle', required: false, default: 'true', options: [] },
+        { key: 'Legacy', label: 'Legacy rules', kind: 'FutureKind', required: false, options: [] },
+      ],
+    }
+    const STORED = store({ id: 2, name: 'Archive', properties: { Endpoint: 'https://a', Legacy: 'keep-me' }, secretHasValue: { Token: true } })
+
+    async function openEdit() {
+      mocked.getPackageStoreProviders.mockResolvedValue([FULL])
+      mocked.getPackageStores.mockResolvedValue([STORED])
+      render(<PackageStorageSettings />)
+      await screen.findByText('Archive')
+      fireEvent.click(within(rowOf('Archive')).getByRole('button', { name: 'Edit' }))
+      return screen.findByRole('dialog')
+    }
+
+    it('sends stored values of fields it cannot render back unchanged and keeps a default-on toggle on', async () => {
+      mocked.updatePackageStore.mockResolvedValue(STORED)
+      const dialog = await openEdit()
+
+      expect(within(dialog).getByRole('switch')).toBeChecked()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(mocked.updatePackageStore).toHaveBeenCalledWith({ id: 2, name: 'Archive', properties: { Endpoint: 'https://a', Compress: 'true', Legacy: 'keep-me' }, secrets: {} }))
+    })
+
+    it('stops reusing a stored secret once a field it is bound to changes', async () => {
+      const dialog = await openEdit()
+
+      fireEvent.change(within(dialog).getByLabelText(/Endpoint/), { target: { value: 'https://b' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      expect(await within(dialog).findByText('Token is required')).toBeInTheDocument()
+      expect(mocked.updatePackageStore).not.toHaveBeenCalled()
+    })
+
+    it('refuses to add a store whose required field this version cannot edit, without calling the server', async () => {
+      mocked.getPackageStoreProviders.mockResolvedValue([{ ...FULL, fields: [{ ...FULL.fields[3], required: true }] }])
+      mocked.getPackageStores.mockResolvedValue([])
+      render(<PackageStorageSettings />)
+      await screen.findByText('No package stores.')
+
+      fireEvent.click(screen.getByRole('button', { name: /Add store/ }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'New' } })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      expect(await within(dialog).findByText(/not supported by this version/)).toBeInTheDocument()
+      expect(mocked.createPackageStore).not.toHaveBeenCalled()
+    })
+
+    it('drops an old test result as soon as the name or a field changes', async () => {
+      mocked.testPackageStoreSettings.mockResolvedValue({ success: true, message: 'Passed earlier', warnings: ['Not persistent'] })
+      const dialog = await openEdit()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+      expect(await within(dialog).findByText('Passed earlier')).toBeInTheDocument()
+      expect(within(dialog).getByText('Not persistent')).toBeInTheDocument()
+
+      fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'Archive 2' } })
+      expect(within(dialog).queryByText('Passed earlier')).toBeNull()
+      expect(within(dialog).queryByText('Not persistent')).toBeNull()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Test' }))
+      expect(await within(dialog).findByText('Passed earlier')).toBeInTheDocument()
+      fireEvent.click(within(dialog).getByRole('switch'))
+      expect(within(dialog).queryByText('Passed earlier')).toBeNull()
+    })
+
+    it('locks the dialog while a save is in flight', async () => {
+      mocked.updatePackageStore.mockReturnValue(new Promise(() => {}))
+      const dialog = await openEdit()
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(within(dialog).getByLabelText(/Name/)).toBeDisabled())
+      expect(within(dialog).queryByRole('button', { name: 'Close' })).toBeNull()
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+      expect(within(dialog).getByRole('button', { name: 'Test' })).toBeDisabled()
+    })
   })
 })
