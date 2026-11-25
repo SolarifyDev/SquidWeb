@@ -399,6 +399,70 @@ describe('SetupWizard', () => {
       expect(await screen.findByText(/Storage check failed: Permission denied/)).toBeInTheDocument()
     })
 
+    it('shows the warnings that come with a test result', async () => {
+      api.testPackageStorage.mockResolvedValue({ success: true, message: 'Folder does not exist yet; it will be created.', warnings: ['/data is not on a persistent volume'] })
+      renderWizard()
+
+      await gotoStorage()
+      fireEvent.click(screen.getAllByRole('button', { name: /Test connection/ }).at(-1)!)
+
+      expect(await screen.findByText('/data is not on a persistent volume')).toBeInTheDocument()
+      expect(screen.getByText(/does not exist yet/)).toBeInTheDocument()
+    })
+
+    it('keeps the storage choice when going Back past the step and forward again, and installs with it', async () => {
+      api.startInstall.mockResolvedValue()
+      api.getSetupProgress.mockResolvedValue({ state: 'Running', steps: [], error: null })
+      renderWizard()
+
+      await gotoStorage()
+      type('Root folder', '/mnt/packages')
+      click('Next')
+      await screen.findByRole('button', { name: 'Install' })
+
+      click('Back')
+      await stepTitle('Storage')
+      click('Back')
+      await stepTitle('Server URLs')
+      click('Next')
+      await stepTitle('Storage')
+
+      expect(screen.getByLabelText('Root folder')).toHaveValue('/mnt/packages')
+
+      click('Next')
+      await screen.findByRole('button', { name: 'Install' })
+      click('Install')
+
+      await waitFor(() => expect(api.startInstall).toHaveBeenCalled())
+      expect(api.startInstall.mock.calls[0][1].packageStorage).toEqual({ kind: 'FileSystem', properties: { Root: '/mnt/packages' }, secrets: {} })
+    })
+
+    it('returns to editing after the install fails at the storage step, with the choice kept', async () => {
+      api.startInstall.mockResolvedValue()
+      api.getSetupProgress.mockResolvedValue({
+        state: 'Failed',
+        steps: [{ key: 'packageStorage', title: 'Configure package storage', status: 'Failed', message: 'Another package store is already named "Local disk"' }],
+        error: 'Another package store is already named "Local disk"',
+      })
+      renderWizard()
+
+      await gotoStorage()
+      type('Root folder', '/mnt/packages')
+      click('Next')
+      await screen.findByRole('button', { name: 'Install' })
+      click('Install')
+
+      expect(await screen.findByText('Configure package storage')).toBeInTheDocument()
+      click('Back to edit')
+      await stepTitle('Database')
+      for (const step of ['Administrator', 'Server URLs', 'Storage']) {
+        fireEvent.click(await screen.findByText('Next'))
+        await stepTitle(step)
+      }
+
+      expect(screen.getByLabelText('Root folder')).toHaveValue('/mnt/packages')
+    })
+
     it('goes back to the step and shows the reason when the server rejects the storage section', async () => {
       api.startInstall.mockRejectedValue(httpError(400, { message: 'Validation failed', errors: { 'packageStorage.kind': 'No package store provider is registered for kind "x"' } }))
       renderWizard()

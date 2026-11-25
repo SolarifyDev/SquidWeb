@@ -66,6 +66,8 @@ export interface PackageStorageChoice {
 export interface PackageStorageTestResult {
   success: boolean
   message: string
+  /** About the tested settings (e.g. a folder that will not survive an upgrade); shown whether or not the test passed. */
+  warnings?: string[]
 }
 
 export interface InstallValidationError {

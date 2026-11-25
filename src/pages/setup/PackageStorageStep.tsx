@@ -35,6 +35,7 @@ const TestResultView = ({ snapshot, stale }: { snapshot: PackageStorageTestSnaps
       <span className="mt-0.5">{snapshot.result.success ? <CheckCircleFilled style={{ color: '#00874d' }} /> : <CloseCircleFilled style={{ color: '#ef4444' }} />}</span>
       <span>{snapshot.result.success ? 'Storage OK' : 'Storage check failed'}{snapshot.result.message ? `: ${snapshot.result.message}` : '.'}</span>
     </div>
+    {(snapshot.result.warnings ?? []).map((warning) => <Alert key={warning} type="warning" showIcon message={warning} data-testid="package-storage-warning" />)}
     {stale && <div className="text-xs text-amber-700">The settings changed since this test — test the connection again.</div>}
   </div>
 )
