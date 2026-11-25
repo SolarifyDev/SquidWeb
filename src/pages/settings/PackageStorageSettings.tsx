@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Modal, Spin, Tag } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, WarningOutlined } from '@ant-design/icons'
 import {
   deletePackageStore,
   getPackageStoreProviders,
@@ -121,13 +121,11 @@ export function PackageStorageSettings() {
           </thead>
           <tbody>
             {stores.map((store) => (
-              <tr key={store.id} className="border-b border-slate-100 align-top">
+              <Fragment key={store.id}>
+              <tr className={`align-top ${store.warnings.length > 0 ? '' : 'border-b border-slate-100'}`}>
                 <td className="min-w-[10rem] py-3 pr-4">
                   <span className="font-medium text-slate-900">{store.name}</span>
                   {store.isDefault ? <Tag className="ml-2" color="blue">Default</Tag> : null}
-                  {store.warnings.map((warning) => (
-                    <div key={warning} className="mt-1 text-xs text-amber-700">{warning}</div>
-                  ))}
                 </td>
                 <td className="whitespace-nowrap py-3 pr-4">{providerDisplayName(store, providers)}</td>
                 <td className="break-all py-3 pr-4 font-mono text-xs">{describeLocation(store, providers.find((provider) => provider.kind === store.kind))}</td>
@@ -139,6 +137,19 @@ export function PackageStorageSettings() {
                   {!store.isDefault ? <Button type="link" size="small" danger onClick={() => confirmDelete(store)}>Delete</Button> : null}
                 </td>
               </tr>
+              {store.warnings.length > 0 ? (
+                <tr data-testid={`store-warnings-${store.id}`} className="border-b border-slate-100">
+                  <td colSpan={5} className="pb-3">
+                    {store.warnings.map((warning) => (
+                      <div key={warning} className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <WarningOutlined className="mt-0.5" />
+                        <span>{warning}</span>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             ))}
             {stores.length === 0 ? (
               <tr><td colSpan={5} className="py-6 text-center text-slate-500">No package stores.</td></tr>

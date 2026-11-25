@@ -58,7 +58,11 @@ describe('PackageStorageSettings', () => {
     expect(primary.getByText('Default')).toBeInTheDocument()
     expect(primary.getByText('Local disk')).toBeInTheDocument()
     expect(primary.getByText('/data/packages')).toBeInTheDocument()
-    expect(primary.getByText('Not on a persistent volume')).toBeInTheDocument()
+    expect(primary.queryByText('Not on a persistent volume')).toBeNull()
+    const warningRow = within(screen.getByTestId('store-warnings-1'))
+    expect(warningRow.getByText('Not on a persistent volume')).toBeInTheDocument()
+    expect(screen.getByTestId('store-warnings-1').querySelector('td')).toHaveAttribute('colspan', '5')
+    expect(screen.queryByTestId('store-warnings-2')).toBeNull()
 
     const archive = within(rowOf('Archive'))
     expect(archive.queryByText('Default')).toBeNull()
