@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SquidPackages from './index'
@@ -6,20 +6,18 @@ import SquidPackages from './index'
 const navigate = vi.fn()
 let canEdit = false
 let packagesResult: { feedId: number; packages: unknown[] } = { feedId: 7, packages: [] }
-const listCalls = vi.fn()
 
 vi.mock('react-router-dom', async (importActual) => ({ ...(await importActual<typeof import('react-router-dom')>()), useNavigate: () => navigate }))
 vi.mock('contexts/PermissionContext', () => ({ usePermissions: () => ({ hasPermission: (p: string) => canEdit && p === 'FeedEdit' }) }))
 vi.mock('pages/apis/builtInPackages', async (importActual) => ({
   ...(await importActual<typeof import('pages/apis/builtInPackages')>()),
-  listBuiltInPackages: (...args: unknown[]) => { listCalls(...args); return Promise.resolve(packagesResult) },
+  listBuiltInPackages: () => Promise.resolve(packagesResult),
   getPackageVersionRule: () => Promise.resolve({ feedId: 7, packageId: 'x', versionTemplate: '1.0.{counter}', isDefault: true }),
 }))
 
 describe('Squid packages page', () => {
   beforeEach(() => {
     navigate.mockReset()
-    listCalls.mockReset()
     canEdit = false
     packagesResult = { feedId: 7, packages: [{ packageId: 'Acme.Web', versionCount: 3, lastPublishedDate: '2026-11-20T10:00:00Z' }] }
   })
@@ -61,15 +59,5 @@ describe('Squid packages page', () => {
     await screen.findByText('Acme.Web')
 
     expect(screen.queryByTestId('truncated-note')).toBeNull()
-  })
-
-  it('filter_IsPassedToTheServer', async () => {
-    render(<MemoryRouter><SquidPackages /></MemoryRouter>)
-    await screen.findByText('Acme.Web')
-
-    fireEvent.change(screen.getByPlaceholderText('Filter packages'), { target: { value: 'web' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Filter packages'), { key: 'Enter', keyCode: 13 })
-
-    await waitFor(() => expect(listCalls).toHaveBeenLastCalledWith('web'))
   })
 })

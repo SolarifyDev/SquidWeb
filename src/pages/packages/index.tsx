@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Input, Spin, message } from 'antd'
+import { Spin, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import PageContainer from 'components/PageContainer'
 import { useSpace } from 'contexts/SpaceContext'
@@ -15,18 +15,17 @@ const SquidPackages = () => {
   const [feedId, setFeedId] = useState<number | null>(null)
   const [packages, setPackages] = useState<BuiltInPackageDto[]>([])
   const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
-    listBuiltInPackages(filter.trim() || undefined)
+    listBuiltInPackages()
       .then((data) => {
         setFeedId(data.feedId)
         setPackages(data.packages ?? [])
       })
       .catch((error) => message.error(apiErrorMessage(error, 'Failed to load packages')))
       .finally(() => setLoading(false))
-  }, [filter])
+  }, [])
 
   useEffect(() => {
     if (space?.id) load()
@@ -37,9 +36,6 @@ const SquidPackages = () => {
       <div className="mb-4 text-sm text-gray-600">Packages pushed straight to Squid, kept per space and usable by releases like any feed package.</div>
       <div className="mb-4">
         <UploadPanel canEdit={hasPermission('FeedEdit')} feedId={feedId} spaceId={space.id} onUploaded={load} />
-      </div>
-      <div className="mb-3">
-        <Input.Search allowClear placeholder="Filter packages" style={{ maxWidth: 300 }} onSearch={setFilter} />
       </div>
       <Spin spinning={loading}>
         <div className="rounded border border-gray-200 bg-white">
@@ -68,7 +64,7 @@ const SquidPackages = () => {
         </div>
         {packages.length >= PACKAGE_PAGE_SIZE && (
           <div data-testid="truncated-note" className="mt-2 text-sm text-gray-500">
-            Showing the first {PACKAGE_PAGE_SIZE} packages; there may be more. Use the filter to find a specific one.
+            Showing the first {PACKAGE_PAGE_SIZE} packages; there may be more.
           </div>
         )}
       </Spin>
