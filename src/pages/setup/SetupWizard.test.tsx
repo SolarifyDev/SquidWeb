@@ -15,6 +15,8 @@ vi.mock('./api', async (importOriginal) => {
     testRedis: vi.fn(),
     startInstall: vi.fn(),
     getSetupProgress: vi.fn(),
+    getPackageStorageProviders: vi.fn(),
+    testPackageStorage: vi.fn(),
   }
 })
 
@@ -30,7 +32,14 @@ const LocationProbe = () => {
   return <div data-testid="location">{`${location.pathname}${location.search}`}</div>
 }
 
-function renderWizard({ path = '/setup?token=abc', setupStatus = status(), onFinished = vi.fn() } = {}) {
+const FILE_SYSTEM = {
+  kind: 'FileSystem', displayName: 'Local disk', description: 'Keeps packages as files in a folder on the server.',
+  fields: [{ key: 'Root', label: 'Root folder', kind: 'Path', required: false, placeholder: 'Leave empty to use the data directory', helpText: 'Leave empty to keep packages in the data directory.', options: [] }],
+}
+
+function renderWizard({ path = '/setup?token=abc', setupStatus = status(), onFinished = vi.fn(), providers = [FILE_SYSTEM] }: { path?: string; setupStatus?: SetupStatus; onFinished?: () => void; providers?: unknown[] | 'fail' } = {}) {
+  if (providers === 'fail') api.getPackageStorageProviders.mockRejectedValue(new Error('Network Error'))
+  else api.getPackageStorageProviders.mockResolvedValue(providers as never)
   render(
     <MemoryRouter initialEntries={[path]}>
       <SetupWizard status={setupStatus} onFinished={onFinished} timings={FAST} />
@@ -42,7 +51,7 @@ function renderWizard({ path = '/setup?token=abc', setupStatus = status(), onFin
 
 const nextButton = () => screen.getByRole('button', { name: 'Next' })
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
-const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+const type = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
 
 async function advanceToReview() {
   click('Next')
@@ -51,6 +60,8 @@ async function advanceToReview() {
   type('Confirm password', 'password1')
   click('Next')
   await screen.findByText('Server URLs', { selector: '.ant-steps-item-process .ant-steps-item-title' })
+  click('Next')
+  await screen.findByText('Package storage', { selector: '.ant-steps-item-process .ant-steps-item-title' })
   click('Next')
   await screen.findByRole('button', { name: 'Install' })
 }
@@ -267,10 +278,14 @@ describe('SetupWizard', () => {
     await stepTitle('Server URLs')
     type('Polling URL (optional)', 'https://squid:10943')
     click('Next')
+    await stepTitle('Package storage')
+    click('Next')
     await screen.findByRole('button', { name: 'Install' })
 
     expect(screen.getByText('Host=db;Password=******')).toBeInTheDocument()
 
+    click('Back')
+    await stepTitle('Package storage')
     click('Back')
     await stepTitle('Server URLs')
     expect(screen.getByLabelText('Polling URL (optional)')).toHaveValue('https://squid:10943')
@@ -282,6 +297,128 @@ describe('SetupWizard', () => {
     await stepTitle('Database')
     expect(screen.getByLabelText('Connection string')).toHaveValue('Host=db;Password=secret')
     expect(nextButton()).toBeEnabled()
+  })
+
+  describe('package storage step', () => {
+    const REMOTE = {
+      kind: 'Remote', displayName: 'Remote store', description: 'Keeps packages in a remote service.',
+      fields: [
+        { key: 'Endpoint', label: 'Endpoint', kind: 'Text', required: true, options: [] },
+        { key: 'Token', label: 'Access token', kind: 'Secret', required: true, options: [] },
+      ],
+    }
+
+    const gotoStorage = async () => {
+      click('Next')
+      await stepTitle('Administrator')
+      fireEvent.change(screen.getAllByLabelText('Password').at(-1)!, { target: { value: 'password1' } })
+      type('Confirm password', 'password1')
+      click('Next')
+      await stepTitle('Server URLs')
+      click('Next')
+      await stepTitle('Package storage')
+    }
+
+    it('renders one radio card per provider descriptor, with the local disk selected by default', async () => {
+      renderWizard({ providers: [FILE_SYSTEM, REMOTE] })
+
+      await gotoStorage()
+
+      expect(screen.getByRole('radio', { name: /Local disk/ })).toBeChecked()
+      expect(screen.getByRole('radio', { name: /Remote store/ })).not.toBeChecked()
+      expect(screen.getByLabelText('Root folder')).toHaveValue('')
+      expect(screen.getByText(/Leave empty to keep packages in the data directory/)).toBeInTheDocument()
+    })
+
+    it('sends no packageStorage section while the default is kept', async () => {
+      api.startInstall.mockResolvedValue()
+      api.getSetupProgress.mockResolvedValue({ state: 'Running', steps: [], error: null })
+      renderWizard()
+
+      await advanceToReview()
+      click('Install')
+
+      await waitFor(() => expect(api.startInstall).toHaveBeenCalled())
+      expect(api.startInstall.mock.calls[0][1]).not.toHaveProperty('packageStorage')
+    })
+
+    it('sends the section when the folder is changed, and lists it on the review step', async () => {
+      api.startInstall.mockResolvedValue()
+      api.getSetupProgress.mockResolvedValue({ state: 'Running', steps: [], error: null })
+      renderWizard()
+
+      await gotoStorage()
+      type('Root folder', '/mnt/packages')
+      click('Next')
+      await screen.findByRole('button', { name: 'Install' })
+
+      expect(screen.getByText('Root folder: /mnt/packages')).toBeInTheDocument()
+      click('Install')
+
+      await waitFor(() => expect(api.startInstall).toHaveBeenCalled())
+      expect(api.startInstall.mock.calls[0][1].packageStorage).toEqual({ kind: 'FileSystem', properties: { Root: '/mnt/packages' }, secrets: {} })
+    })
+
+    it('blocks Next until the required fields of the chosen provider are filled, and never shows a secret on review', async () => {
+      renderWizard({ providers: [FILE_SYSTEM, REMOTE] })
+
+      await gotoStorage()
+      fireEvent.click(screen.getByRole('radio', { name: /Remote store/ }))
+      click('Next')
+
+      expect(await screen.findByText('Endpoint is required')).toBeInTheDocument()
+      expect(screen.getByText('Access token is required')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Install' })).toBeNull()
+
+      type(/^Endpoint/, 'https://store.example')
+      type(/^Access token/, 'top-secret-value')
+      click('Next')
+      await screen.findByRole('button', { name: 'Install' })
+
+      expect(screen.getByTestId('review-package-storage')).toHaveTextContent('Remote store')
+      expect(screen.getByText('Endpoint: https://store.example')).toBeInTheDocument()
+      expect(screen.getByText('Access token: set')).toBeInTheDocument()
+      expect(screen.queryByText(/top-secret-value/)).toBeNull()
+    })
+
+    it('tests the settings through the setup endpoint and shows the outcome, marking it stale after an edit', async () => {
+      api.testPackageStorage.mockResolvedValueOnce({ success: true, message: 'Folder: /mnt/packages' }).mockResolvedValueOnce({ success: false, message: 'Permission denied' })
+      renderWizard()
+
+      await gotoStorage()
+      type('Root folder', '/mnt/packages')
+      fireEvent.click(screen.getAllByRole('button', { name: /Test connection/ }).at(-1)!)
+
+      expect(await screen.findByText(/Storage OK: Folder: \/mnt\/packages/)).toBeInTheDocument()
+      expect(api.testPackageStorage).toHaveBeenCalledWith('abc', { kind: 'FileSystem', properties: { Root: '/mnt/packages' }, secrets: {} })
+
+      type('Root folder', '/mnt/other')
+      expect(screen.getByText(/settings changed since this test/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getAllByRole('button', { name: /Test connection/ }).at(-1)!)
+      expect(await screen.findByText(/Storage check failed: Permission denied/)).toBeInTheDocument()
+    })
+
+    it('goes back to the step and shows the reason when the server rejects the storage section', async () => {
+      api.startInstall.mockRejectedValue(httpError(400, { message: 'Validation failed', errors: { 'packageStorage.kind': 'No package store provider is registered for kind "x"' } }))
+      renderWizard()
+
+      await advanceToReview()
+      click('Install')
+
+      expect(await screen.findByText(/packageStorage\.kind: No package store provider/)).toBeInTheDocument()
+      expect(await stepTitle('Package storage')).toBeInTheDocument()
+    })
+
+    it('keeps the default usable when the provider list cannot be loaded', async () => {
+      renderWizard({ providers: 'fail' })
+
+      await gotoStorage()
+      expect(await screen.findByText('Could not load the storage options.')).toBeInTheDocument()
+
+      click('Next')
+      expect(await screen.findByRole('button', { name: 'Install' })).toBeInTheDocument()
+    })
   })
 
   it('brings back the token prompt on a 401 during progress polling and resumes with the new token', async () => {

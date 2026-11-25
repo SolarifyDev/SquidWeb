@@ -1,4 +1,4 @@
-import type { DatabaseTestResult, InstallRequest, RedisTestResult, SetupMode } from './api'
+import type { DatabaseTestResult, InstallRequest, PackageStorageChoice, RedisTestResult, SetupMode } from './api'
 import type { SslMode } from './connectionString'
 
 export interface SetupFormValues {
@@ -27,7 +27,16 @@ export const STEP_FIELDS: SetupFieldName[][] = [
   ['adminUserName', 'adminPassword', 'adminConfirmPassword'],
   ['externalUrl', 'commsUrl'],
   [],
+  [],
 ]
+
+/** Index of the package storage step, which keeps its state outside the form (its fields come from provider descriptors). */
+export const PACKAGE_STORAGE_STEP = 3
+
+/** Install 400 error keys of the package storage section ("packageStorage", "packageStorage.kind") belong to that step. */
+export function isPackageStorageError(key: string) {
+  return key.toLowerCase().startsWith('packagestorage')
+}
 
 // Install 400 error keys (case-insensitive, as ASP.NET may PascalCase them) → form field.
 const SERVER_ERROR_FIELDS: Record<string, SetupFieldName> = {
@@ -89,7 +98,7 @@ export function mapServerErrors(errors: Record<string, string> | undefined): Map
   return result
 }
 
-export function buildInstallRequest(values: SetupFormValues): InstallRequest {
+export function buildInstallRequest(values: SetupFormValues, packageStorage?: PackageStorageChoice): InstallRequest {
   const external = (mode: SetupMode, value?: string) => (mode === 'External' ? (value ?? '').trim() : '')
 
   return {
@@ -97,6 +106,7 @@ export function buildInstallRequest(values: SetupFormValues): InstallRequest {
     redis: { mode: values.redisMode, connectionString: external(values.redisMode, values.redisConnectionString) },
     admin: { userName: values.adminUserName.trim(), password: values.adminPassword },
     server: { externalUrl: values.externalUrl.trim(), commsUrl: (values.commsUrl ?? '').trim() },
+    ...(packageStorage ? { packageStorage } : {}),
   }
 }
 

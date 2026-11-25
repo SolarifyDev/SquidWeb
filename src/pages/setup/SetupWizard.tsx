@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, Descriptions, Form, Input, Modal, Steps } from 'antd'
-import { httpStatusOf, responseBodyOf, startInstall, type InstallValidationError, type SetupStatus } from './api'
+import { getPackageStorageProviders, httpStatusOf, responseBodyOf, startInstall, type InstallValidationError, type SetupStatus } from './api'
+import { validateProviderForm, type ProviderFormErrors } from 'components/providerForm/providerFormValues'
+import type { PackageStoreProviderDescriptor } from 'pages/apis/packageStore'
 import { maskConnectionString } from './connectionString'
 import DatabaseStep from './DatabaseStep'
+import PackageStorageStep, { type PackageStorageTestSnapshot } from './PackageStorageStep'
+import { buildPackageStorageSection, DEFAULT_PACKAGE_STORAGE, descriptorOf, summarizePackageStorage, type PackageStorageSelection } from './packageStorageForm'
 import SetupProgressView, { DEFAULT_POLL_TIMINGS, type PollTimings } from './SetupProgressView'
-import { buildInstallRequest, canLeaveDatabaseStep, canLeaveRedisSettings, fieldLabel, isFieldRendered, isHttpUrl, mapServerErrors, STEP_FIELDS, type DatabaseTestSnapshot, type RedisTestSnapshot, type SetupFormValues } from './setupForm'
+import { buildInstallRequest, canLeaveDatabaseStep, canLeaveRedisSettings, fieldLabel, isFieldRendered, isHttpUrl, isPackageStorageError, mapServerErrors, PACKAGE_STORAGE_STEP, STEP_FIELDS, type DatabaseTestSnapshot, type RedisTestSnapshot, type SetupFormValues } from './setupForm'
 
 const MIN_PASSWORD_LENGTH = 8
 const DEFAULT_POLLING_PORT = 10943
-const STEP_TITLES = ['Database', 'Administrator', 'Server URLs', 'Review & Install']
+const STEP_TITLES = ['Database', 'Administrator', 'Server URLs', 'Package storage', 'Review & Install']
 const REVIEW_STEP = STEP_TITLES.length - 1
 
 interface SetupWizardProps {
@@ -89,8 +93,9 @@ const TokenPrompt = ({ rejected, onSubmit }: { rejected: boolean; onSubmit: (tok
   )
 }
 
-const ReviewSummary = ({ values, pollingPort }: { values: SetupFormValues; pollingPort: number }) => {
+const ReviewSummary = ({ values, pollingPort, providers, selection }: { values: SetupFormValues; pollingPort: number; providers: PackageStoreProviderDescriptor[] | null; selection: PackageStorageSelection }) => {
   const request = buildInstallRequest(values)
+  const storage = summarizePackageStorage(providers, selection)
 
   return (
     <Descriptions column={1} size="small" bordered>
@@ -104,6 +109,10 @@ const ReviewSummary = ({ values, pollingPort }: { values: SetupFormValues; polli
       <Descriptions.Item label="Administrator">{request.admin.userName}</Descriptions.Item>
       <Descriptions.Item label="External URL">{request.server.externalUrl}</Descriptions.Item>
       <Descriptions.Item label="Polling URL">{request.server.commsUrl || `Derived from the external URL host + port ${pollingPort}`}</Descriptions.Item>
+      <Descriptions.Item label="Package storage">
+        <div data-testid="review-package-storage">{storage.title}
+        {storage.details.map((line) => <div key={line} className="break-all text-xs text-slate-500">{line}</div>)}</div>
+      </Descriptions.Item>
     </Descriptions>
   )
 }
@@ -123,6 +132,12 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
   const [advancedOpen, setAdvancedOpen] = useState(status.builtinRedisAvailable === false)
   const [installing, setInstalling] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
+  const [providers, setProviders] = useState<PackageStoreProviderDescriptor[] | null>(null)
+  const [providersError, setProvidersError] = useState<string | null>(null)
+  const [providersAttempt, setProvidersAttempt] = useState(0)
+  const [packageStorage, setPackageStorage] = useState<PackageStorageSelection>(DEFAULT_PACKAGE_STORAGE)
+  const [packageErrors, setPackageErrors] = useState<ProviderFormErrors>({})
+  const [packageTest, setPackageTest] = useState<PackageStorageTestSnapshot | null>(null)
 
   const dbMode = Form.useWatch('dbMode', form) ?? initial.dbMode
   const dbConnectionString = Form.useWatch('dbConnectionString', form)
@@ -138,6 +153,41 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
     setInstalling(false)
   }, [])
 
+  useEffect(() => {
+    if (!token) return undefined
+    let cancelled = false
+
+    getPackageStorageProviders(token).then(
+      (loaded) => { if (!cancelled) { setProviders(loaded); setProvidersError(null) } },
+      (error) => {
+        if (cancelled) return
+        if (httpStatusOf(error) === 401) handleUnauthorized()
+        else setProvidersError((error as Error)?.message || 'The storage options could not be loaded.')
+      },
+    )
+
+    return () => { cancelled = true }
+  }, [token, providersAttempt, handleUnauthorized])
+
+  const retryProviders = () => {
+    setProvidersError(null)
+    setProvidersAttempt((attempt) => attempt + 1)
+  }
+
+  const validatePackageStorage = () => {
+    const fields = descriptorOf(providers, packageStorage.kind)?.fields ?? []
+    const errors = validateProviderForm(fields, packageStorage.value)
+
+    setPackageErrors(errors)
+
+    return Object.keys(errors).length === 0
+  }
+
+  const changePackageStorage = (next: PackageStorageSelection) => {
+    setPackageStorage(next)
+    setPackageErrors({})
+  }
+
   const submitToken = (next: string) => {
     setToken(next)
     setTokenRejected(false)
@@ -150,6 +200,7 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
       if (current === 0 && form.getFieldError('redisConnectionString').length > 0) setAdvancedOpen(true)
       return
     }
+    if (current === PACKAGE_STORAGE_STEP && !validatePackageStorage()) return
     setCurrent(current + 1)
   }
 
@@ -163,7 +214,9 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
 
     form.setFields(onField.map((error) => ({ name: error.field, errors: [error.message] })))
     if (fieldErrors.some((error) => error.field.startsWith('redis'))) setAdvancedOpen(true)
-    if (fieldErrors.length > 0) setCurrent(Math.min(...fieldErrors.map((error) => error.step)))
+    const failedSteps = fieldErrors.map((error) => error.step)
+    if (Object.keys(body?.errors ?? {}).some(isPackageStorageError)) failedSteps.push(PACKAGE_STORAGE_STEP)
+    if (failedSteps.length > 0) setCurrent(Math.min(...failedSteps))
 
     setInstallError([body?.message || 'The server rejected the configuration.', ...listed, ...unmatched].join('\n'))
   }
@@ -172,7 +225,7 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
     setInstalling(true)
     setInstallError(null)
     try {
-      await startInstall(token, buildInstallRequest(form.getFieldsValue(true) as SetupFormValues))
+      await startInstall(token, buildInstallRequest(form.getFieldsValue(true) as SetupFormValues, buildPackageStorageSection(providers, packageStorage)))
       setView('progress')
     } catch (error) {
       const httpStatus = httpStatusOf(error)
@@ -263,8 +316,12 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
                 </Form.Item>
               </div>
 
-              {current === REVIEW_STEP && <ReviewSummary values={form.getFieldsValue(true) as SetupFormValues} pollingPort={pollingPort} />}
+              {current === REVIEW_STEP && <ReviewSummary values={form.getFieldsValue(true) as SetupFormValues} pollingPort={pollingPort} providers={providers} selection={packageStorage} />}
             </Form>
+
+            <div hidden={current !== PACKAGE_STORAGE_STEP}>
+              <PackageStorageStep token={token} providers={providers} loadError={providersError} onRetryLoad={retryProviders} selection={packageStorage} onSelectionChange={changePackageStorage} errors={packageErrors} validate={validatePackageStorage} test={packageTest} onTested={setPackageTest} onUnauthorized={handleUnauthorized} />
+            </div>
 
             {installError && <Alert type="error" showIcon className="mt-4 whitespace-pre-line" message={installError} />}
 

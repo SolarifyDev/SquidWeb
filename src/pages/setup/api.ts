@@ -1,5 +1,6 @@
 import axios, { type AxiosError } from 'axios'
 import { resolveApiBaseUrl } from 'utils/apiBase'
+import type { PackageStoreProviderDescriptor } from 'pages/apis/packageStore'
 
 // The setup endpoints exist only while the server runs in "setup mode" (no database configured yet).
 // They answer plain JSON (no { code, msg, data } envelope) and are called without the auth'd axios
@@ -52,6 +53,19 @@ export interface InstallRequest {
   redis: { mode: SetupMode; connectionString: string }
   admin: { userName: string; password: string }
   server: { externalUrl: string; commsUrl: string }
+  /** Left out when the default local disk store is kept. */
+  packageStorage?: PackageStorageChoice
+}
+
+export interface PackageStorageChoice {
+  kind: string
+  properties: Record<string, string>
+  secrets: Record<string, string>
+}
+
+export interface PackageStorageTestResult {
+  success: boolean
+  message: string
 }
 
 export interface InstallValidationError {
@@ -125,5 +139,15 @@ export async function startInstall(token: string, request: InstallRequest): Prom
 
 export async function getSetupProgress(token: string): Promise<SetupProgress> {
   const res = await axios.get<SetupProgress>(setupUrl('/progress'), { headers: tokenHeaders(token), timeout: PROGRESS_TIMEOUT_MS })
+  return res.data
+}
+
+export async function getPackageStorageProviders(token: string): Promise<PackageStoreProviderDescriptor[]> {
+  const res = await axios.get<PackageStoreProviderDescriptor[]>(setupUrl('/package-storage/providers'), { headers: tokenHeaders(token), timeout: PROGRESS_TIMEOUT_MS })
+  return res.data.map((descriptor) => ({ ...descriptor, fields: (descriptor.fields ?? []).map((field) => ({ ...field, options: field.options ?? [] })) }))
+}
+
+export async function testPackageStorage(token: string, request: PackageStorageChoice): Promise<PackageStorageTestResult> {
+  const res = await axios.post<PackageStorageTestResult>(setupUrl('/package-storage/test'), request, { headers: tokenHeaders(token), timeout: LONG_REQUEST_TIMEOUT_MS })
   return res.data
 }
