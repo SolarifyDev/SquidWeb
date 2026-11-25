@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { EmptyFolderError, folderNameOf, isExcludedPath, packFolder, toTarSources, type FolderFile } from './packFolder'
+import { EmptyFolderError, countPackable, folderNameOf, isExcludedPath, packFolder, toTarSources, type FolderFile } from './packFolder'
 import { readTar } from './tarTestReader'
 
-const file = (path: string, content = 'x'): FolderFile => ({ path, file: new File([content], path.split('/').pop() ?? 'f') })
+const file = (path: string, content = 'x', lastModified = 0): FolderFile => ({ path, file: new File([content], path.split('/').pop() ?? 'f', { lastModified }) })
+
+const sha = async (blob: Blob) => Buffer.from(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())).toString('hex')
 
 async function gunzip(blob: Blob) {
   const stream = blob.stream().pipeThrough(new DecompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
@@ -37,7 +39,7 @@ describe('folder rules', () => {
       file('myapp/.gitignore'),
     ])
 
-    expect(sources.map((s) => s.path)).toEqual(['index.html', 'src/app.js', '.gitignore'])
+    expect(sources.map((s) => s.path)).toEqual(['.gitignore', 'index.html', 'src/app.js'])
   })
 
   it('folderNameIsTheFirstSegment', () => {
@@ -52,8 +54,8 @@ describe('packFolder', () => {
 
     expect(packed.fileName).toBe('site.tar.gz')
     expect(packed.fileCount).toBe(2)
-    expect(entries.map((e) => e.path)).toEqual(['index.html', 'css/a.css'])
-    expect(new TextDecoder().decode(entries[0].content)).toBe('<h1>hi</h1>')
+    expect(entries.map((e) => e.path)).toEqual(['css/a.css', 'index.html'])
+    expect(new TextDecoder().decode(entries[1].content)).toBe('<h1>hi</h1>')
   })
 
   it('startsWithTheGzipMagicTheServerDetects', async () => {
@@ -80,5 +82,28 @@ describe('packFolder', () => {
 
   it('aPathThatCannotFit_IsRefusedWithAClearMessage', async () => {
     await expect(packFolder([file(`s/${'n'.repeat(120)}.txt`)])).rejects.toThrow(/too long to pack/)
+  })
+
+  it('sameFilesWithDifferentMtimesAndOrder_PackToIdenticalBytes', async () => {
+    const a = await packFolder([file('s/b.txt', 'bb', 1000), file('s/a/x.txt', 'xx', 2000), file('s/c.txt', 'cc', 3000)])
+    const b = await packFolder([file('s/c.txt', 'cc', 9_000_000), file('s/b.txt', 'bb', 8_000_000), file('s/a/x.txt', 'xx', 7_000_000)])
+
+    expect(await sha(a.blob)).toBe(await sha(b.blob))
+  })
+
+  it('gzipHeaderMtimeAndOsBytes_AreFixed', async () => {
+    const packed = await packFolder([file('s/a.txt')])
+    const head = new Uint8Array(await packed.blob.slice(0, 10).arrayBuffer())
+
+    expect([...head.subarray(4, 10)]).toEqual([0, 0, 0, 0, 0, 255])
+    expect(readTar(await gunzip(packed.blob)).length).toBe(1)
+  })
+
+  it('entriesAreSortedByPathOrdinal', () => {
+    expect(toTarSources([file('s/b'), file('s/B'), file('s/a/z'), file('s/a')]).map((x) => x.path)).toEqual(['B', 'a', 'a/z', 'b'])
+  })
+
+  it('countPackable_CountsOnlyWhatWillBePacked', () => {
+    expect(countPackable([file('d/a'), file('d/.DS_Store'), file('d/node_modules/x/y.js'), file('d/.git/HEAD'), file('d/b')])).toEqual({ packed: 2, skipped: 3 })
   })
 })

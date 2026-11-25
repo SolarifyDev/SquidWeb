@@ -12,6 +12,15 @@ describe('facts', () => {
     expect(screen.getByText('8080')).toBeInTheDocument()
   })
 
+  it('booleansAreYesOrNo_EmptyValuesHidden_FilesCountLabelled', () => {
+    render(<FactsView inspected facts={{ values: { 'archive.wrapped': 'false', 'marker.dockerfile': 'true', 'archive.root': '', 'files.count': '5' } }} />)
+
+    expect(screen.getByText('No')).toBeInTheDocument()
+    expect(screen.getByText('Yes')).toBeInTheDocument()
+    expect(screen.getByText('Files')).toBeInTheDocument()
+    expect(screen.queryByText('Top-level folder')).toBeNull()
+  })
+
   it('unknownKeys_ShowTheRawKey_AndInspectorFailuresAreNamed', () => {
     expect(factLabel('something.new')).toBe('something.new')
     expect(factLabel('inspector.failed.NodeInspector')).toBe('Inspector failed: NodeInspector')

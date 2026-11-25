@@ -42,10 +42,32 @@ export function toTarSources(files: FolderFile[]): TarSource[] {
 
     if (segments.length === 0 || isExcludedPath(segments)) continue
 
-    sources.push({ path: segments.join('/'), size: file.size, mtimeMs: file.lastModified, read: () => readFile(file) })
+    sources.push({ path: segments.join('/'), size: file.size, read: () => readFile(file) })
   }
 
-  return sources
+  return sources.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+}
+
+/** How many of the chosen files will be packed, and how many are left out by the exclusion rules. */
+export function countPackable(files: FolderFile[]) {
+  const packed = toTarSources(files).length
+
+  return { packed, skipped: files.length - packed }
+}
+
+// Bytes 4-9 of a gzip header are mtime, extra flags and the OS id. Browsers differ on the last two, so they are fixed
+// to 0 / 0 / 255 (unknown): the same tar then compresses to the same bytes everywhere.
+export function normaliseGzipHeader(blob: Blob): Promise<Blob> {
+  return blob.slice(0, 10).arrayBuffer().then((buffer) => {
+    const header = new Uint8Array(buffer)
+
+    if (header.length < 10 || header[0] !== 0x1f || header[1] !== 0x8b || header[3] !== 0) return blob
+
+    header.fill(0, 4, 9)
+    header[9] = 255
+
+    return new Blob([header, blob.slice(10)], { type: blob.type })
+  })
 }
 
 async function* readFile(file: File): AsyncGenerator<Uint8Array> {
@@ -98,7 +120,7 @@ export async function packFolder(files: FolderFile[], onProgress?: (progress: Pa
   const totalBytes = tarTotalBytes(sources)
   const tar = tarStream(sources, (doneBytes) => onProgress?.({ doneBytes, totalBytes }))
   const gzipped = tar.pipeThrough(new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
-  const blob = await new Response(gzipped).blob()
+  const blob = await normaliseGzipHeader(await new Response(gzipped).blob())
 
   onProgress?.({ doneBytes: totalBytes, totalBytes })
 

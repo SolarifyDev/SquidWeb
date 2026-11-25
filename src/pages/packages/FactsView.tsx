@@ -4,6 +4,7 @@ import type { PackageFacts, RecipeRecommendations } from 'pages/apis/builtInPack
 const FACT_LABELS: Record<string, string> = {
   'archive.wrapped': 'Wrapped in one top-level folder',
   'archive.root': 'Top-level folder',
+  'files.count': 'Files',
   'files.truncated': 'File list truncated',
   'files.oversized': 'Contains oversized files',
   'marker.dockerfile': 'Has a Dockerfile',
@@ -33,7 +34,10 @@ export function factLabel(key: string) {
 }
 
 export function factValue(value: string) {
-  return value === 'true' ? 'Yes' : value
+  if (value === 'true') return 'Yes'
+  if (value === 'false') return 'No'
+
+  return value
 }
 
 /** Known keys first (in the order above), then the rest alphabetically. */
@@ -41,7 +45,7 @@ export function orderedFacts(facts: PackageFacts) {
   const known = Object.keys(FACT_LABELS)
   const rank = (key: string) => (known.includes(key) ? known.indexOf(key) : known.length)
 
-  return Object.entries(facts.values ?? {}).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+  return Object.entries(facts.values ?? {}).filter(([, value]) => value != null && value.trim() !== '').sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 export function FactsView({ facts, inspected }: { facts?: PackageFacts | null; inspected: boolean }) {

@@ -5,17 +5,17 @@ import { collect, headerChecksumOk, readTar } from './tarTestReader'
 const text = (value: string) => new TextEncoder().encode(value)
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
 
-function source(path: string, content: string | Uint8Array, mtimeMs = 0): TarSource {
+function source(path: string, content: string | Uint8Array): TarSource {
   const bytes = typeof content === 'string' ? text(content) : content
 
-  return { path, size: bytes.length, mtimeMs, async *read() { yield bytes } }
+  return { path, size: bytes.length, async *read() { yield bytes } }
 }
 
 describe('tar header', () => {
   it('fieldsAndChecksum_MatchHandComputedValues', () => {
-    // "a.txt", 5 bytes, mtime 1700000000 s. The checksum is the sum of every header byte with the checksum field read as 8 spaces,
+    // "a.txt", 5 bytes, mtime 0. The checksum is the sum of every header byte with the checksum field read as 8 spaces,
     // so it is rebuilt here field by field from the characters each field must hold.
-    const block = buildHeader('a.txt', 5, 1_700_000_000_000)
+    const block = buildHeader('a.txt', 5)
     const octalSum = (value: string) => [...value].reduce((n, c) => n + c.charCodeAt(0), 0)
 
     const expected =
@@ -23,7 +23,7 @@ describe('tar header', () => {
       octalSum('0000644') + // mode
       octalSum('0000000') * 2 + // uid, gid
       octalSum('00000000005') + // size, 11 digits
-      octalSum((1_700_000_000).toString(8).padStart(11, '0')) + // mtime in seconds
+      octalSum('00000000000') + // mtime 0
       0x30 + // typeflag '0'
       octalSum('ustar') +
       octalSum('00') +
@@ -41,7 +41,7 @@ describe('tar header', () => {
     // name "x", size 0, mtime 0, mode 0644, no owner names. Hand sum: 'x' 120 + mode "0000644" (4*48+54+52+52=350) + uid and gid 2*(7*48)=672
     // + size 11*48=528 + mtime 528 + typeflag '0' 48 + "ustar" (117+115+116+97+114)=559 + "00" 96 + checksum field as spaces 8*32=256
     // = 3157 decimal = 0o6125.
-    const block = buildHeader('x', 0, 0)
+    const block = buildHeader('x', 0)
 
     expect(new TextDecoder().decode(block.subarray(148, 154))).toBe('006125')
   })
@@ -102,10 +102,15 @@ describe('tar archive', () => {
     expect(entries.every((e) => e.typeflag === '0' && e.mode === 0o644)).toBe(true)
   })
 
-  it('mtime_IsWrittenInWholeSeconds', async () => {
-    const [entry] = readTar(await collect(tarChunks([source('a', 'x', 1_700_000_000_999)])))
+  it('headers_AreDeterministic_NoTimeNoOwnerFixedMode', async () => {
+    const [entry] = readTar(await collect(tarChunks([source('a', 'x')])))
+    const header = buildHeader('a', 1)
+    const field = (start: number, end: number) => new TextDecoder().decode(header.subarray(start, end)).replace(/\0+$/, '')
 
-    expect(entry.mtime).toBe(1_700_000_000)
+    expect(entry.mtime).toBe(0)
+    expect(entry.mode).toBe(0o644)
+    expect(field(108, 124)).toBe('0000000\u00000000000')
+    expect(header.subarray(265, 329).every((b) => b === 0)).toBe(true)
   })
 
   it('emptyList_IsJustTheTwoZeroBlocks', async () => {

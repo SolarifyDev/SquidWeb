@@ -129,6 +129,15 @@ describe('UploadPanel', () => {
     expect(body.size).toBeGreaterThan(0)
   })
 
+  it('folderSummary_CountsOnlyPackedFiles_AndSaysHowManyWereSkipped', () => {
+    renderPanel()
+    const file = (relative: string) => Object.defineProperty(new File(['x'], relative.split('/').pop()!), 'webkitRelativePath', { value: relative })
+
+    pick('folder-input', [file('demo/a.txt'), file('demo/b.txt'), file('demo/.DS_Store'), file('demo/node_modules/x.js'), file('demo/.git/HEAD')])
+
+    expect(screen.getByText(/Folder demo \(2 files, 3 skipped/)).toBeInTheDocument()
+  })
+
   it('anEmptyFolder_ShowsAClearError', async () => {
     renderPanel()
     const only = Object.defineProperty(new File(['x'], 'HEAD'), 'webkitRelativePath', { value: 'site/.git/HEAD' })

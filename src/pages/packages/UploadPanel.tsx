@@ -4,7 +4,7 @@ import { Alert, Button, Checkbox, Input, Progress } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import { getPackageVersionRule, pushBuiltInPackage } from 'pages/apis/builtInPackages'
 import { filesFromDirectoryInput, readDrop, type DroppedContent } from './dropEntries'
-import { folderNameOf, packFolder, type FolderFile } from './packFolder'
+import { countPackable, folderNameOf, packFolder, type FolderFile } from './packFolder'
 import {
   describePushFailure,
   describePushResult,
@@ -23,6 +23,13 @@ interface UploadPanelProps {
   spaceId: number
   /** Called after a push that stored (or deduplicated) a version, so the lists can refresh. */
   onUploaded: () => void
+}
+
+function describeFolder(name: string, files: FolderFile[]) {
+  const { packed, skipped } = countPackable(files)
+  const skippedText = skipped > 0 ? `, ${skipped} skipped: .git, node_modules, .DS_Store` : ''
+
+  return `Folder ${name} (${packed} ${packed === 1 ? 'file' : 'files'}${skippedText}; packed to .tar.gz on upload)`
 }
 
 type Phase = 'idle' | 'packing' | 'uploading'
@@ -136,7 +143,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, onUploaded }: UploadPane
   }
 
   const busy = phase !== 'idle'
-  const summary = chosen ? (chosen.kind === 'archive' ? `${chosen.file.name} (${formatBytes(chosen.file.size)})` : `Folder ${chosen.name} (${chosen.files.length} files, packed to .tar.gz on upload)`) : null
+  const summary = chosen ? (chosen.kind === 'archive' ? `${chosen.file.name} (${formatBytes(chosen.file.size)})` : describeFolder(chosen.name, chosen.files)) : null
 
   return (
     <div data-testid="upload-panel" className="rounded border border-gray-200 bg-white p-4">

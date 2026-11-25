@@ -14,8 +14,6 @@ export interface TarSource {
   /** Path inside the archive: '/' separated, no leading slash. */
   path: string
   size: number
-  /** Modification time in milliseconds since the epoch; defaults to 0 (1970). */
-  mtimeMs?: number
   read(): AsyncIterable<Uint8Array>
 }
 
@@ -67,7 +65,9 @@ function writeOctal(block: Uint8Array, offset: number, length: number, value: nu
   block[offset + length - 1] = 0
 }
 
-export function buildHeader(path: string, size: number, mtimeMs = 0): Uint8Array {
+// Headers are deterministic on purpose: mtime 0, uid/gid 0, no owner names and a fixed mode, so the same bytes always
+// pack to the same archive and the server's content dedupe recognises an unchanged re-upload.
+export function buildHeader(path: string, size: number): Uint8Array {
   if (size > MAX_ENTRY_BYTES) throw new TarEntryTooLargeError(path)
 
   const { name, prefix } = splitUstarPath(path)
@@ -78,7 +78,7 @@ export function buildHeader(path: string, size: number, mtimeMs = 0): Uint8Array
   writeOctal(block, 108, 8, 0)
   writeOctal(block, 116, 8, 0)
   writeOctal(block, 124, 12, size)
-  writeOctal(block, 136, 12, Math.max(0, Math.floor(mtimeMs / 1000)))
+  writeOctal(block, 136, 12, 0)
   block.fill(0x20, 148, 156) // the checksum is computed with its own field read as spaces
   block[156] = 0x30 // '0': regular file
   block.set(encoder.encode('ustar'), 257)
@@ -103,7 +103,7 @@ function paddingFor(size: number) {
 
 /** Builds every header up front, so a path that cannot be packed fails before any file is read. */
 export function buildAllHeaders(sources: TarSource[]): Uint8Array[] {
-  return sources.map((source) => buildHeader(source.path, source.size, source.mtimeMs))
+  return sources.map((source) => buildHeader(source.path, source.size))
 }
 
 export function tarTotalBytes(sources: TarSource[]) {
