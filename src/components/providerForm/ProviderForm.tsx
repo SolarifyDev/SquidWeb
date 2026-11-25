@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { Input, Select, Switch } from 'antd'
 import { isSupportedFieldKind, type ProviderFieldDescriptor } from 'pages/apis/packageStore'
 import type { ProviderFormErrors, ProviderFormValue } from './providerFormValues'
@@ -15,39 +15,52 @@ interface ProviderFormProps {
 
 export const UNCHANGED_SECRET_PLACEHOLDER = 'Unchanged (leave empty to keep the stored value)'
 
-function FieldRow({ field, error, children }: { field: ProviderFieldDescriptor; error?: string; children: ReactNode }) {
-  const inputId = `provider-field-${field.key}`
+interface FieldIds {
+  input: string
+  label: string
+  help: string
+  error: string
+}
+
+function describedBy(field: ProviderFieldDescriptor, ids: FieldIds, error?: string) {
+  const parts = [field.helpText ? ids.help : null, error ? ids.error : null].filter(Boolean)
+  return parts.length > 0 ? parts.join(' ') : undefined
+}
+
+function FieldMessages({ field, ids, error }: { field: ProviderFieldDescriptor; ids: FieldIds; error?: string }) {
   return (
-    <div className="mb-4">
-      <label htmlFor={inputId} className="mb-1 block text-sm font-medium text-slate-700">
-        {field.label}
-        {field.required ? <span className="ml-0.5 text-red-500">*</span> : null}
-      </label>
-      {children}
-      {field.helpText ? <div className="mt-1 text-xs text-slate-500">{field.helpText}</div> : null}
-      {error ? <div role="alert" className="mt-1 text-xs text-red-600">{error}</div> : null}
-    </div>
+    <>
+      {field.helpText ? <div id={ids.help} className="mt-1 text-xs text-slate-500">{field.helpText}</div> : null}
+      {error ? <div id={ids.error} role="alert" className="mt-1 text-xs text-red-600">{error}</div> : null}
+    </>
   )
 }
 
 export default function ProviderForm({ fields, value, onChange, secretHasValue = {}, errors = {}, disabled }: ProviderFormProps) {
+  const prefix = useId()
   const setProperty = (key: string, next: string) => onChange({ ...value, properties: { ...value.properties, [key]: next } })
   const setSecret = (key: string, next: string) => onChange({ ...value, secrets: { ...value.secrets, [key]: next } })
 
-  const renderControl = (field: ProviderFieldDescriptor) => {
-    const id = `provider-field-${field.key}`
-    const status = errors[field.key] ? 'error' : undefined
+  const idsOf = (field: ProviderFieldDescriptor): FieldIds => ({
+    input: `${prefix}-${field.key}`,
+    label: `${prefix}-${field.key}-label`,
+    help: `${prefix}-${field.key}-help`,
+    error: `${prefix}-${field.key}-error`,
+  })
+
+  const renderControl = (field: ProviderFieldDescriptor, ids: FieldIds, error?: string) => {
+    const status = error ? 'error' : undefined
+    const aria = { 'aria-describedby': describedBy(field, ids, error), 'aria-invalid': error ? true : undefined }
 
     if (field.kind === 'Secret') {
       const placeholder = secretHasValue[field.key] ? UNCHANGED_SECRET_PLACEHOLDER : field.placeholder ?? undefined
-      return (
-        <Input.Password id={id} value={value.secrets[field.key] ?? ''} placeholder={placeholder} status={status} disabled={disabled} autoComplete="new-password" onChange={(event) => setSecret(field.key, event.target.value)} />
-      )
+      return <Input.Password id={ids.input} {...aria} value={value.secrets[field.key] ?? ''} placeholder={placeholder} status={status} disabled={disabled} autoComplete="new-password" onChange={(event) => setSecret(field.key, event.target.value)} />
     }
     if (field.kind === 'Select') {
       return (
         <Select
-          id={id}
+          id={ids.input}
+          {...aria}
           className="w-full"
           value={value.properties[field.key] || undefined}
           placeholder={field.placeholder ?? undefined}
@@ -60,27 +73,40 @@ export default function ProviderForm({ fields, value, onChange, secretHasValue =
       )
     }
     if (field.kind === 'Toggle') {
-      return <Switch id={id} checked={value.properties[field.key] === 'true'} disabled={disabled} onChange={(checked) => setProperty(field.key, checked ? 'true' : 'false')} />
+      return <Switch id={ids.input} {...aria} checked={value.properties[field.key] === 'true'} disabled={disabled} onChange={(checked) => setProperty(field.key, checked ? 'true' : 'false')} />
     }
-    return (
-      <Input id={id} className={field.kind === 'Path' ? 'font-mono' : undefined} value={value.properties[field.key] ?? ''} placeholder={field.placeholder ?? undefined} status={status} disabled={disabled} onChange={(event) => setProperty(field.key, event.target.value)} />
-    )
+    return <Input id={ids.input} {...aria} className={field.kind === 'Path' ? 'font-mono' : undefined} value={value.properties[field.key] ?? ''} placeholder={field.placeholder ?? undefined} status={status} disabled={disabled} onChange={(event) => setProperty(field.key, event.target.value)} />
   }
 
-  const renderUnsupported = (field: ProviderFieldDescriptor) => (
-    <div className="mb-4">
-      <div className="mb-1 text-sm font-medium text-slate-700">{field.label}</div>
+  const renderSupported = (field: ProviderFieldDescriptor, ids: FieldIds, error?: string): ReactNode => (
+    <>
+      <label htmlFor={ids.input} className="mb-1 block text-sm font-medium text-slate-700">
+        {field.label}
+        {field.required ? <span className="ml-0.5 text-red-500">*</span> : null}
+      </label>
+      {renderControl(field, ids, error)}
+    </>
+  )
+
+  const renderUnsupported = (field: ProviderFieldDescriptor, ids: FieldIds): ReactNode => (
+    <div role="group" aria-labelledby={ids.label}>
+      <div id={ids.label} className="mb-1 text-sm font-medium text-slate-700">{field.label}</div>
       <div role="note" className="text-xs text-amber-700">Unsupported field type "{field.kind}": this version cannot edit it.</div>
     </div>
   )
 
   return (
     <div>
-      {fields.map((field) => !isSupportedFieldKind(field.kind) ? <div key={field.key}>{renderUnsupported(field)}</div> : (
-        <FieldRow key={field.key} field={field} error={errors[field.key]}>
-          {renderControl(field)}
-        </FieldRow>
-      ))}
+      {fields.map((field) => {
+        const ids = idsOf(field)
+        const error = errors[field.key]
+        return (
+          <div key={field.key} className="mb-4">
+            {isSupportedFieldKind(field.kind) ? renderSupported(field, ids, error) : renderUnsupported(field, ids)}
+            <FieldMessages field={field} ids={ids} error={error} />
+          </div>
+        )
+      })}
     </div>
   )
 }

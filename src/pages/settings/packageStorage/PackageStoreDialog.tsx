@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Alert, Button, Input, Modal, Select } from 'antd'
 import ProviderForm from 'components/providerForm/ProviderForm'
-import { buildInitialValue, buildSubmission, validateProviderForm, type ProviderFormErrors, type ProviderFormValue } from 'components/providerForm/providerFormValues'
+import {
+  buildInitialValue,
+  buildSubmission,
+  effectiveSecretHasValue,
+  validateProviderForm,
+  type ProviderFormErrors,
+  type ProviderFormValue,
+} from 'components/providerForm/providerFormValues'
 import {
   createPackageStore,
   testPackageStoreSettings,
@@ -10,6 +17,7 @@ import {
   type PackageStoreProviderDescriptor,
   type PackageStoreTestResult,
 } from 'pages/apis/packageStore'
+import { findProvider } from './storeDisplay'
 
 interface PackageStoreDialogProps {
   providers: PackageStoreProviderDescriptor[]
@@ -21,30 +29,61 @@ interface PackageStoreDialogProps {
 }
 
 const NAME_ERROR_KEY = '__name'
+export const PROVIDER_UNAVAILABLE_MESSAGE = "This storage type isn't available in this version"
 
 function errorMessage(error: unknown, fallback: string) {
   return (error as { message?: string })?.message || fallback
 }
 
+/** An existing store keeps its own kind even when this version no longer knows it; only a new store defaults to the first provider. */
 function pickInitialProvider(providers: PackageStoreProviderDescriptor[], store?: PackageStoreDto) {
-  return providers.find((provider) => provider.kind === store?.kind) ?? providers[0]
+  return store ? findProvider(store, providers) : providers[0]
+}
+
+function TestResultAlert({ result }: { result: PackageStoreTestResult }) {
+  return (
+    <>
+      <Alert className="mb-2" type={result.success ? 'success' : 'error'} showIcon message={result.message} />
+      {(result.warnings ?? []).map((warning) => (
+        <Alert key={warning} className="mb-2" type="warning" showIcon message={warning} />
+      ))}
+    </>
+  )
 }
 
 export default function PackageStoreDialog({ providers, store, onClose, onChanged }: PackageStoreDialogProps) {
   const isEdit = store != null
-  const [kind, setKind] = useState(() => pickInitialProvider(providers, store)?.kind)
+  const [kind, setKind] = useState(() => (store ? store.kind : providers[0]?.kind))
   const provider = useMemo(() => providers.find((item) => item.kind === kind), [providers, kind])
+  const providerMissing = isEdit && provider == null
+  const initial = useRef(buildInitialValue(pickInitialProvider(providers, store)?.fields ?? [], store?.properties))
   const [name, setName] = useState(store?.name ?? '')
-  const [value, setValue] = useState<ProviderFormValue>(() => buildInitialValue(pickInitialProvider(providers, store)?.fields ?? [], store?.properties))
+  const [value, setValue] = useState<ProviderFormValue>(initial.current)
   const [errors, setErrors] = useState<ProviderFormErrors>({})
   const [serverError, setServerError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<PackageStoreTestResult | null>(null)
   const [busy, setBusy] = useState(false)
 
   const fields = provider?.fields ?? []
-  const secretHasValue = store?.secretHasValue ?? {}
+  const secretHasValue = effectiveSecretHasValue(fields, store?.secretHasValue ?? {}, initial.current.properties, value)
+
+  const clearOutcome = () => {
+    setTestResult(null)
+    setServerError(null)
+  }
+
+  const changeName = (next: string) => {
+    clearOutcome()
+    setName(next)
+  }
+
+  const changeValue = (next: ProviderFormValue) => {
+    clearOutcome()
+    setValue(next)
+  }
 
   const changeKind = (nextKind: string) => {
+    clearOutcome()
     setKind(nextKind)
     setValue(buildInitialValue(providers.find((item) => item.kind === nextKind)?.fields ?? []))
     setErrors({})
@@ -58,7 +97,7 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
   }
 
   const save = async () => {
-    setServerError(null)
+    clearOutcome()
     if (!provider || !validate()) return
 
     const { properties, secrets } = buildSubmission(fields, value)
@@ -76,8 +115,7 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
   }
 
   const runTest = async () => {
-    setServerError(null)
-    setTestResult(null)
+    clearOutcome()
     if (!provider || !validate()) return
 
     const { properties, secrets } = buildSubmission(fields, value)
@@ -96,25 +134,29 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
       open
       title={isEdit ? `Edit ${store.name}` : 'Add package store'}
       onCancel={onClose}
+      closable={!busy}
+      keyboard={!busy}
       maskClosable={false}
       destroyOnClose
       footer={[
-        <Button key="test" onClick={runTest} disabled={busy} title="Tests the values in this form without saving">
+        <Button key="test" onClick={runTest} disabled={busy || providerMissing} title="Tests the values in this form without saving">
           Test
         </Button>,
         <Button key="cancel" onClick={onClose} disabled={busy}>
           Cancel
         </Button>,
-        <Button key="save" type="primary" onClick={save} loading={busy}>
+        <Button key="save" type="primary" onClick={save} loading={busy} disabled={providerMissing}>
           Save
         </Button>,
       ]}
     >
+      {providerMissing ? <Alert className="mb-4" type="warning" showIcon message={PROVIDER_UNAVAILABLE_MESSAGE} /> : null}
+
       <div className="mb-4">
         <label htmlFor="package-store-name" className="mb-1 block text-sm font-medium text-slate-700">
           Name<span className="ml-0.5 text-red-500">*</span>
         </label>
-        <Input id="package-store-name" value={name} status={errors[NAME_ERROR_KEY] ? 'error' : undefined} onChange={(event) => setName(event.target.value)} />
+        <Input id="package-store-name" value={name} disabled={busy || providerMissing} status={errors[NAME_ERROR_KEY] ? 'error' : undefined} onChange={(event) => changeName(event.target.value)} />
         {errors[NAME_ERROR_KEY] ? <div role="alert" className="mt-1 text-xs text-red-600">{errors[NAME_ERROR_KEY]}</div> : null}
       </div>
 
@@ -124,16 +166,16 @@ export default function PackageStoreDialog({ providers, store, onClose, onChange
           id="package-store-kind"
           className="w-full"
           value={kind}
-          disabled={isEdit}
+          disabled={isEdit || busy}
           options={providers.map((item) => ({ value: item.kind, label: item.displayName }))}
           onChange={changeKind}
         />
         {provider?.description ? <div className="mt-1 text-xs text-slate-500">{provider.description}</div> : null}
       </div>
 
-      <ProviderForm fields={fields} value={value} onChange={setValue} secretHasValue={secretHasValue} errors={errors} disabled={busy} />
+      <ProviderForm fields={fields} value={value} onChange={changeValue} secretHasValue={secretHasValue} errors={errors} disabled={busy || providerMissing} />
 
-      {testResult ? <Alert className="mb-2" type={testResult.success ? 'success' : 'error'} showIcon message={testResult.message} /> : null}
+      {testResult ? <TestResultAlert result={testResult} /> : null}
       {serverError ? <Alert className="mb-2" type="error" showIcon message={serverError} /> : null}
     </Modal>
   )

@@ -18,6 +18,10 @@ export interface ProviderFieldDescriptor {
   placeholder?: string | null
   helpText?: string | null
   options: string[]
+  /** Secret fields only: the non-secret fields the stored value depends on. Changing one makes the stored secret unusable. */
+  boundTo?: string[] | null
+  /** Marks the field whose value tells where the store keeps packages; shown as the store's location. */
+  isLocation?: boolean | null
 }
 
 export interface PackageStoreProviderDescriptor {
@@ -43,7 +47,12 @@ export interface PackageStoreDto {
 export interface PackageStoreTestResult {
   success: boolean
   message: string
+  /** Things worth knowing even when the test passed, such as a folder that will not survive an upgrade. */
+  warnings?: string[] | null
 }
+
+// A probe may write to a slow remote store: allow far longer than the default request timeout.
+const PROBE_TIMEOUT_MS = 90000
 
 export interface SavePackageStoreCommand {
   name: string
@@ -103,9 +112,9 @@ export function setDefaultPackageStore(id: number) {
 }
 
 export function testPackageStore(id: number) {
-  return post<PackageStoreTestResult, { id: number }>('/package-stores/test', { id })
+  return post<PackageStoreTestResult, { id: number }>('/package-stores/test', { id }, { timeout: PROBE_TIMEOUT_MS })
 }
 
 export function testPackageStoreSettings(command: TestPackageStoreSettingsCommand) {
-  return post<PackageStoreTestResult, TestPackageStoreSettingsCommand>('/package-stores/test-settings', command)
+  return post<PackageStoreTestResult, TestPackageStoreSettingsCommand>('/package-stores/test-settings', command, { timeout: PROBE_TIMEOUT_MS })
 }

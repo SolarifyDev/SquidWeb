@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ProviderFieldDescriptor } from 'pages/apis/packageStore'
 import ProviderForm, { UNCHANGED_SECRET_PLACEHOLDER } from './ProviderForm'
-import { buildInitialValue, buildSubmission, validateProviderForm, type ProviderFormValue } from './providerFormValues'
+import { buildInitialValue, buildSubmission, effectiveSecretHasValue, validateProviderForm, type ProviderFormValue } from './providerFormValues'
 
 const FIELDS: ProviderFieldDescriptor[] = [
   { key: 'Bucket', label: 'Bucket', kind: 'Text', required: true, placeholder: 'my-bucket', helpText: 'Name of the bucket', options: [] },
@@ -37,17 +37,84 @@ describe('ProviderForm unsupported field kinds', () => {
     { key: 'Lifecycle', label: 'Lifecycle rules', kind: 'KeyValueList', required: true, options: [] },
   ]
 
-  it('shows a note instead of an editor, and neither validates nor submits the field', () => {
+  it('shows a note instead of an editor and gives the field a proper label', () => {
     render(<ProviderForm fields={FUTURE} value={{ properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} }} onChange={() => {}} />)
 
     expect(screen.getByRole('note')).toHaveTextContent('Unsupported field type "KeyValueList"')
     expect(screen.getAllByRole('textbox')).toHaveLength(1)
-    expect(validateProviderForm(FUTURE, { properties: { Region: 'eu' }, secrets: {} })).toEqual({})
-    expect(buildSubmission(FUTURE, { properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} }).properties).toEqual({ Region: 'eu' })
+    expect(screen.getByRole('group', { name: 'Lifecycle rules' })).toBeInTheDocument()
+  })
+
+  it('passes a stored value of an unsupported field through unchanged', () => {
+    expect(buildSubmission(FUTURE, { properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} }).properties).toEqual({ Region: 'eu', Lifecycle: 'x' })
+    expect(buildSubmission(FUTURE, { properties: { Region: 'eu' }, secrets: {} }).properties).toEqual({ Region: 'eu' })
+  })
+
+  it('blocks a required unsupported field that has no stored value, and accepts one that has', () => {
+    expect(validateProviderForm(FUTURE, { properties: { Region: 'eu' }, secrets: {} }).Lifecycle).toMatch(/not supported/)
+    expect(validateProviderForm(FUTURE, { properties: { Region: 'eu', Lifecycle: 'x' }, secrets: {} })).toEqual({})
+  })
+})
+
+describe('provider form values', () => {
+  it('treats whitespace-only values as missing for required fields', () => {
+    const errors = validateProviderForm(FIELDS, { properties: { Bucket: '   ' }, secrets: { Secret: '' } })
+
+    expect(Object.keys(errors)).toEqual(['Bucket', 'Secret'])
+  })
+
+  it('always sends toggles, even untouched ones without a default', () => {
+    const toggle: ProviderFieldDescriptor[] = [{ key: 'Flag', label: 'Flag', kind: 'Toggle', required: false, options: [] }]
+
+    expect(buildSubmission(toggle, buildInitialValue(toggle)).properties).toEqual({ Flag: 'false' })
+  })
+
+  it('never reports a required toggle as missing', () => {
+    const toggle: ProviderFieldDescriptor[] = [{ key: 'Flag', label: 'Flag', kind: 'Toggle', required: true, options: [] }]
+
+    expect(validateProviderForm(toggle, { properties: {}, secrets: {} })).toEqual({})
+  })
+
+  it('fills descriptor defaults for fields missing from a stored record, without overriding stored values', () => {
+    const value = buildInitialValue(FIELDS, { Bucket: 'b', Encrypt: 'false' })
+
+    expect(value.properties).toEqual({ Bucket: 'b', Encrypt: 'false', Tier: 'Cool' })
+    expect(buildInitialValue(FIELDS, { Bucket: 'b' }).properties.Encrypt).toBe('true')
+  })
+
+  it('stops counting a stored secret once a bound field differs from the baseline', () => {
+    const fields: ProviderFieldDescriptor[] = [{ key: 'Secret', label: 'Secret', kind: 'Secret', required: true, boundTo: ['Bucket'], options: [] }]
+    const baseline = { Bucket: 'a' }
+
+    expect(effectiveSecretHasValue(fields, { Secret: true }, baseline, { properties: { Bucket: 'a' }, secrets: {} })).toEqual({ Secret: true })
+    expect(effectiveSecretHasValue(fields, { Secret: true }, baseline, { properties: { Bucket: 'b' }, secrets: {} })).toEqual({ Secret: false })
   })
 })
 
 describe('ProviderForm', () => {
+  it('gives every form instance its own element ids', () => {
+    render(
+      <>
+        <ProviderForm fields={FIELDS} value={{ properties: {}, secrets: {} }} onChange={() => {}} />
+        <ProviderForm fields={FIELDS} value={{ properties: {}, secrets: {} }} onChange={() => {}} />
+      </>,
+    )
+
+    const inputs = screen.getAllByLabelText(/Bucket/)
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0].id).not.toEqual(inputs[1].id)
+  })
+
+  it('links help and error text to the input and marks it invalid', () => {
+    render(<ProviderForm fields={FIELDS} value={{ properties: {}, secrets: {} }} onChange={() => {}} errors={{ Bucket: 'Bucket is required' }} />)
+
+    const input = screen.getByLabelText(/Bucket/)
+    const described = (input.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent)
+
+    expect(described).toEqual(['Name of the bucket', 'Bucket is required'])
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+  })
+
   it('renders label, required marker, placeholder and help text from the descriptor', () => {
     renderForm()
 
