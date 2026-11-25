@@ -6,6 +6,7 @@ import { SpacesSettings } from './SpacesSettings'
 import { TeamsSettings } from './TeamsSettings'
 import { UsersSettings } from './UsersSettings'
 import { UserRolesSettings } from './UserRolesSettings'
+import { PackageStorageSettings } from './PackageStorageSettings'
 
 type SettingsSection = {
   key: string
@@ -19,6 +20,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'teams', label: 'Teams', description: 'Manage team membership and access scope.', requiredPermission: 'TeamView' },
   { key: 'users', label: 'Users', description: 'Manage local users and identity details.', requiredPermission: 'UserView' },
   { key: 'user-roles', label: 'User Roles', description: 'Manage role definitions and granted permissions.', requiredPermission: 'UserRoleView' },
+  { key: 'package-storage', label: 'Package storage', description: 'Choose where uploaded packages are stored.', requiredPermission: 'AdministerSystem' },
 ]
 
 function getSectionKey(pathname: string, spaceId: string) {
@@ -137,6 +139,8 @@ export default function SettingsPage() {
               canView={hasPermission('UserRoleView')}
               canEdit={hasPermission('UserRoleEdit')}
             />
+          ) : activeSection?.key === 'package-storage' ? (
+            <PackageStorageSettings />
           ) : (
             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="m-0 text-xl font-semibold text-slate-900">{activeSection?.label}</h2>
