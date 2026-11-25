@@ -76,6 +76,7 @@ const PackageStorageStep = ({ token, providers, loadError, onRetryLoad, selectio
 
   return (
     <div data-testid="package-storage-step">
+      <h3 className="mt-0 mb-2 text-base font-semibold text-slate-800">Package storage</h3>
       <p className="mt-0 mb-4 text-sm text-slate-600">Where uploaded packages are kept. The default is a folder in the data directory of this server; you can change it later in the settings.</p>
 
       <Radio.Group className="mb-5 grid w-full gap-3" value={selection.kind} onChange={(event) => choose(event.target.value)}>

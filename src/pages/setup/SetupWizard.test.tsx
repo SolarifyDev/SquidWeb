@@ -61,7 +61,7 @@ async function advanceToReview() {
   click('Next')
   await screen.findByText('Server URLs', { selector: '.ant-steps-item-process .ant-steps-item-title' })
   click('Next')
-  await screen.findByText('Package storage', { selector: '.ant-steps-item-process .ant-steps-item-title' })
+  await screen.findByText('Storage', { selector: '.ant-steps-item-process .ant-steps-item-title' })
   click('Next')
   await screen.findByRole('button', { name: 'Install' })
 }
@@ -278,14 +278,14 @@ describe('SetupWizard', () => {
     await stepTitle('Server URLs')
     type('Polling URL (optional)', 'https://squid:10943')
     click('Next')
-    await stepTitle('Package storage')
+    await stepTitle('Storage')
     click('Next')
     await screen.findByRole('button', { name: 'Install' })
 
     expect(screen.getByText('Host=db;Password=******')).toBeInTheDocument()
 
     click('Back')
-    await stepTitle('Package storage')
+    await stepTitle('Storage')
     click('Back')
     await stepTitle('Server URLs')
     expect(screen.getByLabelText('Polling URL (optional)')).toHaveValue('https://squid:10943')
@@ -316,7 +316,7 @@ describe('SetupWizard', () => {
       click('Next')
       await stepTitle('Server URLs')
       click('Next')
-      await stepTitle('Package storage')
+      await stepTitle('Storage')
     }
 
     it('renders one radio card per provider descriptor, with the local disk selected by default', async () => {
@@ -407,7 +407,7 @@ describe('SetupWizard', () => {
       click('Install')
 
       expect(await screen.findByText(/packageStorage\.kind: No package store provider/)).toBeInTheDocument()
-      expect(await stepTitle('Package storage')).toBeInTheDocument()
+      expect(await stepTitle('Storage')).toBeInTheDocument()
     })
 
     it('keeps the default usable when the provider list cannot be loaded', async () => {

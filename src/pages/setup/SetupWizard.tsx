@@ -13,7 +13,7 @@ import { buildInstallRequest, canLeaveDatabaseStep, canLeaveRedisSettings, field
 
 const MIN_PASSWORD_LENGTH = 8
 const DEFAULT_POLLING_PORT = 10943
-const STEP_TITLES = ['Database', 'Administrator', 'Server URLs', 'Package storage', 'Review & Install']
+const STEP_TITLES = ['Database', 'Administrator', 'Server URLs', 'Storage', 'Review & Install']
 const REVIEW_STEP = STEP_TITLES.length - 1
 
 interface SetupWizardProps {
