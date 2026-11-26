@@ -6,6 +6,8 @@ import VariableSets from 'pages/variablesets'
 import VariableSetDetail from 'pages/variablesets/detail'
 import LegacyVariableSetsRedirect from 'pages/variablesets/LegacyVariableSetsRedirect'
 import ExternalFeeds from 'pages/externalfeeds'
+import SquidPackages from 'pages/packages'
+import SquidPackageDetail from 'pages/packages/detail'
 import CertificatesPage from 'pages/certificates'
 import Lifecycles from 'pages/lifecycles'
 import DeploymentTargets from 'pages/deploymentTargets'
@@ -172,6 +174,16 @@ const routes = [
             path: "external/feeds",
             component: ExternalFeeds,
             name: "External Feeds",
+          },
+          {
+            path: "library/packages",
+            component: SquidPackages,
+            name: "Squid Packages",
+          },
+          {
+            path: "library/packages/:packageId",
+            component: SquidPackageDetail,
+            name: "Squid Package Detail",
           },
           {
             path: "library/certificates",
