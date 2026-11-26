@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from 'utils/request'
 import { UploadPanel } from './UploadPanel'
+import { readTar } from './tarTestReader'
 
 const push = vi.fn()
 const getRule = vi.fn()
@@ -137,6 +138,76 @@ describe('UploadPanel', () => {
     pick('folder-input', [file('demo/a.txt'), file('demo/b.txt'), file('demo/.DS_Store'), file('demo/node_modules/x.js'), file('demo/.git/HEAD')])
 
     expect(screen.getByText(/Folder demo \(2 files, 3 skipped/)).toBeInTheDocument()
+  })
+
+  describe('secret-like files in a folder', () => {
+    const file = (relative: string) => Object.defineProperty(new File(['x'], relative.split('/').pop()!), 'webkitRelativePath', { value: relative })
+    const tarPaths = async (body: Blob) => {
+      const stream = body.stream().pipeThrough(new DecompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
+
+      return readTar(new Uint8Array(await new Response(stream).arrayBuffer())).map((entry) => entry.path)
+    }
+
+    it('areListedInANotice_AndLeftOutOfTheUpload', async () => {
+      push.mockResolvedValue({ package: stored('1.0.1'), deduplicated: false, replaced: false })
+      renderPanel()
+
+      pick('folder-input', [file('site/index.html'), file('site/.env'), file('site/.aws/credentials'), file('site/.env.example')])
+
+      const notice = screen.getByTestId('withheld-notice')
+      expect(notice).toHaveTextContent('left out of the package')
+      expect(notice).toHaveTextContent('.env')
+      expect(notice).toHaveTextContent('.aws/credentials')
+      expect(notice).not.toHaveTextContent('.env.example')
+      expect(screen.getByRole('checkbox', { name: 'Include these files anyway' })).not.toBeChecked()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+      await screen.findByText('Published version 1.0.1')
+
+      expect(await tarPaths(push.mock.calls[0][0])).toEqual(['.env.example', 'index.html'])
+    })
+
+    it('canBeIncludedDeliberately', async () => {
+      push.mockResolvedValue({ package: stored('1.0.1'), deduplicated: false, replaced: false })
+      renderPanel()
+
+      pick('folder-input', [file('site/index.html'), file('site/.env')])
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Include these files anyway' }))
+
+      expect(screen.getByTestId('withheld-notice')).toHaveTextContent('are included in the package')
+      expect(screen.getByText(/Folder site \(2 files/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+      await screen.findByText('Published version 1.0.1')
+
+      expect(await tarPaths(push.mock.calls[0][0])).toEqual(['.env', 'index.html'])
+    })
+
+    it('choosingAnotherFolder_ResetsTheInclusion', () => {
+      renderPanel()
+
+      pick('folder-input', [file('site/index.html'), file('site/.env')])
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Include these files anyway' }))
+      pick('folder-input', [file('other/index.html'), file('other/.npmrc')])
+
+      expect(screen.getByRole('checkbox', { name: 'Include these files anyway' })).not.toBeChecked()
+    })
+
+    it('listsOnlyTheFirstFewAndCountsTheRest', () => {
+      renderPanel()
+
+      pick('folder-input', [file('site/index.html'), ...Array.from({ length: 11 }, (_, i) => file(`site/k${String(i).padStart(2, '0')}.key`))])
+
+      expect(screen.getByTestId('withheld-notice')).toHaveTextContent('and 3 more')
+    })
+
+    it('noNoticeWhenThereAreNone', () => {
+      renderPanel()
+
+      pick('folder-input', [file('site/index.html'), file('site/.env.example')])
+
+      expect(screen.queryByTestId('withheld-notice')).toBeNull()
+    })
   })
 
   it('anEmptyFolder_ShowsAClearError', async () => {
