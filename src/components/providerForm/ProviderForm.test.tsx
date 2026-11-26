@@ -69,6 +69,22 @@ describe('provider form values', () => {
     expect(buildSubmission(toggle, buildInitialValue(toggle)).properties).toEqual({ Flag: 'false' })
   })
 
+  // The server's MergeSecrets keeps the stored secret for a missing, null or empty value, so an empty one must not go on the wire at all.
+  it.each([
+    ['never touched', {}],
+    ['emptied again after typing', { Secret: '' }],
+  ])('omits a secret that was %s, so the stored one is kept', (_, secrets) => {
+    const submission = buildSubmission(FIELDS, { properties: { Bucket: 'b' }, secrets })
+
+    expect(submission.secrets).toEqual({})
+    expect(Object.keys(submission.secrets)).not.toContain('Secret')
+    expect(JSON.stringify(submission)).not.toContain('"Secret"')
+  })
+
+  it('sends a secret only when a value was typed', () => {
+    expect(buildSubmission(FIELDS, { properties: {}, secrets: { Secret: 'typed' } }).secrets).toEqual({ Secret: 'typed' })
+  })
+
   it('never reports a required toggle as missing', () => {
     const toggle: ProviderFieldDescriptor[] = [{ key: 'Flag', label: 'Flag', kind: 'Toggle', required: true, options: [] }]
 

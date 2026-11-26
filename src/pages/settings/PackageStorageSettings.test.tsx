@@ -222,13 +222,57 @@ describe('PackageStorageSettings', () => {
     expect(await within(dialog).findByText('Folder is not writable')).toBeInTheDocument()
   })
 
-  it('shows no location column when the provider declares no location field', async () => {
+  it('shows the location the server resolved for a store whose folder setting is empty', async () => {
+    mocked.getPackageStores.mockResolvedValue([store({ id: 1, name: 'Default store', isDefault: true, properties: {}, location: '/app/packages' })])
+    render(<PackageStorageSettings />)
+
+    expect(await screen.findByText('/app/packages')).toBeInTheDocument()
+    expect(screen.getByText('Location')).toBeInTheDocument()
+  })
+
+  it('shows an explicitly set root as the location', async () => {
+    mocked.getPackageStores.mockResolvedValue([store({ id: 3, name: 'Mounted', properties: { Root: '/mnt/packages' }, location: '/mnt/packages' })])
+    render(<PackageStorageSettings />)
+
+    expect(await screen.findByText('/mnt/packages')).toBeInTheDocument()
+  })
+
+  it('prefers the resolved location over the raw field value', async () => {
+    mocked.getPackageStores.mockResolvedValue([store({ id: 3, name: 'Relative', properties: { Root: 'packages' }, location: '/srv/squid/packages' })])
+    render(<PackageStorageSettings />)
+
+    expect(await screen.findByText('/srv/squid/packages')).toBeInTheDocument()
+    expect(screen.queryByText('packages')).toBeNull()
+  })
+
+  it('shows the location even when the provider declares no location field', async () => {
+    mocked.getPackageStoreProviders.mockResolvedValue([{ ...FILE_SYSTEM, fields: FILE_SYSTEM.fields.map((field) => ({ ...field, isLocation: undefined })) }])
+    mocked.getPackageStores.mockResolvedValue([store({ id: 1, name: 'Primary', location: '/resolved/path' })])
+    render(<PackageStorageSettings />)
+
+    expect(await screen.findByText('/resolved/path')).toBeInTheDocument()
+  })
+
+  it('falls back to the field value for an older server that sends no location', async () => {
+    render(<PackageStorageSettings />)
+
+    expect(await screen.findByText('/data/packages')).toBeInTheDocument()
+  })
+
+  it('shows no location column when neither the server nor the provider gives a location', async () => {
     mocked.getPackageStoreProviders.mockResolvedValue([{ ...FILE_SYSTEM, fields: FILE_SYSTEM.fields.map((field) => ({ ...field, isLocation: undefined })) }])
     render(<PackageStorageSettings />)
     await screen.findByText('Primary')
 
     expect(screen.queryByText('Location')).toBeNull()
     expect(screen.queryByText('/data/packages')).toBeNull()
+  })
+
+  it('shows a store warning such as a non-persistent folder next to its location', async () => {
+    mocked.getPackageStores.mockResolvedValue([store({ id: 1, name: 'Default store', isDefault: true, location: '/app/packages', warnings: ['/app/packages is inside the application folder and is lost on redeploy'] })])
+    render(<PackageStorageSettings />)
+
+    expect(await within(await screen.findByTestId('store-warnings-1')).findByText(/lost on redeploy/)).toBeInTheDocument()
   })
 
   it('runs a double-clicked Test once and shows progress while it is in flight', async () => {

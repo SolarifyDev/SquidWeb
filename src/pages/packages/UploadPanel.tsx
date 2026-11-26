@@ -4,7 +4,7 @@ import { Alert, Button, Checkbox, Input, Progress } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import { getPackageVersionRule, pushBuiltInPackage } from 'pages/apis/builtInPackages'
 import { filesFromDirectoryInput, readDrop, type DroppedContent } from './dropEntries'
-import { countPackable, folderNameOf, packFolder, type FolderFile } from './packFolder'
+import { countPackable, findWithheld, folderNameOf, packFolder, type FolderFile } from './packFolder'
 import {
   describePushFailure,
   describePushResult,
@@ -15,7 +15,8 @@ import {
   type UploadOutcome,
 } from './packageUi'
 
-type Chosen = { kind: 'archive'; file: File } | { kind: 'folder'; name: string; files: FolderFile[] }
+type Chosen = { kind: 'archive'; file: File } | { kind: 'folder'; name: string; files: FolderFile[]; withheld: string[] }
+type Choice = { kind: 'archive'; file: File } | { kind: 'folder'; name: string; files: FolderFile[] }
 
 interface UploadPanelProps {
   canEdit: boolean
@@ -27,11 +28,42 @@ interface UploadPanelProps {
   onUploaded: () => void
 }
 
-function describeFolder(name: string, files: FolderFile[]) {
-  const { packed, skipped } = countPackable(files)
-  const skippedText = skipped > 0 ? `, ${skipped} skipped: .git, node_modules, .DS_Store` : ''
+const MAX_LISTED_WITHHELD = 8
+
+function describeFolder(name: string, files: FolderFile[], includeSecrets: boolean) {
+  const { packed, skipped } = countPackable(files, includeSecrets)
+  const skippedText = skipped > 0 ? `, ${skipped} skipped: version control, dependency and cache folders, .DS_Store` : ''
 
   return `Folder ${name} (${packed} ${packed === 1 ? 'file' : 'files'}${skippedText}; packed to .tar.gz on upload)`
+}
+
+function WithheldNotice({ paths, include, disabled, onChange }: { paths: string[]; include: boolean; disabled: boolean; onChange: (include: boolean) => void }) {
+  const listed = paths.slice(0, MAX_LISTED_WITHHELD)
+
+  return (
+    <Alert
+      data-testid="withheld-notice"
+      type="warning"
+      showIcon
+      message={include ? 'Secret-like files are included in the package' : 'Secret-like files were left out of the package'}
+      description={
+        <div>
+          <div>Anything in the package is copied to every target it is deployed to.</div>
+          <ul className="my-1 list-disc pl-5">
+            {listed.map((path) => (
+              <li key={path}>
+                <code>{path}</code>
+              </li>
+            ))}
+          </ul>
+          {paths.length > listed.length && <div>and {paths.length - listed.length} more</div>}
+          <Checkbox checked={include} disabled={disabled} onChange={(event) => onChange(event.target.checked)}>
+            Include these files anyway
+          </Checkbox>
+        </div>
+      }
+    />
+  )
 }
 
 type Phase = 'idle' | 'packing' | 'uploading'
@@ -43,6 +75,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
   const [packageId, setPackageId] = useState(fixedPackageId ?? '')
   const [version, setVersion] = useState('')
   const [replace, setReplace] = useState(false)
+  const [includeSecrets, setIncludeSecrets] = useState(false)
   const [rule, setRule] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [percent, setPercent] = useState(0)
@@ -86,7 +119,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
 
   if (!canEdit) return null
 
-  const choose = (next: Chosen) => {
+  const choose = (next: Choice) => {
     setOutcome(null)
     setFailure(null)
 
@@ -96,8 +129,9 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
       return
     }
 
-    setChosen(next)
+    setChosen(next.kind === 'folder' ? { ...next, withheld: findWithheld(next.files) } : next)
     setReplace(false)
+    setIncludeSecrets(false)
     if (!fixedPackageId) setPackageId(suggestPackageId(next.kind === 'archive' ? next.file.name : next.name))
   }
 
@@ -176,6 +210,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
       content.files,
       ({ doneBytes, totalBytes }) => alive.current && setPercent(totalBytes > 0 ? Math.round((doneBytes / totalBytes) * 100) : 100),
       signal,
+      includeSecrets,
     )
 
     return { body: packed.blob, fileName: packed.fileName }
@@ -187,7 +222,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
   }
 
   const busy = phase !== 'idle'
-  const summary = chosen ? (chosen.kind === 'archive' ? `${chosen.file.name} (${formatBytes(chosen.file.size)})` : describeFolder(chosen.name, chosen.files)) : null
+  const summary = chosen ? (chosen.kind === 'archive' ? `${chosen.file.name} (${formatBytes(chosen.file.size)})` : describeFolder(chosen.name, chosen.files, includeSecrets)) : null
 
   return (
     <div data-testid="upload-panel" className="rounded border border-gray-200 bg-white p-4">
@@ -249,6 +284,7 @@ export function UploadPanel({ canEdit, feedId, spaceId, fixedPackageId, onUpload
       {chosen && (
         <div className="space-y-3">
           <div className="text-sm text-gray-700">{summary}</div>
+          {chosen.kind === 'folder' && chosen.withheld.length > 0 && <WithheldNotice paths={chosen.withheld} include={includeSecrets} disabled={busy} onChange={setIncludeSecrets} />}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block text-gray-600">Package id</span>

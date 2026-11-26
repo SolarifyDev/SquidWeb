@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EmptyFolderError, FolderTooLargeError, MAX_PACKAGE_BYTES, countPackable, folderNameOf, isExcludedPath, normaliseGzipHeader, packFolder, toTarSources, type FolderFile } from './packFolder'
+import { EmptyFolderError, FolderTooLargeError, MAX_PACKAGE_BYTES, countPackable, findWithheld, folderNameOf, isExcludedPath, isSecretPath, normaliseGzipHeader, packFolder, toTarSources, type FolderFile } from './packFolder'
 import { readTar } from './tarTestReader'
 
 const file = (path: string, content = 'x', lastModified = 0): FolderFile => ({ path, file: new File([content], path.split('/').pop() ?? 'f', { lastModified }) })
@@ -47,8 +47,72 @@ describe('folder rules', () => {
     expect(sources.map((s) => s.path)).toEqual(['.gitignore', 'index.html', 'src/app.js'])
   })
 
+  it.each(['.hg', '.svn', '.idea', '.vscode', '__pycache__', '.venv', '.HG'])('toolAndCacheDirectory_%s_IsExcludedAtAnyDepth', (name) => {
+    expect(isExcludedPath([name, 'x'])).toBe(true)
+    expect(isExcludedPath(['a', 'b', name, 'x'])).toBe(true)
+  })
+
   it('folderNameIsTheFirstSegment', () => {
     expect(folderNameOf('myapp/src/app.js')).toBe('myapp')
+  })
+})
+
+describe('secret-like files', () => {
+  it.each([
+    ['.env'], ['.ENV'], ['.env.local'], ['.env.production'], ['.npmrc'], ['.pypirc'], ['server.pem'], ['private.KEY'], ['id_rsa'], ['id_rsa.pub'],
+  ])('file %s is secret-like', (name) => {
+    expect(isSecretPath([name])).toBe(true)
+    expect(isSecretPath(['config', 'nested', name])).toBe(true)
+  })
+
+  it.each([['.aws', 'credentials'], ['.ssh', 'config'], ['.AWS', 'credentials'], ['sub', '.ssh', 'known_hosts']])('everything under %s is secret-like', (...segments) => {
+    expect(isSecretPath(segments)).toBe(true)
+  })
+
+  it.each([['.env.example'], ['.env.sample'], ['.ENV.EXAMPLE'], ['environment.ts'], ['.envrc'], ['monkey.keys'], ['keyboard.js'], ['app.pem.md'], ['.npmrc.md'], ['index.js']])('file %s is not secret-like', (name) => {
+    expect(isSecretPath([name])).toBe(false)
+  })
+
+  it('aSecretInsideAnExcludedFolder_IsLeftOutSilently', () => {
+    expect(isSecretPath(['node_modules', 'pkg', '.env'])).toBe(false)
+    expect(findWithheld([file('app/node_modules/pkg/.env'), file('app/.git/.npmrc')])).toEqual([])
+  })
+
+  const files = [file('app/index.js'), file('app/.env'), file('app/.env.example'), file('app/api/.env.local'), file('app/.aws/credentials'), file('app/certs/tls.pem'), file('app/.git/HEAD')]
+
+  it('areLeftOutByDefault_ButTemplatesAreKept', () => {
+    expect(toTarSources(files).map((s) => s.path)).toEqual(['.env.example', 'index.js'])
+  })
+
+  it('nestedEnvIsLeftOut', () => {
+    expect(toTarSources(files).map((s) => s.path)).not.toContain('api/.env.local')
+  })
+
+  it('findWithheld_ListsThemSortedAndRelative', () => {
+    expect(findWithheld(files)).toEqual(['.aws/credentials', '.env', 'api/.env.local', 'certs/tls.pem'])
+  })
+
+  it('includeAnyway_PacksThemButStillNotTheExcludedFolders', () => {
+    expect(toTarSources(files, true).map((s) => s.path)).toEqual(['.aws/credentials', '.env', '.env.example', 'api/.env.local', 'certs/tls.pem', 'index.js'])
+  })
+
+  it('countPackable_ReportsWithheldSeparatelyFromSkipped', () => {
+    expect(countPackable(files)).toEqual({ packed: 2, skipped: 1, withheld: 4 })
+    expect(countPackable(files, true)).toEqual({ packed: 6, skipped: 1, withheld: 0 })
+  })
+
+  it('packFolder_LeavesThemOutOfTheArchiveUnlessIncluded', async () => {
+    const without = readTar(await gunzip((await packFolder(files)).blob)).map((e) => e.path)
+    const included = readTar(await gunzip((await packFolder(files, undefined, undefined, true)).blob)).map((e) => e.path)
+
+    expect(without).toEqual(['.env.example', 'index.js'])
+    expect(included).toContain('.env')
+    expect(included).toContain('.aws/credentials')
+  })
+
+  it('aFolderOfOnlySecrets_IsRefusedUnlessIncluded', async () => {
+    await expect(packFolder([file('s/.env')])).rejects.toThrow(EmptyFolderError)
+    await expect(packFolder([file('s/.env')], undefined, undefined, true)).resolves.toMatchObject({ fileCount: 1 })
   })
 })
 
@@ -144,7 +208,7 @@ describe('packFolder', () => {
   })
 
   it('countPackable_CountsOnlyWhatWillBePacked', () => {
-    expect(countPackable([file('d/a'), file('d/.DS_Store'), file('d/node_modules/x/y.js'), file('d/.git/HEAD'), file('d/b')])).toEqual({ packed: 2, skipped: 3 })
+    expect(countPackable([file('d/a'), file('d/.DS_Store'), file('d/node_modules/x/y.js'), file('d/.git/HEAD'), file('d/b')])).toEqual({ packed: 2, skipped: 3, withheld: 0 })
   })
 })
 

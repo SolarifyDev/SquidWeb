@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, Descriptions, Form, Input, Modal, Steps } from 'antd'
 import { getPackageStorageProviders, httpStatusOf, responseBodyOf, startInstall, type InstallValidationError, type SetupStatus } from './api'
@@ -7,7 +7,7 @@ import type { PackageStoreProviderDescriptor } from 'pages/apis/packageStore'
 import { maskConnectionString } from './connectionString'
 import DatabaseStep from './DatabaseStep'
 import PackageStorageStep, { type PackageStorageTestSnapshot } from './PackageStorageStep'
-import { buildPackageStorageSection, DEFAULT_PACKAGE_STORAGE, descriptorOf, summarizePackageStorage, type PackageStorageSelection } from './packageStorageForm'
+import { buildPackageStorageSection, DEFAULT_PACKAGE_STORAGE, descriptorOf, initialSelection, summarizePackageStorage, type PackageStorageSelection } from './packageStorageForm'
 import SetupProgressView, { DEFAULT_POLL_TIMINGS, type PollTimings } from './SetupProgressView'
 import { buildInstallRequest, canLeaveDatabaseStep, canLeaveRedisSettings, fieldLabel, isFieldRendered, isHttpUrl, isPackageStorageError, mapServerErrors, PACKAGE_STORAGE_STEP, STEP_FIELDS, type DatabaseTestSnapshot, type RedisTestSnapshot, type SetupFormValues } from './setupForm'
 
@@ -136,6 +136,7 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
   const [providersError, setProvidersError] = useState<string | null>(null)
   const [providersAttempt, setProvidersAttempt] = useState(0)
   const [packageStorage, setPackageStorage] = useState<PackageStorageSelection>(DEFAULT_PACKAGE_STORAGE)
+  const packageStorageTouched = useRef(false)
   const [packageErrors, setPackageErrors] = useState<ProviderFormErrors>({})
   const [packageTest, setPackageTest] = useState<PackageStorageTestSnapshot | null>(null)
 
@@ -158,7 +159,12 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
     let cancelled = false
 
     getPackageStorageProviders(token).then(
-      (loaded) => { if (!cancelled) { setProviders(loaded); setProvidersError(null) } },
+      (loaded) => {
+        if (cancelled) return
+        setProviders(loaded)
+        setProvidersError(null)
+        if (!packageStorageTouched.current) setPackageStorage(initialSelection(loaded))
+      },
       (error) => {
         if (cancelled) return
         if (httpStatusOf(error) === 401) handleUnauthorized()
@@ -184,6 +190,7 @@ const SetupWizard = ({ status, onFinished, timings = DEFAULT_POLL_TIMINGS }: Set
   }
 
   const changePackageStorage = (next: PackageStorageSelection) => {
+    packageStorageTouched.current = true
     setPackageStorage(next)
     setPackageErrors({})
   }
