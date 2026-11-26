@@ -284,7 +284,7 @@ function App() {
     <PermissionProvider>
     <div className="page flex h-screen w-full flex-col bg-[#f1f2f4]">
       <div
-        className="page-top-bar flex-shrink-0 flex items-center px-4 gap-3 bg-[#f1f2f4]"
+        className="page-top-bar flex h-14 min-w-0 flex-shrink-0 items-center gap-2 overflow-hidden bg-[#f1f2f4] px-2 sm:gap-3 sm:px-4"
         style={{ height: "64px" }}
       >
         <div className="relative flex-shrink-0" ref={spaceSwitcherRef}>
@@ -293,9 +293,9 @@ function App() {
             aria-haspopup="dialog"
             aria-expanded={showSpaceSwitcher}
             onClick={() => setShowSpaceSwitcher(p => !p)}
-            className={`group relative flex h-9 items-center rounded-xl pl-[50px] pr-3 text-left transition-colors ${showSpaceSwitcher ? 'bg-squid-blue' : 'bg-slate-100 hover:bg-squid-blue'}`}
+            className={`group relative flex h-9 min-w-0 items-center rounded-xl pl-[50px] pr-2 text-left transition-colors sm:pr-3 ${showSpaceSwitcher ? 'bg-squid-blue' : 'bg-slate-100 hover:bg-squid-blue'}`}
             style={{
-              width: 'clamp(200px, 17vw, 248px)',
+              width: 'clamp(132px, 17vw, 248px)',
               boxShadow: '0 1px 2px rgba(15,23,42,0.07)',
             }}
           >
@@ -327,10 +327,12 @@ function App() {
           )}
         </div>
 
-        <ProjectSearchPalette />
+        <div className="hidden min-w-0 flex-1 lg:block">
+          <ProjectSearchPalette />
+        </div>
 
         {/* Spacer */}
-        <div className="flex-1" />
+        <div className="hidden flex-1 lg:block" />
 
         <div className="flex items-center gap-1 flex-shrink-0">
           <button

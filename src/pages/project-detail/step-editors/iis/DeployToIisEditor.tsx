@@ -16,6 +16,7 @@ import { CollapsibleSection } from '../shared/CollapsibleSection'
 import { StepConditionsSection, type StepConditionsValue, type StepEnvironmentMode } from '../shared/StepConditionsSection'
 import { TargetTagSelect } from '../shared/TargetTagSelect'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 
 const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.DeployToIISWebSite'
@@ -676,6 +677,7 @@ function buildStepProperties(
 
 export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
   function DeployToIisEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const action = step?.actions[0]
     const includeEnvironments = action?.environments ?? []
     const excludeEnvironments = action?.excludedEnvironments ?? []
@@ -1159,8 +1161,8 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
 
       try {
         const saved = step
-          ? await updateDeploymentStep({ id: step.id, step: nextStep })
-          : await createDeploymentStep({ processId, step: nextStep })
+          ? await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
+          : await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: nextStep })
         message.success(step ? 'Step updated' : 'Step created')
         onSave(saved)
       } catch {
@@ -1220,6 +1222,8 @@ export const DeployToIisEditor = forwardRef<StepEditorHandle, StepEditorProps>(
       enabledFeatures,
       step,
       processId,
+      projectId,
+      runbookContext?.runbookId,
     ])
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`

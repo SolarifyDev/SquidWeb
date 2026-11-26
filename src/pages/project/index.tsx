@@ -1019,7 +1019,7 @@ const Project: React.FC = () => {
       <Modal
         open={showAddProjectModal}
         onCancel={handleCancelAddProject}
-        destroyOnClose
+        destroyOnHidden
         footer={null}
         title={null}
         closable={false}

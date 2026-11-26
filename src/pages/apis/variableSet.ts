@@ -8,6 +8,8 @@ export enum VariableSetOwnerType {
   LibraryVariableSet = 2,
   // 环境变量集
   Environment = 3,
+  // Runbook 变量集
+  Runbook = 4,
 }
 
 // 对应后端 VariableType 枚举

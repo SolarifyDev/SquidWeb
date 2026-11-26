@@ -128,6 +128,8 @@ const ProjectDetail: React.FC = () => {
     .sort((a, b) => b.length - a.length)[0];
 
   const isDeployCreatePath = /^releases\/[^/]+\/deploy(?:ments\/create)?$/.test(currentSubPath);
+  const isRunbookLayout = currentSubPath === 'operations/runbooks'
+    || currentSubPath.startsWith('operations/runbooks/');
 
   const isActive = (path: string) => {
     return activeNavPath === path;
@@ -137,7 +139,7 @@ const ProjectDetail: React.FC = () => {
   const initials = displayName.slice(0, 2).toUpperCase();
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-w-0 flex-col overflow-x-hidden">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="flex-shrink-0 bg-white">
         {/* Breadcrumb */}
@@ -225,7 +227,7 @@ const ProjectDetail: React.FC = () => {
         {/* ── Sidebar nav ─────────────────────────────────────────────────── */}
         <nav
           aria-label="Project navigation"
-          className="flex-shrink-0 w-52 bg-white overflow-y-auto flex flex-col"
+          className="hidden w-52 flex-shrink-0 flex-col overflow-y-auto bg-white md:flex"
         >
           <div className="flex-1 py-2">
             {navSections.map((section, sectionIdx) => (
@@ -273,8 +275,15 @@ const ProjectDetail: React.FC = () => {
         </nav>
 
         {/* ── Main content ──────────────────────────────────────────────── */}
-        <div className={`flex-1 min-h-0 overflow-auto ${isDeployCreatePath ? 'pt-0' : 'pt-[10px]'} px-4 pb-4`}>
-          <Outlet />
+        <div className={[
+          'flex-1 min-h-0 min-w-0 overflow-x-hidden',
+          isRunbookLayout
+            ? 'flex overflow-hidden pt-0 px-0 pb-0'
+            : `overflow-auto ${isDeployCreatePath ? 'pt-0' : 'pt-[10px]'} px-4 pb-4`,
+        ].join(' ')}>
+          <div className={isRunbookLayout ? 'min-h-0 min-w-0 flex-1 overflow-hidden' : 'contents'}>
+            <Outlet />
+          </div>
         </div>
       </div>
     </div>

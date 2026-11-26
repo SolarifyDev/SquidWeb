@@ -9,12 +9,14 @@ import { TargetTagsSection } from '../kubernetes-containers/sections/TargetTagsS
 import { SecretSection } from '../kubernetes-containers/sections/SecretSection'
 import { ConditionsSection } from '../kubernetes-containers/sections/ConditionsSection'
 import type { StepEditorHandle, StepEditorProps } from '../shared/StepEditorTypes'
+import { useRunbookProcessContext } from '../shared/RunbookProcessContext'
 
 const API_BASE = resolveApiBaseUrl()
 const ACTION_TYPE = 'Squid.KubernetesDeploySecret'
 
 export const KubernetesSecretEditor = forwardRef<StepEditorHandle, StepEditorProps>(
   function KubernetesSecretEditor({ step, processId, projectId, spaceId, stepIndex, onSave, onStepNameChange }, ref) {
+    const runbookContext = useRunbookProcessContext()
     const { state, updateField } = useContainersEditorState(step)
     const [saving, setSaving] = useState(false)
 
@@ -45,9 +47,9 @@ export const KubernetesSecretEditor = forwardRef<StepEditorHandle, StepEditorPro
 
         let saved
         if (step) {
-          saved = await updateDeploymentStep({ id: step.id, step: stepDto })
+          saved = await updateDeploymentStep({ id: step.id, projectId, runbookId: runbookContext?.runbookId, step: stepDto })
         } else {
-          saved = await createDeploymentStep({ processId, step: stepDto })
+          saved = await createDeploymentStep({ processId, projectId, runbookId: runbookContext?.runbookId, step: stepDto })
         }
 
         message.success(step ? 'Step updated' : 'Step created')
@@ -59,7 +61,7 @@ export const KubernetesSecretEditor = forwardRef<StepEditorHandle, StepEditorPro
       }
     }
 
-    useImperativeHandle(ref, () => ({ save: handleSave }), [state, processId, step])
+    useImperativeHandle(ref, () => ({ save: handleSave }), [state, processId, projectId, runbookContext?.runbookId, step])
 
     const logoUrl = `${API_BASE}/${spaceId}/actiontemplates/${ACTION_TYPE}/logo`
     const displayName = state.stepName || 'Deploy Kubernetes Secret'

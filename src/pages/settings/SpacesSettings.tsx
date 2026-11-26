@@ -840,7 +840,7 @@ export function SpacesSettings({
         maskClosable={false}
         keyboard={false}
         closable={false}
-        destroyOnClose
+        destroyOnHidden
         width={640}
       >
         <div className="pt-1 space-y-4">
