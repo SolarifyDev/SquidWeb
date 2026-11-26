@@ -130,8 +130,8 @@ export function PackageStorageSettings() {
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h2 className="m-0 text-xl font-semibold text-slate-900">Package storage</h2>
-          <p className="mt-1 mb-0 text-sm text-slate-600">Where uploaded packages are kept. New packages go to the default store.</p>
+          <h2 className="m-0 text-xl font-semibold text-slate-900">Built-in feed storage</h2>
+          <p className="mt-1 mb-0 text-sm text-slate-600">Where the built-in feed keeps the packages you push to Squid. Packages from external feeds are not stored here. New packages go to the default store.</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} disabled={providers.length === 0} onClick={() => setDialog({ mode: 'add' })}>
           Add store

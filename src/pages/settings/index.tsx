@@ -20,7 +20,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'teams', label: 'Teams', description: 'Manage team membership and access scope.', requiredPermission: 'TeamView' },
   { key: 'users', label: 'Users', description: 'Manage local users and identity details.', requiredPermission: 'UserView' },
   { key: 'user-roles', label: 'User Roles', description: 'Manage role definitions and granted permissions.', requiredPermission: 'UserRoleView' },
-  { key: 'package-storage', label: 'Package storage', description: 'Choose where uploaded packages are stored.', requiredPermission: 'AdministerSystem' },
+  { key: 'package-storage', label: 'Built-in feed storage', description: 'Choose where the built-in feed stores pushed packages.', requiredPermission: 'AdministerSystem' },
 ]
 
 function getSectionKey(pathname: string, spaceId: string) {
