@@ -38,6 +38,8 @@ export interface PackageStoreDto {
   properties: Record<string, string>
   secretHasValue: Record<string, boolean>
   isDefault: boolean
+  /** Read-only, resolved by the server: where the store keeps its data (for a local folder left empty, the folder it resolves to). Absent from an older server. */
+  location?: string | null
   lastTestedDate?: string | null
   lastTestSucceeded?: boolean | null
   lastTestMessage?: string | null
